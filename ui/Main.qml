@@ -1,7 +1,10 @@
 ﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import App 1.0
+
 import "./pages"
+
 
 ApplicationWindow {
 
@@ -12,7 +15,7 @@ ApplicationWindow {
 
     visible: true
 
-    title: qsTr("安安解压")
+    title: AppContext.windowTitle
 
     minimumWidth: 1000
     minimumHeight: 650

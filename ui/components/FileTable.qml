@@ -1,6 +1,7 @@
 ﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import App 1.0
 
 SplitView {
 
@@ -16,43 +17,40 @@ SplitView {
         color: palette.base
         border.color: palette.alternateBase
 
-        ListView {
+        TreeView {
+            id: treeView
 
             anchors.fill: parent
             clip: true
 
-            model: [
-                { icon: "📁", name: "压缩包" },
-                { icon: "📂", name: "Documents" },
-                { icon: "📂", name: "Images" },
-                { icon: "📂", name: "Music" },
-                { icon: "📂", name: "Videos" },
-                { icon: "📂", name: "Temp" }
-            ]
+            model: AppContext.treeModel
 
-            delegate: ItemDelegate {
+            selectionModel: ItemSelectionModel {
+                model: treeView.model
+            }
 
-                width: ListView.view.width
-                height: 36
+            delegate: TreeViewDelegate {
+                implicitHeight: 28
 
                 background: Rectangle {
-                    color: hovered ? palette.highlight : "transparent"
+                    color: selected
+                           ? palette.highlight
+                           : (current ? palette.midlight : "transparent")
                 }
 
-                contentItem: Row {
 
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 8
+                onCurrentChanged: {
+                    console.log("current:", row, current)
+                }
 
-                    Text {
-                        text: modelData.icon
-                    }
-
-                    Text {
-                        text: modelData.name
-                    }
+                onSelectedChanged: {
+                    console.log("selected:", row, selected)
+                }
+                TapHandler {
+                    onTapped: console.log("tap", row)
                 }
             }
+
         }
     }
 
@@ -113,6 +111,7 @@ SplitView {
                         Text {
                             text: "test" + index + ".zip"
                             font.bold: true
+                            color: palette.windowText
                         }
 
                         Text {

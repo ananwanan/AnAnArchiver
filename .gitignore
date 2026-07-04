@@ -48,6 +48,8 @@ CMakeLists.txt.user*
 .*.swp
 
 # Visual Studio generated files
+.vs/
+out/
 *.ib_pdb_index
 *.idb
 *.ilk

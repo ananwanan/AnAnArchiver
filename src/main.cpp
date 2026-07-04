@@ -1,18 +1,30 @@
-﻿#include <QGuiApplication>
+﻿#include <QCommandLineParser>
+#include <QGuiApplication>
 #include <QQmlApplicationEngine>
 
-#include "App.h"
+#include <app/app.h>
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
-  QGuiApplication app(argc, argv);
+    QGuiApplication app(argc, argv);
 
-  App application;
+    QCommandLineParser parser;
+    parser.addHelpOption();
+    parser.addVersionOption();
+    parser.addPositionalArgument("file", "输入文件");
+    parser.process(app);
 
-  if (!application.initialize())
-  {
-    return -1;
-  }
+    QString file;
+    const QStringList positional = parser.positionalArguments();
+    if (!positional.isEmpty()) {
+        file = positional.first();
+    }
 
-  return app.exec();
+    App application;
+
+    if (!application.initialize(file)) {
+        return -1;
+    }
+
+    return app.exec();
 }
