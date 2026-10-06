@@ -1,0 +1,65 @@
+name: Build and test
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            compiler: msvc
+          - os: ubuntu-24.04
+            compiler: gcc
+            cc: gcc-14
+            cxx: g++-14
+          - os: ubuntu-24.04
+            compiler: clang
+            cc: clang-18
+            cxx: clang++-18
+            cxxflags: -stdlib=libc++
+          - os: macos-latest
+            compiler: apple-clang
+            cc: clang
+            cxx: clang++
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # Clang 18 has __cpp_concepts=201907L, so libstdc++'s expected gate rejects it.
+      # libc++ 18 provides expected without redefining compiler feature macros.
+      - name: Install the Clang C++ standard library
+        if: matrix.compiler == 'clang'
+        run: sudo apt-get update && sudo apt-get install -y libc++-18-dev libc++abi-18-dev
+      - name: Initialize pinned backend and codec sources
+        run: cmake -P scripts/init-dependencies.cmake
+      - name: Configure Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/Invoke-Msvc.ps1 cmake --preset core-release
+      - name: Build Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/Invoke-Msvc.ps1 cmake --build --preset core-release
+      - name: Configure Unix
+        if: runner.os != 'Windows'
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+          CXXFLAGS: ${{ matrix.cxxflags }}
+        run: cmake --preset core-release
+      - name: Build Unix
+        if: runner.os != 'Windows'
+        run: cmake --build --preset core-release
+      - name: Test
+        run: ctest --preset core-release
+  sanitizers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -P scripts/init-dependencies.cmake
+      - run: cmake --preset core-sanitizers
+        env:
+          CC: gcc-14
+          CXX: g++-14
+      - run: cmake --build --preset core-sanitizers
+      - run: ctest --preset core-sanitizers

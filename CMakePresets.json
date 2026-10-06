@@ -1,22 +1,30 @@
 {
-  "version": 3,
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
   "configurePresets": [
     {
-      "hidden": true,
-      "name": "Qt",
-      "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "$env{QTDIR}"
-      },
-      "vendor": {
-        "qt-project.org/Qt": {
-          "checksum": "wVa86FgEkvdCTVp1/nxvrkaemJc="
-        }
-      }
-    }
+      "name": "base", "hidden": true, "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "BUILD_TESTING": "ON", "ANANARCHIVER_SUPERBUILD": "ON" }
+    },
+    { "name": "core-release", "inherits": "base", "displayName": "Bundled backend, no Qt", "cacheVariables": { "ANANARCHIVER_BUILD_QT": "OFF" } },
+    { "name": "core-debug", "inherits": "core-release", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "desktop-release", "inherits": "base", "displayName": "Desktop with pinned source Qt", "cacheVariables": { "ANANARCHIVER_BUILD_QT": "ON", "ANANARCHIVER_USE_SYSTEM_QT": "OFF" } },
+    { "name": "desktop-developer", "inherits": "base", "displayName": "Desktop with explicitly selected QTDIR kit", "cacheVariables": { "ANANARCHIVER_BUILD_QT": "ON", "ANANARCHIVER_USE_SYSTEM_QT": "ON", "CMAKE_PREFIX_PATH": "$env{QTDIR}" } },
+    { "name": "core-sanitizers", "inherits": "core-debug", "cacheVariables": { "ANANARCHIVER_ENABLE_SANITIZERS": "ON" } }
   ],
-  "vendor": {
-    "qt-project.org/Presets": {
-      "checksum": "67SmY24ZeVbebyKD0fGfIzb/bGI="
-    }
-  }
+  "buildPresets": [
+    { "name": "core-release", "configurePreset": "core-release", "jobs": 4 },
+    { "name": "core-debug", "configurePreset": "core-debug", "jobs": 4 },
+    { "name": "desktop-release", "configurePreset": "desktop-release", "jobs": 4 },
+    { "name": "desktop-developer", "configurePreset": "desktop-developer", "jobs": 4 },
+    { "name": "core-sanitizers", "configurePreset": "core-sanitizers", "jobs": 4 }
+  ],
+  "testPresets": [
+    { "name": "core-release", "configurePreset": "core-release", "output": { "outputOnFailure": true } },
+    { "name": "core-debug", "configurePreset": "core-debug", "output": { "outputOnFailure": true } },
+    { "name": "desktop-release", "configurePreset": "desktop-release", "output": { "outputOnFailure": true } },
+    { "name": "desktop-developer", "configurePreset": "desktop-developer", "output": { "outputOnFailure": true } },
+    { "name": "core-sanitizers", "configurePreset": "core-sanitizers", "output": { "outputOnFailure": true } }
+  ]
 }

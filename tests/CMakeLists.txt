@@ -1,0 +1,15 @@
+add_executable(ananarchiver_core_tests core/core_tests.cpp)
+target_link_libraries(ananarchiver_core_tests PRIVATE ananarchiver_core)
+ananarchiver_project_options(ananarchiver_core_tests)
+add_test(NAME core COMMAND ananarchiver_core_tests)
+
+add_executable(ananarchiver_archive_tests archive/archive_reader_tests.cpp)
+target_link_libraries(ananarchiver_archive_tests PRIVATE ananarchiver_libarchive AnAnArchiver::Archive)
+ananarchiver_project_options(ananarchiver_archive_tests)
+add_test(NAME archive COMMAND ananarchiver_archive_tests)
+
+add_executable(ananarchiver_application_tests application/application_tests.cpp)
+target_link_libraries(ananarchiver_application_tests PRIVATE ananarchiver_application)
+ananarchiver_project_options(ananarchiver_application_tests)
+add_test(NAME application COMMAND ananarchiver_application_tests)
+set_tests_properties(core archive application PROPERTIES TIMEOUT 30)
