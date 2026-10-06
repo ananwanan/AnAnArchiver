@@ -32,6 +32,7 @@ qrc_*.cpp
 Thumbs.db
 *.res
 *.rc
+!/frontend/qt/resources/*.rc
 /.qmake.cache
 /.qmake.stash
 **/.qmlls.ini
@@ -84,3 +85,9 @@ out/
 .uic/
 /build*/
 /.qtcreator/
+/CMakeUserPresets.json
+/CMakeCache.txt
+/CMakeFiles/
+/Testing/
+/compile_commands.json
+/dependencies/
