@@ -1,9 +1,21 @@
 #include <ananarchiver/application/archive_service.h>
 #include <ananarchiver/libarchive_reader.h>
+#include <ananarchiver/password.h>
 
 #include <limits>
 
 namespace ananarchiver::application {
+namespace {
+struct ArchiveOperation {
+    std::string password;
+    ExtractionRequest extraction;
+    ~ArchiveOperation() {
+        scrubPassword(password);
+        if (extraction.password)
+            scrubPassword(*extraction.password);
+    }
+};
+} // namespace
 
 ArchiveService::ArchiveService(TaskManager& tasks, ReaderFactory factory)
     : tasks_(tasks), factory_(std::move(factory)) {
@@ -11,9 +23,11 @@ ArchiveService::ArchiveService(TaskManager& tasks, ReaderFactory factory)
         factory_ = [] { return makeLibArchiveReader(); };
 }
 
-Result<TaskId> ArchiveService::open(const std::filesystem::path& path) {
+Result<TaskId> ArchiveService::open(const std::filesystem::path& path, std::string password) {
+    auto secret = std::make_shared<ArchiveOperation>();
+    secret->password = std::move(password);
     return tasks_.start(
-        TaskType::OpenArchive, [path, factory = factory_](TaskContext& context) -> Result<void> {
+        TaskType::OpenArchive, [path, secret, factory = factory_](TaskContext& context) -> Result<void> {
             auto reader = factory();
             if (!reader) {
                 return std::unexpected(ArchiveError{ArchiveErrorCode::BackendError,
@@ -21,7 +35,10 @@ Result<TaskId> ArchiveService::open(const std::filesystem::path& path) {
                                                     {},
                                                     path});
             }
-            auto info = reader->open(path, context.cancellation());
+            auto info = secret->password.empty()
+                            ? reader->open(path, context.cancellation())
+                            : reader->open(path, secret->password, context.cancellation());
+            scrubPassword(secret->password);
             if (!info)
                 return std::unexpected(info.error());
             context.setArchiveInfo(std::move(*info));
@@ -43,6 +60,7 @@ Result<TaskId> ArchiveService::open(const std::filesystem::path& path) {
                     ++entries;
                     allSizesKnown = allSizesKnown && entry.sizeKnown;
                     batch.push_back(entry);
+                    batch.back().index = entries - 1;
                     if (batch.size() < 512)
                         return true;
                     context.report(entry.path, bytes, entries, allSizesKnown);
@@ -62,6 +80,37 @@ Result<TaskId> ArchiveService::open(const std::filesystem::path& path) {
                     ArchiveErrorCode::Cancelled, "Archive indexing cancelled", {}, path});
             }
             return {};
+        });
+}
+
+Result<TaskId> ArchiveService::extract(const std::filesystem::path& path,
+                                      ExtractionRequest request) {
+    auto owned = std::make_shared<ArchiveOperation>();
+    owned->extraction = std::move(request);
+    return tasks_.start(TaskType::ExtractArchive,
+        [path, owned, factory = factory_](TaskContext& context) -> Result<void> {
+            auto reader = factory();
+            if (!reader)
+                return std::unexpected(ArchiveError{ArchiveErrorCode::BackendError,
+                    "Archive reader factory returned no reader", {}, path});
+            auto& extraction = owned->extraction;
+            const auto info = extraction.password && !extraction.password->empty()
+                                  ? reader->open(path, *extraction.password, context.cancellation())
+                                  : reader->open(path, context.cancellation());
+            if (!info)
+                return std::unexpected(info.error());
+            context.setArchiveInfo(*info);
+            if (extraction.overwrite == OverwritePolicy::Ask && !extraction.onConflict) {
+                extraction.onConflict = [&context](const ExtractionConflict& conflict) {
+                    return context.requestConflict(conflict);
+                };
+            }
+            // A bounded stream callback updates only a snapshot. The frontend
+            // polls at its own cadence; no per-block GUI events accumulate.
+            return reader->extract(extraction, [&context](const ExtractionProgress& progress) {
+                context.report(progress);
+                return !context.cancellation().stop_requested();
+            }, context.cancellation());
         });
 }
 

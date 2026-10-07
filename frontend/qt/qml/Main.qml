@@ -53,12 +53,30 @@ ApplicationWindow {
         enabled: window.archiveController.busy
         onTriggered: window.archiveController.cancel()
     }
+    Action {
+        id: extractAction
+        objectName: "extractAction"
+        text: qsTr("Extract…")
+        shortcut: "Ctrl+E"
+        enabled: window.archiveController.canExtract
+        onTriggered: {
+            selectedOnly.checked = window.archiveController.selectionCount > 0
+            allEntries.checked = !selectedOnly.checked
+            extractionDialog.open()
+        }
+    }
 
     menuBar: MenuBar {
         Menu {
             title: qsTr("File")
             MenuItem { action: openAction }
             MenuItem { action: closeAction }
+            MenuItem { action: extractAction }
+            MenuItem {
+                text: qsTr("Select all")
+                enabled: window.archiveController.canExtract
+                onTriggered: window.archiveController.selectAll()
+            }
             MenuItem { action: cancelAction }
             MenuSeparator {}
             MenuItem {
@@ -128,12 +146,14 @@ ApplicationWindow {
         directoryModel: window.directoryModel
         openAction: openAction
         cancelAction: cancelAction
+        extractAction: extractAction
         onBrowseFolder: folderDialog.open()
     }
 
     Dialog {
         id: errorDialog
-        title: qsTr("Unable to open archive")
+        objectName: "errorDialog"
+        title: qsTr("Archive operation failed")
         modal: true
         anchors.centerIn: Overlay.overlay
         width: Math.min(580, window.width - 48)
@@ -165,8 +185,174 @@ ApplicationWindow {
     Connections {
         target: window.archiveController
         function onChanged() {
-            if (window.archiveController.errorMessage.length > 0 && !errorDialog.opened)
+            if (window.archiveController.passwordRequested && !indexPasswordDialog.opened)
+                indexPasswordDialog.open()
+            if (window.archiveController.awaitingConflict && !overwriteDialog.opened)
+                overwriteDialog.open()
+            if (!window.archiveController.awaitingConflict && overwriteDialog.opened)
+                overwriteDialog.close()
+            if (window.archiveController.errorMessage.length > 0
+                && !window.archiveController.passwordRequested && !errorDialog.opened)
                 errorDialog.open()
+        }
+    }
+    FolderDialog {
+        id: destinationDialog
+        title: qsTr("Choose extraction destination")
+        onAccepted: destinationField.text = window.archiveController.localPath(selectedFolder)
+    }
+    Dialog {
+        id: extractionDialog
+        objectName: "extractionDialog"
+        title: qsTr("Extract archive")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(580, window.width - 48)
+        onClosed: extractionPassword.clear()
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label { textFormat: Text.PlainText; text: qsTr("Destination folder") }
+            RowLayout {
+                Layout.fillWidth: true
+                TextField {
+                    id: destinationField
+                    objectName: "extractionDestination"
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Choose or enter an absolute folder path")
+                    selectByMouse: true
+                    Accessible.name: qsTr("Destination folder")
+                }
+                Button { text: qsTr("Browse…"); onClicked: destinationDialog.open() }
+            }
+            RowLayout {
+                ButtonGroup { id: scopeGroup }
+                RadioButton {
+                    id: allEntries
+                    objectName: "extractAllScope"
+                    text: qsTr("All entries")
+                    checked: true
+                    ButtonGroup.group: scopeGroup
+                }
+                RadioButton {
+                    id: selectedOnly
+                    objectName: "extractSelectedScope"
+                    text: qsTr("Selected entries (%1)").arg(window.archiveController.selectionCount)
+                    enabled: window.archiveController.selectionCount > 0
+                    ButtonGroup.group: scopeGroup
+                }
+            }
+            Label { textFormat: Text.PlainText; text: qsTr("Password (if required)") }
+            TextField {
+                id: extractionPassword
+                objectName: "extractionPassword"
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+                Accessible.name: qsTr("Password (if required)")
+            }
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                Label { textFormat: Text.PlainText; text: qsTr("Existing files") }
+                ComboBox {
+                    id: overwritePolicy
+                    objectName: "overwritePolicy"
+                    Layout.fillWidth: true
+                    model: [qsTr("Ask each time"), qsTr("Overwrite"), qsTr("Skip"), qsTr("Rename"), qsTr("Overwrite if newer")]
+                }
+                Label { textFormat: Text.PlainText; text: qsTr("Links") }
+                ComboBox {
+                    id: linkPolicy
+                    Layout.fillWidth: true
+                    model: [qsTr("Safe links"), qsTr("Preserve links inside destination"), qsTr("Skip links")]
+                }
+            }
+        }
+        footer: DialogButtonBox {
+            Button { text: qsTr("Cancel"); DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+            Button {
+                objectName: "startExtraction"
+                text: qsTr("Extract")
+                enabled: destinationField.text.trim().length > 0 && window.archiveController.canExtract
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            }
+            onAccepted: {
+                window.archiveController.extract(destinationField.text, selectedOnly.checked,
+                    extractionPassword.text, overwritePolicy.currentIndex, linkPolicy.currentIndex)
+                extractionPassword.clear()
+                extractionDialog.close()
+            }
+            onRejected: extractionDialog.close()
+        }
+    }
+    Dialog {
+        id: overwriteDialog
+        objectName: "overwriteDialog"
+        title: qsTr("File already exists")
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(580, window.width - 48)
+        onOpened: applyToAll.checked = false
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                objectName: "conflictDestination"
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: window.archiveController.conflictPath
+                wrapMode: Text.WrapAnywhere
+            }
+            ComboBox {
+                id: conflictChoice
+                objectName: "conflictChoice"
+                Layout.fillWidth: true
+                model: [qsTr("Overwrite"), qsTr("Skip"), qsTr("Rename"), qsTr("Overwrite if newer")]
+            }
+            CheckBox { id: applyToAll; objectName: "applyToAll"; text: qsTr("Apply to all remaining conflicts") }
+        }
+        footer: DialogButtonBox {
+            Button {
+                objectName: "cancelExtraction"
+                text: qsTr("Cancel extraction")
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+            }
+            Button { objectName: "resolveOverwrite"; text: qsTr("Apply"); DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            onAccepted: window.archiveController.resolveConflict(conflictChoice.currentIndex + 1, applyToAll.checked)
+            onRejected: window.archiveController.cancel()
+        }
+    }
+    Dialog {
+        id: indexPasswordDialog
+        objectName: "indexPasswordDialog"
+        title: qsTr("Archive password")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(480, window.width - 48)
+        onAccepted: window.archiveController.retryOpenPassword(indexPassword.text)
+        onRejected: window.archiveController.dismissPassword()
+        onClosed: indexPassword.clear()
+        contentItem: ColumnLayout {
+            Label {
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: window.archiveController.errorMessage
+                wrapMode: Text.WordWrap
+            }
+            TextField {
+                id: indexPassword
+                objectName: "indexPassword"
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+                Accessible.name: qsTr("Archive password")
+            }
+        }
+        footer: DialogButtonBox {
+            Button { text: qsTr("Cancel"); DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+            Button { text: qsTr("Unlock"); DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            onAccepted: indexPasswordDialog.accept()
+            onRejected: indexPasswordDialog.reject()
         }
     }
     Connections {

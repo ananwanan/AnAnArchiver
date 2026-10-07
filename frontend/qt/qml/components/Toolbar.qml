@@ -8,6 +8,7 @@ ToolBar {
     required property var archiveController
     required property Action openAction
     required property Action cancelAction
+    required property Action extractAction
     signal browseFolder()
     padding: 6
     RowLayout {
@@ -28,20 +29,7 @@ ToolBar {
             ToolTip.visible: compressHover.hovered
             ToolTip.text: qsTr("Creating archives is not available in this version.")
         }
-        Item {
-            implicitWidth: extractButton.implicitWidth
-            implicitHeight: extractButton.implicitHeight
-            ToolButton {
-                id: extractButton
-                anchors.fill: parent
-                text: qsTr("Extract")
-                enabled: false
-                opacity: 0.45
-            }
-            HoverHandler { id: extractHover }
-            ToolTip.visible: extractHover.hovered
-            ToolTip.text: qsTr("Extraction is not available in this version.")
-        }
+        ToolButton { objectName: "extractButton"; action: root.extractAction; Accessible.name: text }
         ToolSeparator {}
         ToolButton {
             text: qsTr("Browse folder…")

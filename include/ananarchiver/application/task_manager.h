@@ -13,15 +13,20 @@
 namespace ananarchiver::application {
 
 using TaskId = std::uint64_t;
-enum class TaskType { OpenArchive };
+enum class TaskType { OpenArchive, ExtractArchive };
 enum class TaskState { Pending, Running, Cancelling, Cancelled, Succeeded, Failed };
+
+struct ConflictResolution {
+    OverwritePolicy policy{OverwritePolicy::Skip};
+    bool applyToAll{};
+};
 
 struct TaskSnapshot {
     TaskId id{};
     TaskType type{TaskType::OpenArchive};
     TaskState state{TaskState::Pending};
     std::string currentFile;
-    // During indexing, bytes mean the sum of entry sizes, not bytes decompressed.
+    // Indexing reports metadata sizes; extraction reports actual streamed bytes.
     std::uint64_t processedBytes{};
     std::uint64_t processedEntries{};
     bool byteTotalsKnown{true};
@@ -29,6 +34,8 @@ struct TaskSnapshot {
     std::optional<std::uint64_t> totalEntries;
     std::optional<ArchiveInfo> archive;
     std::optional<ArchiveError> error;
+    std::optional<ExtractionConflict> conflict;
+    std::uint64_t conflictId{};
     std::chrono::milliseconds elapsed{};
     double bytesPerSecond{};
     std::optional<std::chrono::milliseconds> estimatedRemaining;
@@ -40,6 +47,10 @@ class TaskContext {
     void setArchiveInfo(ArchiveInfo info);
     void report(std::string currentFile, std::uint64_t bytes, std::uint64_t entries,
                 bool allSizesKnown = true);
+    void report(const ExtractionProgress& progress);
+    // The worker waits without holding manager locks. Stop requests wake it,
+    // including during application shutdown. The GUI only polls/responds.
+    OverwritePolicy requestConflict(const ExtractionConflict& conflict);
     // Backpressure limits queued metadata to eight batches. Cancellation wakes
     // a producer even when the UI has stopped consuming entries.
     bool publishEntries(std::vector<ArchiveEntry> entries);
@@ -64,6 +75,7 @@ class TaskManager {
     std::optional<TaskSnapshot> snapshot(TaskId id) const;
     std::vector<ArchiveEntry> takeEntries(TaskId id, std::size_t maxBatches = 4);
     bool cancel(TaskId id);
+    bool resolveConflict(TaskId id, std::uint64_t conflictId, ConflictResolution resolution);
     // Only terminal tasks with drained entries can be released. Joins take
     // place after completion, outside manager locks.
     bool release(TaskId id);

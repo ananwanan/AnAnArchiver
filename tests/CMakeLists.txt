@@ -8,8 +8,13 @@ target_link_libraries(ananarchiver_archive_tests PRIVATE ananarchiver_libarchive
 ananarchiver_project_options(ananarchiver_archive_tests)
 add_test(NAME archive COMMAND ananarchiver_archive_tests)
 
+add_executable(ananarchiver_extraction_tests archive/extraction_tests.cpp)
+target_link_libraries(ananarchiver_extraction_tests PRIVATE ananarchiver_libarchive AnAnArchiver::Archive)
+ananarchiver_project_options(ananarchiver_extraction_tests)
+add_test(NAME extraction COMMAND ananarchiver_extraction_tests)
+
 add_executable(ananarchiver_application_tests application/application_tests.cpp)
 target_link_libraries(ananarchiver_application_tests PRIVATE ananarchiver_application)
 ananarchiver_project_options(ananarchiver_application_tests)
 add_test(NAME application COMMAND ananarchiver_application_tests)
-set_tests_properties(core archive application PROPERTIES TIMEOUT 30)
+set_tests_properties(core archive extraction application PROPERTIES TIMEOUT 30)

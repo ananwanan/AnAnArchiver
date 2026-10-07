@@ -3,6 +3,7 @@
 
 #include <archive.h>
 #include <archive_entry.h>
+#include <clocale>
 
 #include <chrono>
 #include <cerrno>
@@ -179,6 +180,12 @@ private:
 } // namespace
 
 int main() {
+#ifdef _WIN32
+    std::setlocale(LC_CTYPE, ".UTF-8");
+#else
+    if (!std::setlocale(LC_CTYPE, "C.UTF-8"))
+        std::setlocale(LC_CTYPE, "en_US.UTF-8");
+#endif
     try {
         TemporaryDirectory fixtures;
         Tests tests;

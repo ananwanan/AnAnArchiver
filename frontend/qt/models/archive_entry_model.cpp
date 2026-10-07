@@ -56,6 +56,8 @@ QVariant ArchiveEntryModel::data(const QModelIndex& index, int role) const
         return QString();
     case DirectoryRole:
         return entry.type == EntryType::Directory;
+    case SelectedRole:
+        return selected_[static_cast<std::size_t>(index.row())] != 0;
     default:
         return {};
     }
@@ -64,15 +66,22 @@ QVariant ArchiveEntryModel::data(const QModelIndex& index, int role) const
 QHash<int, QByteArray> ArchiveEntryModel::roleNames() const
 {
     return {{PathRole, "entryPath"}, {SizeRole, "entrySize"}, {ModifiedRole, "entryModified"},
-            {TypeRole, "entryType"}, {DirectoryRole, "entryDirectory"}};
+            {TypeRole, "entryType"}, {DirectoryRole, "entryDirectory"}, {SelectedRole, "entrySelected"}};
 }
 
 void ArchiveEntryModel::clear()
 {
     beginResetModel();
     std::vector<ArchiveEntry>{}.swap(entries_);
+    std::vector<std::uint8_t>{}.swap(selected_);
+    selectionRanges_.clear();
+    selectionCount_ = 0;
+    anchor_ = -1;
+    totalBytes_ = 0;
+    totalBytesKnown_ = true;
     endResetModel();
     emit countChanged();
+    emit selectionChanged();
 }
 
 void ArchiveEntryModel::append(std::vector<ArchiveEntry> entries)
@@ -85,11 +94,132 @@ void ArchiveEntryModel::append(std::vector<ArchiveEntry> entries)
     // Reserve before Qt announces insertion, preserving model consistency on allocation failure.
     if (entries_.capacity() < entries_.size() + entries.size())
         entries_.reserve(std::max(entries_.size() + entries.size(), entries_.capacity() * 2));
+    if (selected_.capacity() < entries_.size() + entries.size())
+        selected_.reserve(entries_.capacity());
+    for (const auto& entry : entries) {
+        if (entry.type != EntryType::RegularFile)
+            continue;
+        if (!entry.sizeKnown || totalBytes_ > std::numeric_limits<std::uint64_t>::max() - entry.size)
+            totalBytesKnown_ = false;
+        else
+            totalBytes_ += entry.size;
+    }
     beginInsertRows({}, first, last);
+    selected_.insert(selected_.end(), entries.size(), 0);
     entries_.insert(entries_.end(), std::make_move_iterator(entries.begin()),
                     std::make_move_iterator(entries.end()));
     endInsertRows();
     emit countChanged();
+}
+
+void ArchiveEntryModel::clearSelection()
+{
+    if (selectionCount_ == 0)
+        return;
+    std::fill(selected_.begin(), selected_.end(), 0);
+    selectionRanges_.clear();
+    selectionCount_ = 0;
+    anchor_ = -1;
+    if (count() > 0)
+        emit dataChanged(index(0), index(count() - 1), {SelectedRole});
+    emit selectionChanged();
+}
+
+void ArchiveEntryModel::selectAll()
+{
+    if (count() == 0 || selectionCount_ == count())
+        return;
+    std::fill(selected_.begin(), selected_.end(), 1);
+    selectionRanges_ = {{0, count() - 1}};
+    selectionCount_ = count();
+    anchor_ = 0;
+    emit dataChanged(index(0), index(count() - 1), {SelectedRole});
+    emit selectionChanged();
+}
+
+void ArchiveEntryModel::selectRow(int row, bool toggle, bool range)
+{
+    if (row < 0 || row >= count())
+        return;
+    if (range && anchor_ >= 0) {
+        const auto first = std::min(row, anchor_);
+        const auto last = std::max(row, anchor_);
+        if (!toggle) {
+            std::fill(selected_.begin(), selected_.end(), 0);
+            selectionCount_ = 0;
+            selectionRanges_.clear();
+        }
+        for (int i = first; i <= last; ++i) {
+            if (!selected_[static_cast<std::size_t>(i)]) {
+                selected_[static_cast<std::size_t>(i)] = 1;
+                ++selectionCount_;
+            }
+        }
+        selectionRanges_.emplace_back(first, last);
+        std::sort(selectionRanges_.begin(), selectionRanges_.end());
+        std::vector<std::pair<int, int>> merged;
+        merged.reserve(selectionRanges_.size());
+        for (const auto& interval : selectionRanges_) {
+            if (!merged.empty() && interval.first <= merged.back().second + 1)
+                merged.back().second = std::max(merged.back().second, interval.second);
+            else
+                merged.push_back(interval);
+        }
+        selectionRanges_ = std::move(merged);
+    } else if (toggle) {
+        auto& value = selected_[static_cast<std::size_t>(row)];
+        value = value ? 0 : 1;
+        selectionCount_ += value ? 1 : -1;
+        if (value) {
+            selectionRanges_.emplace_back(row, row);
+            std::sort(selectionRanges_.begin(), selectionRanges_.end());
+        } else {
+            for (std::size_t i = 0; i < selectionRanges_.size(); ++i) {
+                const auto [first, last] = selectionRanges_[i];
+                if (row < first || row > last)
+                    continue;
+                selectionRanges_.erase(selectionRanges_.begin() + static_cast<std::ptrdiff_t>(i));
+                if (row > first)
+                    selectionRanges_.emplace_back(first, row - 1);
+                if (row < last)
+                    selectionRanges_.emplace_back(row + 1, last);
+                std::sort(selectionRanges_.begin(), selectionRanges_.end());
+                break;
+            }
+        }
+        anchor_ = row;
+    } else {
+        std::fill(selected_.begin(), selected_.end(), 0);
+        selected_[static_cast<std::size_t>(row)] = 1;
+        selectionCount_ = 1;
+        selectionRanges_ = {{row, row}};
+        anchor_ = row;
+    }
+    emit dataChanged(index(0), index(count() - 1), {SelectedRole});
+    emit selectionChanged();
+}
+
+std::vector<std::uint64_t> ArchiveEntryModel::selectedIndices() const
+{
+    std::vector<std::uint64_t> result;
+    result.reserve(static_cast<std::size_t>(selectionCount_));
+    // Sparse selection reads only its selected row ranges; selecting one entry
+    // near the end of a million-row archive does not scan the metadata index.
+    for (const auto& [first, last] : selectionRanges_)
+        for (int row = first; row <= last; ++row)
+            result.push_back(entries_[static_cast<std::size_t>(row)].index);
+    return result;
+}
+
+void ArchiveEntryModel::setExtractionTotals(ExtractionRequest& request, bool selected) const
+{
+    // Directory selection includes descendants in the backend. Until that
+    // expansion is known, display actual bytes with an indeterminate total.
+    if (selected)
+        return;
+    request.totalEntries = static_cast<std::uint64_t>(entries_.size());
+    if (totalBytesKnown_)
+        request.totalBytes = totalBytes_;
 }
 
 }

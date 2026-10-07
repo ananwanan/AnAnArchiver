@@ -68,8 +68,17 @@ if(BUILD_TESTING)
     add_test(NAME qt_filename_rendering COMMAND ananarchiver_qt_rendering_tests)
     set_tests_properties(qt_filename_rendering PROPERTIES
         TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+    add_executable(ananarchiver_qt_extraction_tests tests/qt_extraction_tests.cpp)
+    ananarchiver_project_options(ananarchiver_qt_extraction_tests)
+    target_link_libraries(ananarchiver_qt_extraction_tests PRIVATE
+        ananarchiver_qt AnAnArchiver::Archive Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+    target_compile_definitions(ananarchiver_qt_extraction_tests PRIVATE
+        ANANARCHIVER_TEST_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
+    add_test(NAME qt_extraction COMMAND ananarchiver_qt_extraction_tests)
+    set_tests_properties(qt_extraction PROPERTIES
+        TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
     if(WIN32)
-        set_tests_properties(qt_adapters qt_home_smoke qt_filename_rendering PROPERTIES
+        set_tests_properties(qt_adapters qt_home_smoke qt_filename_rendering qt_extraction PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     endif()
 endif()

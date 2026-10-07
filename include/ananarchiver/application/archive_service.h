@@ -9,7 +9,8 @@ using ReaderFactory = std::function<std::unique_ptr<ArchiveReader>()>;
 class ArchiveService {
   public:
     explicit ArchiveService(TaskManager& tasks, ReaderFactory factory = {});
-    Result<TaskId> open(const std::filesystem::path& path);
+    Result<TaskId> open(const std::filesystem::path& path, std::string password = {});
+    Result<TaskId> extract(const std::filesystem::path& path, ExtractionRequest request);
 
   private:
     TaskManager& tasks_;
