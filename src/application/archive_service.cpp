@@ -1,5 +1,6 @@
 #include <ananarchiver/application/archive_service.h>
 #include <ananarchiver/libarchive_reader.h>
+#include <ananarchiver/libarchive_writer.h>
 #include <ananarchiver/password.h>
 
 #include <limits>
@@ -9,18 +10,23 @@ namespace {
 struct ArchiveOperation {
     std::string password;
     ExtractionRequest extraction;
+    CompressionRequest compression;
     ~ArchiveOperation() {
         scrubPassword(password);
         if (extraction.password)
             scrubPassword(*extraction.password);
+        if (compression.password)
+            scrubPassword(*compression.password);
     }
 };
 } // namespace
 
-ArchiveService::ArchiveService(TaskManager& tasks, ReaderFactory factory)
-    : tasks_(tasks), factory_(std::move(factory)) {
+ArchiveService::ArchiveService(TaskManager& tasks, ReaderFactory factory, WriterFactory writer)
+    : tasks_(tasks), factory_(std::move(factory)), writerFactory_(std::move(writer)) {
     if (!factory_)
         factory_ = [] { return makeLibArchiveReader(); };
+    if (!writerFactory_)
+        writerFactory_ = [] { return makeLibArchiveWriter(); };
 }
 
 Result<TaskId> ArchiveService::open(const std::filesystem::path& path, std::string password) {
@@ -111,6 +117,28 @@ Result<TaskId> ArchiveService::extract(const std::filesystem::path& path,
                 context.report(progress);
                 return !context.cancellation().stop_requested();
             }, context.cancellation());
+        });
+}
+
+std::vector<ArchiveCapabilities> ArchiveService::compressionCapabilities() const {
+    auto writer = writerFactory_();
+    return writer ? writer->capabilities() : std::vector<ArchiveCapabilities>{};
+}
+
+Result<TaskId> ArchiveService::compress(CompressionRequest request) {
+    auto owned = std::make_shared<ArchiveOperation>();
+    owned->compression = std::move(request);
+    return tasks_.start(TaskType::CompressArchive,
+        [owned, factory = writerFactory_](TaskContext& context) -> Result<void> {
+            auto writer = factory();
+            if (!writer)
+                return std::unexpected(ArchiveError{ArchiveErrorCode::BackendError,
+                    "Archive writer factory returned no writer", {}, owned->compression.destination});
+            return writer->create(owned->compression,
+                [&context](const CompressionProgress& progress) {
+                    context.report(progress);
+                    return !context.cancellation().stop_requested();
+                }, context.cancellation());
         });
 }
 

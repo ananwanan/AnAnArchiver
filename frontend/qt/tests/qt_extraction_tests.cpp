@@ -1,4 +1,5 @@
 #include "controllers/archive_controller.h"
+#include "controllers/compression_controller.h"
 #include "models/file_tree_model.h"
 #include "platform/path_conversion.h"
 #include "platform/frontend_translator.h"
@@ -52,6 +53,7 @@ QString translated(const char* text) {
 
 struct View {
     qt::ArchiveController controller;
+    qt::CompressionController compression;
     qt::FileTreeModel directories;
     QQmlApplicationEngine engine;
     QObject* root{};
@@ -59,6 +61,7 @@ struct View {
     explicit View(application::ReaderFactory factory = {}) : controller(std::move(factory)) {
         engine.setInitialProperties({
             {QStringLiteral("archiveController"), QVariant::fromValue(&controller)},
+            {QStringLiteral("compressionController"), QVariant::fromValue(&compression)},
             {QStringLiteral("directoryModel"), QVariant::fromValue(&directories)}});
         engine.load(QUrl::fromLocalFile(QString::fromUtf8(ANANARCHIVER_TEST_MAIN_QML)));
         check(!engine.rootObjects().isEmpty(), "Production extraction QML failed to load");

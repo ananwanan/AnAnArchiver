@@ -1,4 +1,5 @@
 #include "controllers/archive_controller.h"
+#include "controllers/compression_controller.h"
 #include "models/file_tree_model.h"
 
 #include <QElapsedTimer>
@@ -173,11 +174,13 @@ int main(int argc, char* argv[])
             return std::make_unique<MarkupReader>(gate);
         });
         ananarchiver::qt::FileTreeModel directories;
+        ananarchiver::qt::CompressionController compression;
         std::atomic<int> networkRequests{};
         CountingFactory networkFactory(networkRequests);
         QQmlApplicationEngine engine;
         engine.setNetworkAccessManagerFactory(&networkFactory);
         engine.setInitialProperties({
+            {QStringLiteral("compressionController"), QVariant::fromValue(&compression)},
             {QStringLiteral("archiveController"), QVariant::fromValue(&controller)},
             {QStringLiteral("directoryModel"), QVariant::fromValue(&directories)}});
         engine.load(QUrl::fromLocalFile(QString::fromUtf8(ANANARCHIVER_TEST_MAIN_QML)));

@@ -3,6 +3,7 @@
 #include "ananarchiver/path_security.h"
 #include "ananarchiver/unicode.h"
 #include "../../core/filesystem/safe_output.h"
+#include "../../core/archive/archive_unicode_scope.h"
 
 #include <archive.h>
 #include <archive_entry.h>
@@ -985,6 +986,8 @@ public:
         path_.clear();
         scrubPassword(password_);
         try {
+            auto unicode = detail::ArchiveUnicodeScope::enter();
+            if (!unicode) return std::unexpected(std::move(unicode.error()));
             ReadSession session;
             auto started = startSession(session, file, cancellation, password);
             if (!started) {
@@ -1049,6 +1052,8 @@ public:
                                              "Entry callback must not be empty", path_));
         }
         try {
+            auto unicode = detail::ArchiveUnicodeScope::enter();
+            if (!unicode) return std::unexpected(std::move(unicode.error()));
             ReadSession session;
             auto started = startSession(session, path_, cancellation, password_);
             if (!started) {
@@ -1129,6 +1134,8 @@ public:
                                              "Open an archive before extracting entries"));
         }
         try {
+            auto unicode = detail::ArchiveUnicodeScope::enter();
+            if (!unicode) return std::unexpected(std::move(unicode.error()));
             const auto password = request.password ? std::string_view{*request.password}
                                                     : std::string_view{password_};
             return extractArchive(path_, limits_, password, request, progress, cancellation);

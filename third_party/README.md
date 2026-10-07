@@ -14,7 +14,7 @@ the shorter `out/build/<preset>/qt`, adjustable with
 
 | Submodule | Revision | Purpose |
 | --- | --- | --- |
-| libarchive | `8bb3bbdc7b117a1e22086a2260f2087aafa90687` | Project archive backend from ananwanan/libarchive |
+| libarchive | `0a6ff818eefd3f13a941ccf6994bcf72cdc122bb` | Project archive backend from ananwanan/libarchive; ZIP abort cleanup fix |
 | zlib 1.3.2 | `da607da739fa6047df13e66a2af6b8bec7c2a498` | Deflate / ZIP / GZIP |
 | bzip2 1.0.8 | `6a8690fc8d26c815e798c588f796eabe9d684cf0` | BZIP2 |
 | XZ 5.8.4 | `d3e650e63c110e830fd5391e7f8b45df0b91d3da` | LZMA / LZMA2 / XZ / 7z |
