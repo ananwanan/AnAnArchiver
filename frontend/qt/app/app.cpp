@@ -12,6 +12,7 @@ bool App::initialize(const QString& file)
     engine_ = std::make_unique<QQmlApplicationEngine>();
     engine_->setInitialProperties({
         {QStringLiteral("archiveController"), QVariant::fromValue(&archives_)},
+        {QStringLiteral("compressionController"), QVariant::fromValue(&compression_)},
         {QStringLiteral("directoryModel"), QVariant::fromValue(&directories_)}});
     engine_->loadFromModule("AnAnArchiver", "Main");
     if (engine_->rootObjects().isEmpty())

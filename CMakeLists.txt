@@ -38,12 +38,18 @@ target_include_directories(ananarchiver_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}
 target_compile_features(ananarchiver_core PUBLIC cxx_std_23)
 ananarchiver_project_options(ananarchiver_core)
 
-add_library(ananarchiver_libarchive STATIC src/backend/libarchive/libarchive_reader.cpp)
+add_library(ananarchiver_libarchive STATIC
+    src/backend/libarchive/libarchive_reader.cpp
+    src/backend/libarchive/libarchive_writer.cpp)
 if(WIN32)
-    target_sources(ananarchiver_libarchive PRIVATE src/platform/windows/safe_output.cpp)
+    target_sources(ananarchiver_libarchive PRIVATE
+        src/platform/windows/safe_output.cpp
+        src/platform/windows/compression_io.cpp)
     target_link_libraries(ananarchiver_libarchive PRIVATE advapi32)
 else()
-    target_sources(ananarchiver_libarchive PRIVATE src/platform/posix/safe_output.cpp)
+    target_sources(ananarchiver_libarchive PRIVATE
+        src/platform/posix/safe_output.cpp
+        src/platform/posix/compression_io.cpp)
 endif()
 target_link_libraries(ananarchiver_libarchive PUBLIC ananarchiver_core PRIVATE AnAnArchiver::Archive)
 ananarchiver_project_options(ananarchiver_libarchive)

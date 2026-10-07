@@ -69,6 +69,20 @@ void TaskContext::report(const ExtractionProgress& progress) {
     state_->snapshot.byteTotalsKnown = progress.totalBytes.has_value();
 }
 
+void TaskContext::report(const CompressionProgress& progress) {
+    std::lock_guard lock(state_->mutex);
+    state_->snapshot.compressionPhase = progress.phase;
+    state_->snapshot.currentFile = progress.currentFile;
+    // Scanning counts describe metadata, not payload IO. Keep byte throughput
+    // zero until the writer actually reads input data.
+    state_->snapshot.processedBytes = progress.phase == CompressionPhase::Scanning
+                                         ? 0 : progress.processedBytes;
+    state_->snapshot.processedEntries = progress.processedEntries;
+    state_->snapshot.totalBytes = progress.totalBytes;
+    state_->snapshot.totalEntries = progress.totalEntries;
+    state_->snapshot.byteTotalsKnown = progress.totalBytes.has_value();
+}
+
 OverwritePolicy TaskContext::requestConflict(const ExtractionConflict& conflict) {
     std::unique_lock lock(state_->mutex);
     if (cancellation().stop_requested())
@@ -188,6 +202,10 @@ Result<TaskId> TaskManager::start(TaskType type, TaskWork work) {
                 state->snapshot.state = TaskState::Failed;
                 state->snapshot.error = std::move(result.error());
                 state->batches.clear();
+            } else if (result && type == TaskType::CompressArchive) {
+                // A successful writer has atomically committed output. A stop
+                // racing that commit cannot undo it or claim cancellation.
+                state->snapshot.state = TaskState::Succeeded;
             } else if (state->snapshot.state == TaskState::Cancelling ||
                 (!result && result.error().code == ArchiveErrorCode::Cancelled) ||
                 state->stop.stop_requested()) {
@@ -233,11 +251,17 @@ std::optional<TaskSnapshot> TaskManager::snapshot(TaskId id) const {
     auto snapshot = state.snapshot;
     const auto end = terminal(snapshot.state) ? state.finished : std::chrono::steady_clock::now();
     snapshot.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - state.started);
-    // Only extraction counters represent IO. Indexing must not fabricate speed.
-    if (snapshot.type == TaskType::ExtractArchive && snapshot.elapsed.count() > 0) {
+    // Indexing and compression scans must not fabricate IO throughput.
+    const bool payloadOperation = snapshot.type == TaskType::ExtractArchive ||
+        (snapshot.type == TaskType::CompressArchive && snapshot.compressionPhase &&
+         *snapshot.compressionPhase != CompressionPhase::Scanning);
+    if (payloadOperation && snapshot.elapsed.count() > 0) {
         snapshot.bytesPerSecond = static_cast<double>(snapshot.processedBytes) * 1000.0 /
                                   static_cast<double>(snapshot.elapsed.count());
-        if (snapshot.totalBytes && snapshot.bytesPerSecond > 0 && !snapshot.conflict) {
+        const bool finalizingCompression = snapshot.type == TaskType::CompressArchive &&
+            snapshot.compressionPhase == CompressionPhase::Finalizing;
+        if (snapshot.totalBytes && snapshot.bytesPerSecond > 0 && !snapshot.conflict &&
+            !finalizingCompression) {
             const auto remaining = *snapshot.totalBytes > snapshot.processedBytes
                                        ? *snapshot.totalBytes - snapshot.processedBytes : 0;
             const auto milliseconds = static_cast<double>(remaining) * 1000.0 /

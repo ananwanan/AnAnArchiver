@@ -4,10 +4,12 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import "./pages"
+import "./dialogs"
 
 ApplicationWindow {
     id: window
     required property var archiveController
+    required property var compressionController
     required property var directoryModel
     width: 1180
     height: 740
@@ -37,7 +39,7 @@ ApplicationWindow {
         id: openAction
         text: qsTr("Open archive…")
         shortcut: StandardKey.Open
-        onTriggered: archiveDialog.open()
+        onTriggered: { window.compressionController.dismissProgress(); archiveDialog.open() }
     }
     Action {
         id: closeAction
@@ -48,18 +50,33 @@ ApplicationWindow {
     }
     Action {
         id: cancelAction
+        objectName: "cancelAction"
         text: qsTr("Cancel")
         shortcut: "Escape"
-        enabled: window.archiveController.busy
-        onTriggered: window.archiveController.cancel()
+        enabled: window.archiveController.busy || window.compressionController.busy
+        onTriggered: {
+            if (window.compressionController.busy)
+                window.compressionController.cancel()
+            else
+                window.archiveController.cancel()
+        }
+    }
+    Action {
+        id: compressAction
+        objectName: "compressAction"
+        text: qsTr("Create archive…")
+        shortcut: "Ctrl+N"
+        enabled: !window.compressionController.busy && window.compressionController.formats.length > 0
+        onTriggered: compressionDialog.open()
     }
     Action {
         id: extractAction
         objectName: "extractAction"
         text: qsTr("Extract…")
         shortcut: "Ctrl+E"
-        enabled: window.archiveController.canExtract
+        enabled: window.archiveController.canExtract && !window.compressionController.busy
         onTriggered: {
+            window.compressionController.dismissProgress()
             selectedOnly.checked = window.archiveController.selectionCount > 0
             allEntries.checked = !selectedOnly.checked
             extractionDialog.open()
@@ -70,6 +87,7 @@ ApplicationWindow {
         Menu {
             title: qsTr("File")
             MenuItem { action: openAction }
+            MenuItem { action: compressAction }
             MenuItem { action: closeAction }
             MenuItem { action: extractAction }
             MenuItem {
@@ -143,11 +161,59 @@ ApplicationWindow {
     HomePage {
         anchors.fill: parent
         archiveController: window.archiveController
+        compressionController: window.compressionController
         directoryModel: window.directoryModel
         openAction: openAction
         cancelAction: cancelAction
         extractAction: extractAction
+        compressAction: compressAction
         onBrowseFolder: folderDialog.open()
+    }
+
+    CompressionDialog {
+        id: compressionDialog
+        controller: window.compressionController
+        hostWindow: window
+    }
+    Dialog {
+        id: compressionErrorDialog
+        objectName: "compressionErrorDialog"
+        title: qsTr("Archive creation failed")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(580, window.width - 48)
+        standardButtons: Dialog.Ok
+        onClosed: window.compressionController.dismissError()
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                Layout.fillWidth: true
+                text: window.compressionController.errorMessage
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                font.bold: true
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(220, compressionDetails.implicitHeight + 16)
+                TextArea {
+                    id: compressionDetails
+                    text: window.compressionController.errorDetails
+                    textFormat: TextEdit.PlainText
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.Wrap
+                    Accessible.name: qsTr("Error details")
+                }
+            }
+        }
+    }
+    Connections {
+        target: window.compressionController
+        function onChanged() {
+            if (window.compressionController.errorMessage.length > 0 && !compressionErrorDialog.opened)
+                compressionErrorDialog.open()
+        }
     }
 
     Dialog {

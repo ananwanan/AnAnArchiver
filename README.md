@@ -3,10 +3,12 @@
 跨平台归档管理器，使用 C++23、Qt 6 Quick/QML 和固定版本的
 [ananwanan/libarchive](https://github.com/ananwanan/libarchive)。
 
-当前完成 AGENTS.md 的 M1 与 M2：独立 Core、libarchive RAII 适配器、
+当前完成 AGENTS.md 的 M1、M2 与 M3：独立 Core、libarchive RAII 适配器、
 结构化错误、内容检测、流式元数据枚举，以及异步打开和安全流式解压。
 不传入文件时显示 Home。支持解压全部/多选条目、目录选择、密码、覆盖交互、
-实际字节进度、速度与取消。压缩、归档编辑和系统集成属于后续里程碑。
+实际字节进度、速度与取消。支持创建 ZIP、7z、TAR、TAR.GZ、TAR.BZ2、
+TAR.XZ、TAR.ZST 和 TAR.LZ4，创建选项由实际 writer capabilities 驱动。
+归档编辑和系统集成属于后续里程碑。
 
 ## 目录与依赖方向
 
@@ -94,6 +96,14 @@ $env:PATH = (Resolve-Path out/build/desktop-release/dependencies/install/qt/bin)
 开发 Qt kit 则将 `$env:QTDIR/bin` 加入当前终端的 PATH。可移植分发包和安装器
 仍属于后续里程碑，当前构建产物使用对应构建目录中的 Qt 运行时。
 
+也可以由脚本从应用构建的 CMake cache 自动定位对应 Qt kit 并启动，不修改全局 PATH：
+
+```powershell
+./scripts/Start-Desktop.ps1 out/build/desktop-release
+```
+
+脚本同时支持 superbuild 和直接应用构建目录，并把附加参数传给应用。
+
 ## 当前行为与测试
 
 应用使用内容识别归档，扩展名只用于文件选择。工作线程流式生成元数据，
@@ -123,12 +133,34 @@ $env:PATH = (Resolve-Path out/build/desktop-release/dependencies/install/qt/bin)
 限制依据实际数据和 sparse 逻辑偏移检查，不只信任 header 声明。
 POSIX 输出不修改进程 cwd/umask；Windows 使用 Unicode 和长路径 API。
 
+创建通过独立 `ArchiveWriter`、`CompressArchive` 任务和 Qt 创建对话框完成。
+可添加多个文件和目录，选择输出、格式、方法和受支持的压缩等级。ZIP 默认
+使用 Deflate，7z 默认使用 LZMA2；Store 和普通 TAR 不提供压缩等级。
+M3 创建接口支持未加密归档，不暴露密码、多线程或 solid 设置。
+
+输入扫描和数据读取均在工作线程执行。扫描只建立有界元数据索引，支持取消；
+写入复用 128 KiB buffer，不缓存完整文件内容。扫描阶段总量未知且不计算 IO
+速度；写入按实际读取字节报告进度，最终写入阶段显示不确定进度。完成后可以
+直接打开新建归档。重复选择和已被选中目录包含的子路径会去重，归档路径冲突
+会明确报错。链接、junction 和特殊输入文件会被拒绝，不沿链接递归扫描。
+
+输出必须位于已存在的目录，并且不能位于选中的输入目录内或别名到输入文件。
+先写入目标文件系统的私有临时目录，检查 backend close、flush 和 close 结果后
+原子安装。替换已有归档需要明确选择；提交前的失败或取消保留原文件并清理临时
+输出。提交后的取消不会把已安装的完整归档报告为取消；提交后清理或持久化失败
+会明确报告已提交状态。源文件的身份、大小和时间等变化会导致失败；这不是文件
+系统快照。Windows 使用宽字符 entry 名称；POSIX 使用可恢复的工作线程 UTF-8
+locale，读写操作不会修改进程全局 locale。
+
 测试动态生成小型归档，不向 Git 提交大型测试数据。覆盖内容识别、常见格式、
 Unicode 文件与 entry 路径、无效/截断输入、枚举取消、metadata 限制、任务
 背压/并发限制/异常隔离/退出清理，以及按需目录扫描。M2 增加生成式解压回归：
 全部/选中、重复路径、目录子条目、Unicode/长路径、覆盖和链接策略、路径攻击、
 Windows junction、资源限制、CRC/截断/加密损坏、取消和事务恢复。
 Qt 测试使用生产 QML 完成真实解压、覆盖询问、取消和密码重试，验证按钮与任务链路。
+M3 增加所有创建格式/方法的生成式往返、等级端点、C locale Unicode、长路径、
+真实字节进度、取消、源变化、资源预算和原子输出回归；生产 QML 测试验证创建、
+打开、解压完整链路以及键盘、GUI 响应、能力选项和取消时保留旧文件。
 
 桌面程序支持 `--smoke-test <milliseconds>` 验证加载启动，以及
 `--smoke-archive <archive>` 验证 Qt → Application → Backend → 条目模型的
@@ -140,5 +172,7 @@ Qt 测试使用生产 QML 完成真实解压、覆盖询问、取消和密码重
 
 架构说明见 [Core 与前端边界](docs/architecture/0001-core-and-frontend.md)、
 [受管理索引任务](docs/architecture/0002-managed-indexing.md) 和
-[安全流式解压](docs/architecture/0003-secure-extraction.md)。
+[安全流式解压](docs/architecture/0003-secure-extraction.md) 和
+[流式创建与原子输出](docs/architecture/0004-streaming-compression.md)。
 M2 的执行证据和验证边界见 [M2 验收记录](docs/validation/2026-10-07-m2.md)。
+M3 的执行证据和验证边界见 [M3 验收记录](docs/validation/2026-10-07-m3.md)。

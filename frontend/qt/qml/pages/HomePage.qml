@@ -7,19 +7,23 @@ import "../components"
 ColumnLayout {
     id: root
     required property var archiveController
+    required property var compressionController
     required property var directoryModel
     required property Action openAction
     required property Action cancelAction
     required property Action extractAction
+    required property Action compressAction
     signal browseFolder()
     spacing: 0
 
     Toolbar {
         Layout.fillWidth: true
         archiveController: root.archiveController
+        compressionController: root.compressionController
         openAction: root.openAction
         cancelAction: root.cancelAction
         extractAction: root.extractAction
+        compressAction: root.compressAction
         onBrowseFolder: root.browseFolder()
     }
     ToolBar {
@@ -50,7 +54,7 @@ ColumnLayout {
         directoryModel: root.directoryModel
         onOpenRequested: root.openAction.trigger()
     }
-    StatusBar { Layout.fillWidth: true; archiveController: root.archiveController }
+    StatusBar { Layout.fillWidth: true; archiveController: root.archiveController; compressionController: root.compressionController }
 }
 
 

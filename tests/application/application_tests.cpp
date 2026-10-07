@@ -1,5 +1,6 @@
 #include <ananarchiver/application/archive_service.h>
 #include <ananarchiver/application/directory_service.h>
+#include <ananarchiver/libarchive_reader.h>
 
 #include <atomic>
 #include <fstream>
@@ -465,6 +466,189 @@ void cancellationDoesNotHideRecoveryFailure() {
           "cancellation hid recovery failure or its remaining-file location");
     check(tasks.release(*id), "recovery failure task not released");
 }
+
+struct WriterState {
+    std::atomic<unsigned> destroyed{};
+    std::atomic<bool> scanning{};
+    std::atomic<bool> writing{};
+    std::atomic<bool> proceed{};
+    std::thread::id caller;
+    bool waitForCancel{};
+    bool commitAfterStop{};
+};
+
+class SyntheticWriter final : public ArchiveWriter {
+public:
+    explicit SyntheticWriter(std::shared_ptr<WriterState> state) : state_(std::move(state)) {}
+    ~SyntheticWriter() override { ++state_->destroyed; }
+    std::vector<ArchiveCapabilities> capabilities() const override {
+        ArchiveCapabilities caps;
+        caps.name = "Fixture ZIP";
+        caps.extension = ".zip";
+        caps.methods = {{CompressionMethod::Deflate, "Deflate", 0, 9, 6}};
+        return {caps};
+    }
+    Result<void> create(const CompressionRequest& request,
+                        const CompressionProgressCallback& progress,
+                        CancellationToken cancellation) override {
+        check(std::this_thread::get_id() != state_->caller, "writer ran on the submitting thread");
+        check(request.destination == "created.zip" && request.inputPaths.size() == 1 &&
+                  request.inputPaths.front() == "source", "compression request lost inputs/output");
+        progress({CompressionPhase::Scanning, "source", 999999, 4, {}, {}});
+        state_->scanning = true;
+        while (!state_->proceed && !cancellation.stop_requested())
+            std::this_thread::sleep_for(1ms);
+        if (state_->waitForCancel) {
+            while (!cancellation.stop_requested())
+                std::this_thread::sleep_for(1ms);
+            if (state_->commitAfterStop)
+                return {}; // Models a stop racing an already completed atomic install.
+            return std::unexpected(ArchiveError{ArchiveErrorCode::Cancelled,
+                "Creation cancelled", {}, request.destination});
+        }
+        for (std::uint64_t i = 1; i <= 3; ++i) {
+            if (!progress({CompressionPhase::Writing, "source/file", i * 4096, i, 12288, 3}))
+                return std::unexpected(ArchiveError{ArchiveErrorCode::Cancelled,
+                    "Creation cancelled", {}, request.destination});
+            state_->writing = true;
+            std::this_thread::sleep_for(2ms);
+        }
+        progress({CompressionPhase::Finalizing, "", 12288, 3, 12288, 3});
+        return {};
+    }
+private:
+    std::shared_ptr<WriterState> state_;
+};
+
+void awaitScan(const std::shared_ptr<WriterState>& state) {
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (!state->scanning && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(1ms);
+    check(state->scanning, "compression worker never reached scanning");
+}
+
+CompressionRequest syntheticCompressionRequest() {
+    CompressionRequest request;
+    request.destination = "created.zip";
+    request.inputPaths = {"source"};
+    return request;
+}
+
+void compressionServicePhasesAndProgress() {
+    TaskManager tasks;
+    auto state = std::make_shared<WriterState>();
+    state->caller = std::this_thread::get_id();
+    ArchiveService service(tasks, {}, [state] { return std::make_unique<SyntheticWriter>(state); });
+    const auto capabilities = service.compressionCapabilities();
+    check(capabilities.size() == 1 && capabilities.front().methods.front().maxLevel == 9,
+          "application lost writer capabilities");
+    const auto id = service.compress(syntheticCompressionRequest());
+    check(id.has_value(), "compression service submission failed");
+    awaitScan(state);
+    const auto scanning = tasks.snapshot(*id);
+    check(scanning && scanning->type == TaskType::CompressArchive &&
+              scanning->compressionPhase == CompressionPhase::Scanning &&
+              scanning->processedEntries == 4 && scanning->processedBytes == 0 &&
+              !scanning->totalBytes && scanning->bytesPerSecond == 0 &&
+              !scanning->estimatedRemaining, "scan metadata fabricated byte progress/throughput");
+    state->proceed = true;
+    const auto snapshot = awaitTerminal(tasks, *id);
+    check(snapshot.state == TaskState::Succeeded && snapshot.processedBytes == 12288 &&
+              snapshot.totalBytes == 12288 && snapshot.processedEntries == 3 &&
+              snapshot.compressionPhase == CompressionPhase::Finalizing &&
+              snapshot.bytesPerSecond > 0, "compression progress or completion missing");
+    check(tasks.takeEntries(*id).empty() && tasks.release(*id),
+          "compression leaked metadata queue or task");
+    check(state->destroyed == 2, "capability or task writer leaked");
+}
+
+void compressionCancellationAndShutdown() {
+    auto state = std::make_shared<WriterState>();
+    state->caller = std::this_thread::get_id();
+    state->waitForCancel = true;
+    {
+        TaskManager tasks;
+        ArchiveService service(tasks, {}, [state] { return std::make_unique<SyntheticWriter>(state); });
+        const auto id = service.compress(syntheticCompressionRequest());
+        check(id.has_value(), "compression cancel submission failed");
+        awaitScan(state);
+        check(tasks.cancel(*id), "compression cancellation rejected");
+        check(awaitTerminal(tasks, *id).state == TaskState::Cancelled && tasks.release(*id),
+              "compression worker did not cancel/release");
+    }
+    state->scanning = false;
+    const auto start = std::chrono::steady_clock::now();
+    {
+        TaskManager tasks;
+        ArchiveService service(tasks, {}, [state] { return std::make_unique<SyntheticWriter>(state); });
+        check(service.compress(syntheticCompressionRequest()).has_value(), "shutdown submit failed");
+        awaitScan(state);
+    }
+    check(std::chrono::steady_clock::now() - start < 2s && state->destroyed == 2,
+          "compression shutdown hung or leaked writer");
+}
+
+void committedCompressionWinsLateStop() {
+    TaskManager tasks;
+    auto state = std::make_shared<WriterState>();
+    state->caller = std::this_thread::get_id();
+    state->waitForCancel = true;
+    state->commitAfterStop = true;
+    ArchiveService service(tasks, {}, [state] { return std::make_unique<SyntheticWriter>(state); });
+    const auto id = service.compress(syntheticCompressionRequest());
+    check(id.has_value(), "commit race submission failed");
+    awaitScan(state);
+    check(tasks.cancel(*id), "commit race stop request rejected");
+    const auto snapshot = awaitTerminal(tasks, *id);
+    check(snapshot.state == TaskState::Succeeded && !snapshot.error && tasks.release(*id),
+          "installed archive was incorrectly reported as cancelled");
+}
+
+void compressionFactoryFailure() {
+    TaskManager tasks;
+    ArchiveService service(tasks, {}, [] { return std::unique_ptr<ArchiveWriter>{}; });
+    check(service.compressionCapabilities().empty(), "null writer fabricated capabilities");
+    const auto id = service.compress(syntheticCompressionRequest());
+    check(id.has_value(), "null writer submission failed");
+    const auto snapshot = awaitTerminal(tasks, *id);
+    check(snapshot.state == TaskState::Failed && snapshot.error &&
+              snapshot.error->code == ArchiveErrorCode::BackendError &&
+              snapshot.error->path == "created.zip" && tasks.release(*id),
+          "null writer did not produce structured task error");
+}
+
+void realCompressionService() {
+    Fixture fixture;
+    const auto source = fixture.root / std::filesystem::path{std::u8string{u8"安安🐈.txt"}};
+    std::ofstream(source, std::ios::binary) << "application round trip";
+    TaskManager tasks;
+    ArchiveService service(tasks);
+    CompressionRequest request;
+    request.inputPaths = {source};
+    request.destination = fixture.root / "created.zip";
+    const auto destination = request.destination;
+    const auto id = service.compress(std::move(request));
+    check(id.has_value(), "real compression task submission failed");
+    const auto snapshot = awaitTerminal(tasks, *id);
+    check(snapshot.state == TaskState::Succeeded && snapshot.totalBytes == 22 &&
+              snapshot.processedBytes == 22 && snapshot.processedEntries == 1,
+          "real compression task failed or counters incorrect");
+    auto reader = makeLibArchiveReader();
+    check(reader->open(destination).has_value(), "created archive could not open");
+    std::vector<ArchiveEntry> entries;
+    check(reader->enumerate([&](const ArchiveEntry& entry) {
+        entries.push_back(entry); return true;
+    }).has_value(), "created archive could not enumerate");
+    check(entries.size() == 1 && entries.front().size == 22,
+          "created application archive lost metadata");
+    ExtractionRequest extraction;
+    extraction.destination = fixture.root / "unpacked";
+    check(reader->extract(extraction).has_value(), "application archive failed extraction");
+    std::ifstream restored(extraction.destination / source.filename(), std::ios::binary);
+    const std::string contents{std::istreambuf_iterator<char>{restored}, {}};
+    check(contents == "application round trip" && tasks.release(*id),
+          "application create/read/extract roundtrip corrupted contents");
+}
 } // namespace
 
 int main() {
@@ -485,6 +669,11 @@ int main() {
         {"cancel and shutdown wake conflict", cancellationAndShutdownWakeConflict},
         {"extraction service actual bytes", extractionServiceProgress},
         {"cancellation retains recovery failure", cancellationDoesNotHideRecoveryFailure},
+        {"compression phases and real byte progress", compressionServicePhasesAndProgress},
+        {"compression cancellation and shutdown", compressionCancellationAndShutdown},
+        {"committed compression versus late stop", committedCompressionWinsLateStop},
+        {"structured compression factory failure", compressionFactoryFailure},
+        {"real application compression round trip", realCompressionService},
     };
     unsigned failed = 0;
     for (const auto& [name, run] : tests) {

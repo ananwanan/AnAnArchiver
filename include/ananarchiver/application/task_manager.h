@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ananarchiver/archive_reader.h>
+#include <ananarchiver/compression.h>
 
 #include <chrono>
 #include <cstdint>
@@ -13,7 +14,7 @@
 namespace ananarchiver::application {
 
 using TaskId = std::uint64_t;
-enum class TaskType { OpenArchive, ExtractArchive };
+enum class TaskType { OpenArchive, ExtractArchive, CompressArchive };
 enum class TaskState { Pending, Running, Cancelling, Cancelled, Succeeded, Failed };
 
 struct ConflictResolution {
@@ -35,6 +36,7 @@ struct TaskSnapshot {
     std::optional<ArchiveInfo> archive;
     std::optional<ArchiveError> error;
     std::optional<ExtractionConflict> conflict;
+    std::optional<CompressionPhase> compressionPhase;
     std::uint64_t conflictId{};
     std::chrono::milliseconds elapsed{};
     double bytesPerSecond{};
@@ -48,6 +50,7 @@ class TaskContext {
     void report(std::string currentFile, std::uint64_t bytes, std::uint64_t entries,
                 bool allSizesKnown = true);
     void report(const ExtractionProgress& progress);
+    void report(const CompressionProgress& progress);
     // The worker waits without holding manager locks. Stop requests wake it,
     // including during application shutdown. The GUI only polls/responds.
     OverwritePolicy requestConflict(const ExtractionConflict& conflict);

@@ -1,6 +1,7 @@
 add_library(ananarchiver_qt STATIC
     app/app.cpp app/app.h
     controllers/archive_controller.cpp controllers/archive_controller.h
+    controllers/compression_controller.cpp controllers/compression_controller.h
     models/archive_entry_model.cpp models/archive_entry_model.h
     models/file_tree_model.cpp models/file_tree_model.h
     platform/path_conversion.cpp platform/path_conversion.h
@@ -28,6 +29,7 @@ set_source_files_properties(qml/components/Toolbar.qml PROPERTIES QT_RESOURCE_AL
 set_source_files_properties(qml/components/FileTable.qml PROPERTIES QT_RESOURCE_ALIAS components/FileTable.qml)
 set_source_files_properties(qml/components/StatusBar.qml PROPERTIES QT_RESOURCE_ALIAS components/StatusBar.qml)
 set_source_files_properties(qml/components/PlainToolTip.qml PROPERTIES QT_RESOURCE_ALIAS components/PlainToolTip.qml)
+set_source_files_properties(qml/dialogs/CompressionDialog.qml PROPERTIES QT_RESOURCE_ALIAS dialogs/CompressionDialog.qml)
 qt_add_qml_module(AnAnArchiver
     URI AnAnArchiver
     VERSION 1.0
@@ -38,7 +40,8 @@ qt_add_qml_module(AnAnArchiver
         qml/components/Toolbar.qml
         qml/components/FileTable.qml
         qml/components/StatusBar.qml
-        qml/components/PlainToolTip.qml)
+        qml/components/PlainToolTip.qml
+        qml/dialogs/CompressionDialog.qml)
 set_target_properties(AnAnArchiver PROPERTIES
     MACOSX_BUNDLE TRUE
     MACOSX_BUNDLE_GUI_IDENTIFIER com.ananwanan.AnAnArchiver
@@ -77,8 +80,17 @@ if(BUILD_TESTING)
     add_test(NAME qt_extraction COMMAND ananarchiver_qt_extraction_tests)
     set_tests_properties(qt_extraction PROPERTIES
         TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+    add_executable(ananarchiver_qt_compression_tests tests/qt_compression_tests.cpp)
+    ananarchiver_project_options(ananarchiver_qt_compression_tests)
+    target_link_libraries(ananarchiver_qt_compression_tests PRIVATE
+        ananarchiver_qt Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+    target_compile_definitions(ananarchiver_qt_compression_tests PRIVATE
+        ANANARCHIVER_TEST_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
+    add_test(NAME qt_compression COMMAND ananarchiver_qt_compression_tests)
+    set_tests_properties(qt_compression PROPERTIES
+        TIMEOUT 90 ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
     if(WIN32)
-        set_tests_properties(qt_adapters qt_home_smoke qt_filename_rendering qt_extraction PROPERTIES
+        set_tests_properties(qt_adapters qt_home_smoke qt_filename_rendering qt_extraction qt_compression PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>")
     endif()
 endif()

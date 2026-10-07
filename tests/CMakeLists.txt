@@ -13,8 +13,14 @@ target_link_libraries(ananarchiver_extraction_tests PRIVATE ananarchiver_libarch
 ananarchiver_project_options(ananarchiver_extraction_tests)
 add_test(NAME extraction COMMAND ananarchiver_extraction_tests)
 
+add_executable(ananarchiver_compression_tests archive/compression_tests.cpp)
+target_link_libraries(ananarchiver_compression_tests PRIVATE ananarchiver_libarchive AnAnArchiver::Archive)
+ananarchiver_project_options(ananarchiver_compression_tests)
+add_test(NAME compression COMMAND ananarchiver_compression_tests)
+
 add_executable(ananarchiver_application_tests application/application_tests.cpp)
 target_link_libraries(ananarchiver_application_tests PRIVATE ananarchiver_application)
 ananarchiver_project_options(ananarchiver_application_tests)
 add_test(NAME application COMMAND ananarchiver_application_tests)
 set_tests_properties(core archive extraction application PROPERTIES TIMEOUT 30)
+set_tests_properties(compression PROPERTIES TIMEOUT 90)
