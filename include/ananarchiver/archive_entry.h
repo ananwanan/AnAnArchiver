@@ -18,6 +18,7 @@ struct ArchiveEntry {
     std::optional<std::uint64_t> compressedSize;
     EntryType type = EntryType::Other;
     std::optional<std::chrono::system_clock::time_point> modified;
+    std::uint64_t index = 0;
 };
 
 } // namespace ananarchiver

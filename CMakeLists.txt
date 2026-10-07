@@ -32,12 +32,19 @@ find_package(Threads REQUIRED)
 
 add_library(ananarchiver_core STATIC
     src/core/archive/archive_format.cpp
-    src/core/archive/unicode.cpp)
+    src/core/archive/unicode.cpp
+    src/core/filesystem/path_security.cpp)
 target_include_directories(ananarchiver_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(ananarchiver_core PUBLIC cxx_std_23)
 ananarchiver_project_options(ananarchiver_core)
 
 add_library(ananarchiver_libarchive STATIC src/backend/libarchive/libarchive_reader.cpp)
+if(WIN32)
+    target_sources(ananarchiver_libarchive PRIVATE src/platform/windows/safe_output.cpp)
+    target_link_libraries(ananarchiver_libarchive PRIVATE advapi32)
+else()
+    target_sources(ananarchiver_libarchive PRIVATE src/platform/posix/safe_output.cpp)
+endif()
 target_link_libraries(ananarchiver_libarchive PUBLIC ananarchiver_core PRIVATE AnAnArchiver::Archive)
 ananarchiver_project_options(ananarchiver_libarchive)
 

@@ -91,32 +91,65 @@ SplitView {
             }
             ListView {
                 id: entries
+                objectName: "archiveEntries"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 model: root.archiveController.entryModel
                 reuseItems: true
                 focus: true
-                keyNavigationEnabled: true
+                keyNavigationEnabled: false
+                Keys.onPressed: function(event) {
+                    if (!root.archiveController.canExtract)
+                        return
+                    const ctrl = (event.modifiers & Qt.ControlModifier) !== 0
+                    const shift = (event.modifiers & Qt.ShiftModifier) !== 0
+                    if (event.matches(StandardKey.SelectAll)) {
+                        root.archiveController.selectAll()
+                    } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Down
+                               || event.key === Qt.Key_Home || event.key === Qt.Key_End) {
+                        const next = event.key === Qt.Key_Home ? 0 : event.key === Qt.Key_End ? count - 1
+                            : Math.max(0, Math.min(count - 1, currentIndex + (event.key === Qt.Key_Up ? -1 : 1)))
+                        currentIndex = next
+                        positionViewAtIndex(next, ListView.Contain)
+                        if (!ctrl || shift)
+                            root.archiveController.selectRow(next, ctrl, shift)
+                    } else if (event.key === Qt.Key_Space) {
+                        root.archiveController.selectRow(currentIndex, true, shift)
+                    } else {
+                        return
+                    }
+                    event.accepted = true
+                }
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar {}
                 delegate: ItemDelegate {
                     id: entryRow
+                    objectName: "archiveEntryRow"
                     required property int index
                     required property string entryPath
                     required property string entrySize
                     required property string entryType
                     required property string entryModified
+                    required property bool entrySelected
                     width: entries.width
                     height: 34
-                    highlighted: ListView.isCurrentItem
+                    highlighted: entrySelected
                     background: Rectangle {
                         color: entryRow.highlighted ? entryRow.palette.highlight
                               : (entryRow.hovered ? entryRow.palette.alternateBase : "transparent")
                         border.width: entryRow.activeFocus ? 1 : 0
                         border.color: entryRow.palette.highlight
                     }
-                    onClicked: entries.currentIndex = index
+                    TapHandler {
+                        onTapped: function(eventPoint, button) {
+                            entries.currentIndex = entryRow.index
+                            entries.forceActiveFocus()
+                            root.archiveController.selectRow(entryRow.index,
+                                (point.modifiers & Qt.ControlModifier) !== 0,
+                                (point.modifiers & Qt.ShiftModifier) !== 0)
+                        }
+                    }
                     Accessible.name: entryPath
                     PlainToolTip {
                         visible: entryRow.hovered

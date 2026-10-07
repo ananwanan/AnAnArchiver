@@ -21,6 +21,16 @@ class ArchiveController final : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(int entryCount READ entryCount NOTIFY changed)
     Q_PROPERTY(qint64 elapsedMilliseconds READ elapsedMilliseconds NOTIFY changed)
+    Q_PROPERTY(bool canExtract READ canExtract NOTIFY changed)
+    Q_PROPERTY(bool extracting READ extracting NOTIFY changed)
+    Q_PROPERTY(int selectionCount READ selectionCount NOTIFY changed)
+    Q_PROPERTY(double processedBytes READ processedBytes NOTIFY changed)
+    Q_PROPERTY(double totalBytes READ totalBytes NOTIFY changed)
+    Q_PROPERTY(double bytesPerSecond READ bytesPerSecond NOTIFY changed)
+    Q_PROPERTY(qint64 remainingMilliseconds READ remainingMilliseconds NOTIFY changed)
+    Q_PROPERTY(bool awaitingConflict READ awaitingConflict NOTIFY changed)
+    Q_PROPERTY(QString conflictPath READ conflictPath NOTIFY changed)
+    Q_PROPERTY(bool passwordRequested READ passwordRequested NOTIFY changed)
 
 public:
     explicit ArchiveController(application::ReaderFactory factory = {}, QObject* parent = nullptr);
@@ -35,11 +45,30 @@ public:
     bool busy() const { return active_.has_value() || !pendingFile_.isEmpty(); }
     int entryCount() const { return entries_.count(); }
     qint64 elapsedMilliseconds() const { return elapsedMilliseconds_; }
+    bool canExtract() const { return indexed_ && !busy(); }
+    bool extracting() const { return extracting_; }
+    int selectionCount() const { return entries_.selectionCount(); }
+    double processedBytes() const { return processedBytes_; }
+    double totalBytes() const { return totalBytes_; }
+    double bytesPerSecond() const { return bytesPerSecond_; }
+    qint64 remainingMilliseconds() const { return remainingMilliseconds_; }
+    bool awaitingConflict() const { return conflictId_ != 0; }
+    QString conflictPath() const { return conflictPath_; }
+    bool passwordRequested() const { return passwordRequested_; }
     Q_INVOKABLE void openFile(const QString& path);
     Q_INVOKABLE void openUrl(const QUrl& url);
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void close();
     Q_INVOKABLE void dismissError();
+    Q_INVOKABLE void selectRow(int row, bool toggle = false, bool range = false);
+    Q_INVOKABLE void selectAll();
+    Q_INVOKABLE void clearSelection();
+    Q_INVOKABLE void extract(const QString& destination, bool onlySelected, QString password,
+                             int overwrite = 0, int links = 0);
+    Q_INVOKABLE void resolveConflict(int overwrite, bool applyToAll);
+    Q_INVOKABLE void retryOpenPassword(QString password);
+    Q_INVOKABLE void dismissPassword();
+    Q_INVOKABLE QString localPath(const QUrl& url) const { return url.toLocalFile(); }
 
 signals:
     void changed();
@@ -68,6 +97,15 @@ private:
     QString errorMessage_;
     QString errorDetails_;
     qint64 elapsedMilliseconds_{};
+    bool indexed_{};
+    bool extracting_{};
+    bool passwordRequested_{};
+    double processedBytes_{};
+    double totalBytes_{-1};
+    double bytesPerSecond_{};
+    qint64 remainingMilliseconds_{-1};
+    std::uint64_t conflictId_{};
+    QString conflictPath_;
 };
 
 }

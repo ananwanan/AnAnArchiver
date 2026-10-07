@@ -86,6 +86,9 @@ void entryModelTest()
     entries.front().size = 1024;
     entries.front().type = ananarchiver::EntryType::RegularFile;
     entries[1].sizeKnown = false;
+    entries[1].path = entries.front().path;
+    for (std::size_t row = 0; row < entries.size(); ++row)
+        entries[row].index = row;
     model.append(std::move(entries));
     require(model.rowCount() == 512 && insertions == 1, "Archive entries must insert in one batch");
     require(model.data(model.index(0), ananarchiver::qt::ArchiveEntryModel::PathRole).toString()
@@ -95,6 +98,18 @@ void entryModelTest()
                 == QStringLiteral("Unknown"), "Unknown entry size was presented as zero");
     require(!model.data({}, ananarchiver::qt::ArchiveEntryModel::PathRole).isValid(),
             "Invalid QModelIndex has data");
+    model.selectRow(0, false, false);
+    model.selectRow(1, true, false);
+    require(model.selectedIndices() == std::vector<std::uint64_t>{0, 1},
+            "Duplicate names lost exact entry selection identity");
+    model.selectRow(4, false, true);
+    require(model.selectedIndices() == std::vector<std::uint64_t>{1, 2, 3, 4},
+            "Shift selection did not preserve its anchor");
+    model.selectAll();
+    require(model.selectionCount() == 512 && model.selectedIndices().back() == 511,
+            "Select-all omitted rows");
+    model.clearSelection();
+    require(model.selectionCount() == 0 && model.selectedIndices().empty(), "Selection clear retained ids");
     model.clear();
     require(model.rowCount() == 0, "Archive reset retained rows");
     std::cout << "PASS metadata batching and Unicode\n";
@@ -154,6 +169,10 @@ void controllerTest()
     require(waitUntil([&] { return !controller.busy() && completions == 1; }),
             "Rapid reopen did not finish the latest task");
     require(success && controller.entryCount() == 3000, "Latest task metadata incomplete");
+    require(controller.canExtract(), "A completely indexed archive cannot be extracted");
+    controller.selectRow(1);
+    controller.selectRow(3, true);
+    require(controller.selectionCount() == 2, "Controller selection did not reach metadata model");
     for (int row = 0; row < controller.entryCount(); ++row)
         require(controller.entryModel()->data(controller.entryModel()->index(row, 0),
             ananarchiver::qt::ArchiveEntryModel::PathRole).toString().startsWith(QStringLiteral("latest/")),
@@ -163,6 +182,7 @@ void controllerTest()
     require(waitUntil([&] { return !controller.busy(); }), "Invalid archive task remained running");
     require(!controller.errorMessage().isEmpty() && controller.entryCount() == 0,
             "Invalid archive did not show an error");
+    require(!controller.canExtract(), "An invalid archive enabled extraction");
     controller.openFile(QStringLiteral("cancelled"));
     controller.cancel();
     require(waitUntil([&] { return !controller.busy(); }), "Cancellation did not finish");

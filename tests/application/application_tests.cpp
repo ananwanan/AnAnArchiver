@@ -322,9 +322,153 @@ void directoryErrorsAndCancellation() {
     check(!cancelled && cancelled.error().code == ArchiveErrorCode::Cancelled,
           "directory cancellation ignored");
 }
+
+TaskSnapshot awaitConflict(TaskManager& tasks, TaskId id) {
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto snapshot = tasks.snapshot(id);
+        check(snapshot.has_value(), "conflict task disappeared");
+        if (snapshot->conflict)
+            return *snapshot;
+        std::this_thread::sleep_for(1ms);
+    }
+    throw std::runtime_error("worker did not publish conflict");
+}
+
+void conflictRoundTripAndApplyAll() {
+    TaskManager tasks;
+    std::atomic<unsigned> resolved{};
+    const auto id = tasks.start(TaskType::ExtractArchive, [&](TaskContext& context) -> Result<void> {
+        ExtractionConflict conflict;
+        conflict.entry.path = "duplicate.txt";
+        conflict.destination = "output/duplicate.txt";
+        for (unsigned i = 0; i < 3; ++i) {
+            if (context.requestConflict(conflict) != OverwritePolicy::Rename)
+                return std::unexpected(ArchiveError{ArchiveErrorCode::OutputExists,
+                    "Unexpected conflict decision", {}, {}});
+            ++resolved;
+        }
+        return {};
+    });
+    check(id.has_value(), "conflict task start failed");
+    const auto pending = awaitConflict(tasks, *id);
+    check(!tasks.resolveConflict(*id, pending.conflictId + 1, {OverwritePolicy::Skip, false}),
+          "stale conflict answer accepted");
+    check(!tasks.resolveConflict(*id, pending.conflictId, {OverwritePolicy::Ask, false}),
+          "unresolved Ask answer accepted");
+    check(tasks.resolveConflict(*id, pending.conflictId, {OverwritePolicy::Rename, true}),
+          "conflict answer rejected");
+    const auto terminal = awaitTerminal(tasks, *id);
+    check(terminal.state == TaskState::Succeeded && resolved == 3 && !terminal.conflict,
+          "apply-to-all did not cover remaining conflicts");
+    check(!tasks.resolveConflict(*id, pending.conflictId, {OverwritePolicy::Overwrite, false}),
+          "terminal task accepted an answer");
+    check(tasks.release(*id), "conflict task not released");
+}
+
+void cancellationAndShutdownWakeConflict() {
+    auto work = [](TaskContext& context) -> Result<void> {
+        const auto decision = context.requestConflict({{}, "existing.txt"});
+        check(decision == OverwritePolicy::Ask && context.cancellation().stop_requested(),
+              "conflict wait did not observe cancellation");
+        return std::unexpected(ArchiveError{ArchiveErrorCode::Cancelled, "Cancelled", {}, {}});
+    };
+    TaskManager tasks;
+    const auto id = tasks.start(TaskType::ExtractArchive, work);
+    check(id.has_value(), "conflict cancel task start failed");
+    awaitConflict(tasks, *id);
+    check(tasks.cancel(*id), "waiting conflict cancellation rejected");
+    check(awaitTerminal(tasks, *id).state == TaskState::Cancelled && tasks.release(*id),
+          "waiting conflict task did not finish cancellation");
+    const auto start = std::chrono::steady_clock::now();
+    {
+        TaskManager shutdown;
+        const auto other = shutdown.start(TaskType::ExtractArchive, work);
+        check(other.has_value(), "shutdown conflict task start failed");
+        awaitConflict(shutdown, *other);
+    }
+    check(std::chrono::steady_clock::now() - start < 2s,
+          "shutdown blocked on unanswered conflict");
+}
+
+class ExtractionReader final : public ArchiveReader {
+public:
+    Result<ArchiveInfo> open(const std::filesystem::path& path, CancellationToken) override {
+        ArchiveInfo info;
+        info.path = path;
+        info.formatName = "Extraction fixture";
+        return info;
+    }
+    Result<void> enumerate(const EntryCallback&, CancellationToken) override { return {}; }
+    Result<void> extract(const ExtractionRequest& request, const ProgressCallback& progress,
+                         CancellationToken cancellation) override {
+        check(request.selectedIndices && request.selectedIndices->size() == 1 &&
+              request.selectedIndices->front() == 7, "selected identity lost in service");
+        check(request.onConflict && request.onConflict({{}, request.destination / "file.txt"}) ==
+              OverwritePolicy::Skip, "service did not route overwrite callback");
+        for (std::uint64_t i = 1; i <= 3; ++i) {
+            if (cancellation.stop_requested() ||
+                !progress({"file.txt", i * 4096, i, request.totalBytes, request.totalEntries}))
+                return std::unexpected(ArchiveError{ArchiveErrorCode::Cancelled, "Cancelled", {}, {}});
+            std::this_thread::sleep_for(2ms);
+        }
+        return {};
+    }
+};
+
+void extractionServiceProgress() {
+    TaskManager tasks;
+    ArchiveService service(tasks, [] { return std::make_unique<ExtractionReader>(); });
+    ExtractionRequest request;
+    request.destination = "output";
+    request.selectedIndices = std::vector<std::uint64_t>{7};
+    request.totalBytes = 16384;
+    request.totalEntries = 3;
+    const auto id = service.extract("stream.fixture", std::move(request));
+    check(id.has_value(), "extraction service start failed");
+    const auto conflict = awaitConflict(tasks, *id);
+    check(tasks.resolveConflict(*id, conflict.conflictId, {OverwritePolicy::Skip, false}),
+          "extraction service conflict response failed");
+    const auto snapshot = awaitTerminal(tasks, *id);
+    check(snapshot.state == TaskState::Succeeded && snapshot.type == TaskType::ExtractArchive,
+          "extraction service failed");
+    check(snapshot.processedBytes == 12288 && snapshot.processedEntries == 3 &&
+          snapshot.totalBytes == 16384, "actual extraction bytes confused with estimated total");
+    check(snapshot.bytesPerSecond > 0 && snapshot.estimatedRemaining.has_value(),
+          "extraction speed/ETA missing");
+    check(tasks.takeEntries(*id).empty() && tasks.release(*id),
+          "extraction generated metadata queues");
+}
+
+void cancellationDoesNotHideRecoveryFailure() {
+    TaskManager tasks;
+    std::atomic<bool> running{};
+    const auto id = tasks.start(TaskType::ExtractArchive,
+        [&](TaskContext& context) -> Result<void> {
+            running = true;
+            while (!context.cancellation().stop_requested())
+                std::this_thread::sleep_for(1ms);
+            return std::unexpected(ArchiveError{ArchiveErrorCode::CleanupFailed,
+                "Cancellation could not restore an original file",
+                "Recovery backup was retained", "output/recovery/backup"});
+        });
+    check(id.has_value(), "recovery failure task start failed");
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (!running && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(1ms);
+    check(running && tasks.cancel(*id), "recovery failure task not cancelled");
+    const auto snapshot = awaitTerminal(tasks, *id);
+    check(snapshot.state == TaskState::Failed && snapshot.error &&
+          snapshot.error->code == ArchiveErrorCode::CleanupFailed &&
+          snapshot.error->backendMessage == "Recovery backup was retained" &&
+          snapshot.error->path == std::filesystem::path{"output/recovery/backup"},
+          "cancellation hid recovery failure or its remaining-file location");
+    check(tasks.release(*id), "recovery failure task not released");
+}
 } // namespace
 
 int main() {
+    std::cout << std::unitbuf;
     const std::pair<const char*, void (*)()> tests[] = {
         {"streaming metadata batches", streamingBatches},
         {"unknown stream size", unknownSizeRemainsUnknown},
@@ -337,6 +481,10 @@ int main() {
         {"cancellation versus completion race", acceptedCancellationWinsCompletionRace},
         {"lazy unicode directory children", immediateDirectoryChildren},
         {"directory error and cancellation", directoryErrorsAndCancellation},
+        {"overwrite conflict and apply to all", conflictRoundTripAndApplyAll},
+        {"cancel and shutdown wake conflict", cancellationAndShutdownWakeConflict},
+        {"extraction service actual bytes", extractionServiceProgress},
+        {"cancellation retains recovery failure", cancellationDoesNotHideRecoveryFailure},
     };
     unsigned failed = 0;
     for (const auto& [name, run] : tests) {

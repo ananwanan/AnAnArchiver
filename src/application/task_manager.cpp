@@ -4,6 +4,8 @@
 #include <condition_variable>
 #include <deque>
 #include <exception>
+#include <cmath>
+#include <limits>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -20,11 +22,14 @@ bool terminal(TaskState state) {
 struct TaskContext::SharedState {
     mutable std::mutex mutex;
     std::condition_variable_any space;
+    std::condition_variable_any conflictReady;
     std::stop_source stop;
     TaskSnapshot snapshot;
     std::chrono::steady_clock::time_point started{std::chrono::steady_clock::now()};
     std::chrono::steady_clock::time_point finished{};
     std::deque<std::vector<ArchiveEntry>> batches;
+    std::optional<ConflictResolution> resolution;
+    std::optional<OverwritePolicy> applyToAll;
 };
 
 struct TaskManager::Impl {
@@ -54,6 +59,38 @@ void TaskContext::report(std::string file, std::uint64_t bytes, std::uint64_t en
     state_->snapshot.byteTotalsKnown = allSizesKnown;
 }
 
+void TaskContext::report(const ExtractionProgress& progress) {
+    std::lock_guard lock(state_->mutex);
+    state_->snapshot.currentFile = progress.currentFile;
+    state_->snapshot.processedBytes = progress.processedBytes;
+    state_->snapshot.processedEntries = progress.processedEntries;
+    state_->snapshot.totalBytes = progress.totalBytes;
+    state_->snapshot.totalEntries = progress.totalEntries;
+    state_->snapshot.byteTotalsKnown = progress.totalBytes.has_value();
+}
+
+OverwritePolicy TaskContext::requestConflict(const ExtractionConflict& conflict) {
+    std::unique_lock lock(state_->mutex);
+    if (cancellation().stop_requested())
+        return OverwritePolicy::Ask;
+    if (state_->applyToAll)
+        return *state_->applyToAll;
+    state_->resolution.reset();
+    state_->snapshot.conflict = conflict;
+    ++state_->snapshot.conflictId;
+    const auto answered = state_->conflictReady.wait(lock, cancellation(), [&] {
+        return state_->resolution.has_value();
+    });
+    state_->snapshot.conflict.reset();
+    if (!answered || cancellation().stop_requested())
+        return OverwritePolicy::Ask;
+    const auto resolution = *state_->resolution;
+    state_->resolution.reset();
+    if (resolution.applyToAll)
+        state_->applyToAll = resolution.policy;
+    return resolution.policy;
+}
+
 bool TaskContext::publishEntries(std::vector<ArchiveEntry> entries) {
     if (entries.empty())
         return !cancellation().stop_requested();
@@ -78,6 +115,7 @@ TaskManager::~TaskManager() {
         (void)id;
         task->state->stop.request_stop();
         task->state->space.notify_all();
+        task->state->conflictReady.notify_all();
     }
     impl_->tasks.clear();
 }
@@ -112,7 +150,7 @@ Result<TaskId> TaskManager::start(TaskType type, TaskWork work) {
     auto* registered = task.get();
     impl_->tasks.emplace(id, std::move(task));
     try {
-        registered->worker = std::jthread([state, work = std::move(work)] {
+        registered->worker = std::jthread([state, type, work = std::move(work)] {
             TaskContext context(state);
             {
                 std::lock_guard stateLock(state->mutex);
@@ -143,7 +181,14 @@ Result<TaskId> TaskManager::start(TaskType type, TaskWork work) {
             }
             std::lock_guard stateLock(state->mutex);
             state->finished = std::chrono::steady_clock::now();
-            if (state->snapshot.state == TaskState::Cancelling ||
+            state->snapshot.conflict.reset();
+            if (!result && result.error().code == ArchiveErrorCode::CleanupFailed) {
+                // Cancellation must never hide failed restoration or leftover
+                // recovery files. Surface the concrete error as a failed task.
+                state->snapshot.state = TaskState::Failed;
+                state->snapshot.error = std::move(result.error());
+                state->batches.clear();
+            } else if (state->snapshot.state == TaskState::Cancelling ||
                 (!result && result.error().code == ArchiveErrorCode::Cancelled) ||
                 state->stop.stop_requested()) {
                 state->snapshot.state = TaskState::Cancelled;
@@ -156,9 +201,10 @@ Result<TaskId> TaskManager::start(TaskType type, TaskWork work) {
                 state->batches.clear();
             } else {
                 state->snapshot.state = TaskState::Succeeded;
-                if (state->snapshot.byteTotalsKnown)
+                if (state->snapshot.byteTotalsKnown && type == TaskType::OpenArchive)
                     state->snapshot.totalBytes = state->snapshot.processedBytes;
-                state->snapshot.totalEntries = state->snapshot.processedEntries;
+                if (type == TaskType::OpenArchive)
+                    state->snapshot.totalEntries = state->snapshot.processedEntries;
             }
         });
     } catch (const std::system_error& error) {
@@ -187,8 +233,21 @@ std::optional<TaskSnapshot> TaskManager::snapshot(TaskId id) const {
     auto snapshot = state.snapshot;
     const auto end = terminal(snapshot.state) ? state.finished : std::chrono::steady_clock::now();
     snapshot.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - state.started);
-    // Enumeration does not decompress these bytes, so throughput/ETA remain
-    // unknown. Do not claim the metadata size sum is IO throughput.
+    // Only extraction counters represent IO. Indexing must not fabricate speed.
+    if (snapshot.type == TaskType::ExtractArchive && snapshot.elapsed.count() > 0) {
+        snapshot.bytesPerSecond = static_cast<double>(snapshot.processedBytes) * 1000.0 /
+                                  static_cast<double>(snapshot.elapsed.count());
+        if (snapshot.totalBytes && snapshot.bytesPerSecond > 0 && !snapshot.conflict) {
+            const auto remaining = *snapshot.totalBytes > snapshot.processedBytes
+                                       ? *snapshot.totalBytes - snapshot.processedBytes : 0;
+            const auto milliseconds = static_cast<double>(remaining) * 1000.0 /
+                                      snapshot.bytesPerSecond;
+            if (std::isfinite(milliseconds) &&
+                milliseconds < static_cast<double>(std::numeric_limits<std::int64_t>::max()))
+                snapshot.estimatedRemaining = std::chrono::milliseconds{
+                    static_cast<std::int64_t>(milliseconds)};
+        }
+    }
     return snapshot;
 }
 
@@ -228,6 +287,29 @@ bool TaskManager::cancel(TaskId id) {
     // invoke them while holding the manager or task state locks.
     state->stop.request_stop();
     state->space.notify_all();
+    state->conflictReady.notify_all();
+    return true;
+}
+
+bool TaskManager::resolveConflict(TaskId id, std::uint64_t conflictId,
+                                  ConflictResolution resolution) {
+    if (resolution.policy == OverwritePolicy::Ask)
+        return false;
+    std::shared_ptr<TaskContext::SharedState> state;
+    {
+        std::lock_guard lock(impl_->mutex);
+        const auto it = impl_->tasks.find(id);
+        if (it == impl_->tasks.end())
+            return false;
+        state = it->second->state;
+        std::lock_guard stateLock(state->mutex);
+        if (!state->snapshot.conflict || state->snapshot.conflictId != conflictId ||
+            state->resolution || state->stop.stop_requested() ||
+            state->snapshot.state != TaskState::Running)
+            return false;
+        state->resolution = resolution;
+    }
+    state->conflictReady.notify_all();
     return true;
 }
 

@@ -10,6 +10,7 @@ ColumnLayout {
     required property var directoryModel
     required property Action openAction
     required property Action cancelAction
+    required property Action extractAction
     signal browseFolder()
     spacing: 0
 
@@ -18,6 +19,7 @@ ColumnLayout {
         archiveController: root.archiveController
         openAction: root.openAction
         cancelAction: root.cancelAction
+        extractAction: root.extractAction
         onBrowseFolder: root.browseFolder()
     }
     ToolBar {
