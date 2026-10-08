@@ -3,12 +3,17 @@
 跨平台归档管理器，使用 C++23、Qt 6 Quick/QML 和固定版本的
 [ananwanan/libarchive](https://github.com/ananwanan/libarchive)。
 
-当前完成 AGENTS.md 的 M1、M2 与 M3：独立 Core、libarchive RAII 适配器、
+当前完成 AGENTS.md 的 M1、M2、M3 与 M4：独立 Core、libarchive RAII 适配器、
 结构化错误、内容检测、流式元数据枚举，以及异步打开和安全流式解压。
 不传入文件时显示 Home。支持解压全部/多选条目、目录选择、密码、覆盖交互、
 实际字节进度、速度与取消。支持创建 ZIP、7z、TAR、TAR.GZ、TAR.BZ2、
 TAR.XZ、TAR.ZST 和 TAR.LZ4，创建选项由实际 writer capabilities 驱动。
 归档编辑和系统集成属于后续里程碑。
+
+桌面体验包含统一的浅色/深色/跟随系统主题、最近归档、异步元数据搜索与
+名称/大小/类型/时间排序、任务中心、拖入打开或创建归档、选中条目拖出、
+键盘快捷键，以及可复制的纯文本错误详情。主题和最多 20 条最近记录在后台
+保存；任务中心保留最多 64 条本次会话记录，支持按任务取消和清除已结束任务。
 
 ## 目录与依赖方向
 
@@ -176,3 +181,29 @@ M3 增加所有创建格式/方法的生成式往返、等级端点、C locale U
 [流式创建与原子输出](docs/architecture/0004-streaming-compression.md)。
 M2 的执行证据和验证边界见 [M2 验收记录](docs/validation/2026-10-07-m2.md)。
 M3 的执行证据和验证边界见 [M3 验收记录](docs/validation/2026-10-07-m3.md)。
+M4 的执行证据和验证边界见 [M4 验收记录](docs/validation/2026-10-08-m4.md)。
+
+## 桌面操作
+
+`Ctrl+O` 打开，`Ctrl+N` 创建，`Ctrl+E` 解压，`Ctrl+F` 聚焦搜索，`Ctrl+J`
+打开任务中心，`Ctrl+W` 关闭归档。文件列表支持方向键、Home/End、空格切换
+选择及 Ctrl+A。搜索中的 Escape 清空搜索；任务中的 Escape 请求取消。
+点列表表头排序，重复点击切换方向；“归档顺序”恢复原始条目顺序。更改搜索
+或排序会清空选择，全选仅选择当前可见条目；“解压全部”仍指整个归档。
+
+拖入单个文件时，在工作线程根据内容探测归档；普通文件和多文件/目录进入
+创建对话框。网络 URL 不接受。拖出时先选择条目，使用“导出”准备文件
+（加密条目可输入密码）；准备成功后按住选中行或导出按钮拖入目标文件夹。
+准备在后台安全解压，跳过链接并保留目录结构，只提供复制操作。每次导出
+最多 16 GiB、两小时和 10,000 个顶层文件 URL；最多保留四个临时导出目录。
+系统拖放返回后暂存文件保留十分钟，便于桌面继续复制；选择更改会使已准备
+的拖放失效，失败、取消和退出会尽力清理。清理失败会显示具体残留路径。
+
+Windows 可把生成式测试数据放在指定的 SSD 目录，设置只影响测试子进程：
+
+```powershell
+./scripts/Test-Desktop.ps1 -BuildDirectory out/build/m4-msvc -TemporaryRoot D:/Cache/Codex/AnAnArchiver-M4
+```
+
+`-BuildDirectory` 可使用任何已配置的应用构建目录。省略 `-TemporaryRoot` 时
+使用操作系统临时目录；没有把开发机器路径写入程序或 CMake 默认配置。

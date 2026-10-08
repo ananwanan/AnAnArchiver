@@ -651,9 +651,22 @@ void realCompressionService() {
 }
 } // namespace
 
+void contentProbeDoesNotEnumerate() {
+    auto state = std::make_shared<ReaderState>();
+    TaskManager tasks;
+    ArchiveService service(tasks, [state] { return std::make_unique<SyntheticReader>(state); });
+    const auto id = service.probe("content-with-unrelated-extension.xxx");
+    check(id.has_value(), "probe task was not submitted");
+    const auto snapshot = awaitTerminal(tasks, *id);
+    check(snapshot.state == TaskState::Succeeded && snapshot.archive.has_value(), "content probe failed");
+    check(state->enumerated == 0 && snapshot.processedEntries == 0, "content probe enumerated payloads");
+    check(tasks.release(*id), "probe task was not released");
+}
+
 int main() {
     std::cout << std::unitbuf;
     const std::pair<const char*, void (*)()> tests[] = {
+        {"content probe without metadata enumeration", contentProbeDoesNotEnumerate},
         {"streaming metadata batches", streamingBatches},
         {"unknown stream size", unknownSizeRemainsUnknown},
         {"bounded queue cancellation", boundedQueueAndCancellation},

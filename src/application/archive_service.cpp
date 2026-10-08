@@ -29,6 +29,21 @@ ArchiveService::ArchiveService(TaskManager& tasks, ReaderFactory factory, Writer
         writerFactory_ = [] { return makeLibArchiveWriter(); };
 }
 
+Result<TaskId> ArchiveService::probe(const std::filesystem::path& path) {
+    return tasks_.start(TaskType::OpenArchive,
+        [path, factory = factory_](TaskContext& context) -> Result<void> {
+            auto reader = factory();
+            if (!reader)
+                return std::unexpected(ArchiveError{ArchiveErrorCode::BackendError,
+                    "Archive reader factory returned no reader", {}, path});
+            auto info = reader->open(path, context.cancellation());
+            if (!info)
+                return std::unexpected(info.error());
+            context.setArchiveInfo(std::move(*info));
+            return {};
+        });
+}
+
 Result<TaskId> ArchiveService::open(const std::filesystem::path& path, std::string password) {
     auto secret = std::make_shared<ArchiveOperation>();
     secret->password = std::move(password);

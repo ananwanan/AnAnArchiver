@@ -62,11 +62,13 @@ class CompressionController final : public QObject {
     Q_INVOKABLE void dismissError();
     Q_INVOKABLE void dismissProgress();
     Q_INVOKABLE QString localPath(const QUrl& url) const { return url.toLocalFile(); }
+    void cancelTask(application::TaskId id);
 
   signals:
     void inputsChanged();
     void changed();
     void operationFinished(bool succeeded);
+    void taskObserved(const application::TaskSnapshot& snapshot, const QString& path);
 
   private:
     void poll();
