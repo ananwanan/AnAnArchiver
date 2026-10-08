@@ -10,6 +10,24 @@ check_cxx_source_compiles("#include <expected>\nint main() { std::expected<int, 
 if(NOT ANANARCHIVER_HAS_CXX23_EXPECTED)
     message(FATAL_ERROR "The compiler and C++ standard library must support C++23 std::expected. Select a current MSVC, GCC, or Clang toolchain (and a compatible libc++/libstdc++) before building dependencies.")
 endif()
+if(ANDROID)
+    set(ananarchiver_stop_token_probe
+        "#include <thread>\n#include <stop_token>\nint main() { std::jthread worker([](std::stop_token) {}); worker.request_stop(); worker.join(); }")
+    check_cxx_source_compiles("${ananarchiver_stop_token_probe}" ANANARCHIVER_HAS_STD_JTHREAD)
+    if(NOT ANANARCHIVER_HAS_STD_JTHREAD)
+        # NDK r27/r28 libc++ exposes C++20 stop_token/jthread behind its documented
+        # experimental-library option. Check both compilation and linkage first.
+        set(ananarchiver_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+        string(APPEND CMAKE_REQUIRED_FLAGS " -fexperimental-library")
+        check_cxx_source_compiles("${ananarchiver_stop_token_probe}"
+            ANANARCHIVER_HAS_EXPERIMENTAL_STD_JTHREAD)
+        set(CMAKE_REQUIRED_FLAGS "${ananarchiver_saved_required_flags}")
+        if(NOT ANANARCHIVER_HAS_EXPERIMENTAL_STD_JTHREAD)
+            message(FATAL_ERROR "The Android C++ toolchain must support std::stop_token and std::jthread, including their runtime linkage.")
+        endif()
+        set(ANANARCHIVER_ANDROID_EXPERIMENTAL_LIBRARY ON)
+    endif()
+endif()
 
 include(CTest)
 option(ANANARCHIVER_SUPERBUILD "Build pinned dependencies before the application" ON)

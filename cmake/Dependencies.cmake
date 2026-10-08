@@ -2,7 +2,8 @@ include_guard(GLOBAL)
 
 function(ananarchiver_find_bundled_library output)
     find_library(${output} NAMES ${ARGN}
-        PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
+        PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}/lib"
+        NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH REQUIRED)
     set(${output} "${${output}}" PARENT_SCOPE)
 endfunction()
 
@@ -21,7 +22,8 @@ else()
     ananarchiver_find_bundled_library(lz4_library lz4 liblz4)
     ananarchiver_find_bundled_library(expat_library expat expatd libexpat libexpatd libexpatMD libexpatdMD)
     find_package(MbedTLS CONFIG REQUIRED
-        PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}" NO_DEFAULT_PATH)
+        PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}"
+        NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
     add_library(AnAnArchiver::Archive STATIC IMPORTED GLOBAL)
     set_target_properties(AnAnArchiver::Archive PROPERTIES
         IMPORTED_LOCATION "${archive_library}"

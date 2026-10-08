@@ -109,6 +109,30 @@ $env:PATH = (Resolve-Path out/build/desktop-release/dependencies/install/qt/bin)
 
 脚本同时支持 superbuild 和直接应用构建目录，并把附加参数传给应用。
 
+### Android 测试 APK
+
+Windows 上可用同版本的 Qt Android kit 与宿主 Qt kit 构建测试 APK；归档 backend
+与 codecs 仍使用项目固定源码。先按 [Qt Android 环境要求](https://doc.qt.io/qt-6.11/android-configure-dev-environment.html)
+准备对应 NDK、JDK、SDK API 36 与 build-tools。工具链路径通过参数传入：
+
+```powershell
+./scripts/Build-Android.ps1 -QtAndroidDir $env:QT_ANDROID_DIR -QtHostDir $env:QT_HOST_PATH `
+    -AndroidNdkDir $env:ANDROID_NDK_ROOT -AndroidSdkDir $env:ANDROID_HOME -JavaHome $env:JAVA_HOME
+```
+
+默认构建 `arm64-v8a`，最低 Android 9 / API 28、目标 API 36。脚本使用 Release
+原生代码和 Android debug key，产物位于 `out/artifacts/android`；同时验证签名、
+16 KiB ZIP/ELF 对齐、包名、SDK 与全部原生库的 ABI，并保存 `verification.json`。NDK r27/r28
+的 libc++ 默认隐藏 `std::stop_token` / `std::jthread`，构建会先验证其编译和运行库链接，
+必要时对项目 C++ targets 启用官方 `-fexperimental-library` 选项。该测试包可供本地安装，
+正式发布需要所有者的 release signing key。
+若 Windows 的 Java selector pipe 报 `Unable to establish loopback connection` / UnixDomainSockets
+连接错误，可加 `-JavaTcpPipes` 使用 JDK 的 TCP fallback；该选项只作用于本次构建进程。
+
+当前 APK 复用桌面 QML 界面，尚未进行手机布局适配。文件选择返回的 Android
+`content://` URI 尚未桥接到 Qt 无关的 Core 文件 IO；公共存储浏览、解压和创建归档
+需要后续 Storage Access Framework 适配。APK 构建与静态验证不代表 Android 真机功能验收。
+
 ## 当前行为与测试
 
 应用使用内容识别归档，扩展名只用于文件选择。工作线程流式生成元数据，

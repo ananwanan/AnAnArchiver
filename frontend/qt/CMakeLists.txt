@@ -62,6 +62,16 @@ set_target_properties(AnAnArchiver PROPERTIES
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
     WIN32_EXECUTABLE TRUE)
+if(ANDROID)
+    set_target_properties(AnAnArchiver PROPERTIES
+        QT_ANDROID_PACKAGE_NAME com.ananwanan.ananarchiver
+        QT_ANDROID_APP_NAME AnAnArchiver
+        QT_ANDROID_MIN_SDK_VERSION 28
+        QT_ANDROID_TARGET_SDK_VERSION 36
+        QT_ANDROID_COMPILE_SDK_VERSION 36
+        QT_ANDROID_VERSION_NAME ${PROJECT_VERSION}
+        QT_ANDROID_VERSION_CODE 10000)
+endif()
 
 file(GLOB ANANARCHIVER_ICON_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/qml/icons/*.svg")
 qt_add_resources(AnAnArchiver "desktop_icons"
@@ -71,6 +81,7 @@ qt_add_resources(AnAnArchiver "desktop_icons"
 
 install(TARGETS AnAnArchiver
     BUNDLE DESTINATION .
+    LIBRARY DESTINATION lib
     RUNTIME DESTINATION bin)
 
 if(BUILD_TESTING)

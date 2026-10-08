@@ -25,6 +25,16 @@ set(dependency_arguments
 if(CMAKE_TOOLCHAIN_FILE)
     list(APPEND dependency_arguments "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}")
 endif()
+if(ANDROID)
+    # ExternalProject configures a new CMake process. Preserve the selected
+    # Android kit and host tools instead of falling back to host libraries.
+    foreach(variable IN ITEMS ANDROID_ABI ANDROID_PLATFORM ANDROID_STL
+            ANDROID_SDK_ROOT ANDROID_NDK_ROOT QT_HOST_PATH QT_HOST_PATH_CMAKE_DIR)
+        if(DEFINED ${variable} AND NOT "${${variable}}" STREQUAL "")
+            list(APPEND dependency_arguments "-D${variable}:STRING=${${variable}}")
+        endif()
+    endforeach()
+endif()
 if(CMAKE_OSX_ARCHITECTURES)
     string(REPLACE ";" "|" mac_architectures "${CMAKE_OSX_ARCHITECTURES}")
     list(APPEND dependency_arguments "-DCMAKE_OSX_ARCHITECTURES:STRING=${mac_architectures}")
@@ -138,6 +148,10 @@ set(application_arguments ${dependency_arguments}
 if(CMAKE_PREFIX_PATH)
     string(REPLACE ";" "|" developer_prefix_path "${CMAKE_PREFIX_PATH}")
     list(APPEND application_arguments "-DCMAKE_PREFIX_PATH:STRING=${developer_prefix_path}")
+endif()
+if(ANDROID AND DEFINED QT_ANDROID_DEPLOYMENT_TYPE)
+    list(APPEND application_arguments
+        "-DQT_ANDROID_DEPLOYMENT_TYPE:STRING=${QT_ANDROID_DEPLOYMENT_TYPE}")
 endif()
 ExternalProject_Add(ananarchiver
     SOURCE_DIR "${PROJECT_SOURCE_DIR}"
