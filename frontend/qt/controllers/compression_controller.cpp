@@ -133,6 +133,8 @@ bool CompressionController::create(const QString& destination, int format, int m
         finalizing_ = false;
         destination_ = destination;
         status_ = tr("Scanning input files…");
+        if (auto snapshot = tasks_.snapshot(*active_))
+            emit taskObserved(*snapshot, destination);
         errorMessage_.clear();
         errorDetails_.clear();
         currentEntry_.clear();
@@ -157,6 +159,11 @@ void CompressionController::cancel() {
         status_ = tr("Cancelling…");
         emit changed();
     }
+}
+
+void CompressionController::cancelTask(application::TaskId id) {
+    if (active_ && *active_ == id)
+        cancel();
 }
 
 void CompressionController::dismissError() {
@@ -234,6 +241,7 @@ void CompressionController::poll() {
         const auto snapshot = tasks_.snapshot(id);
         if (!snapshot)
             return;
+        emit taskObserved(*snapshot, destination_);
         currentEntry_ = fromUtf8(snapshot->currentFile);
         processedBytes_ = static_cast<double>(snapshot->processedBytes);
         totalBytes_ = snapshot->totalBytes ? static_cast<double>(*snapshot->totalBytes) : -1;

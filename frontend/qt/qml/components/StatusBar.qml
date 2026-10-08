@@ -7,14 +7,41 @@ ToolBar {
     id: root
     required property var archiveController
     required property var compressionController
+    property var dragController: null
+    readonly property bool showingExport: root.dragController && (root.dragController.busy || root.dragController.ready)
     readonly property bool showingCompression: root.compressionController.hasTask
     readonly property var operation: showingCompression ? root.compressionController : root.archiveController
-    implicitHeight: root.showingCompression || root.archiveController.extracting ? 76 : 38
+    implicitHeight: (root.showingCompression || root.archiveController.extracting ? 76 : 38) + (root.showingExport ? 44 : 0)
+    background: Rectangle { color: root.palette.window; Rectangle { width: parent.width; height: 1; color: root.palette.mid; opacity: 0.2 } }
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: 12
         anchors.rightMargin: 12
         spacing: 4
+        RowLayout {
+            Layout.fillWidth: true
+            visible: root.showingExport
+            BusyIndicator { running: root.dragController && root.dragController.busy; visible: running; Layout.preferredWidth: 22; Layout.preferredHeight: 22 }
+            AppIcon { name: "export"; visible: root.dragController && root.dragController.ready }
+            Label {
+                Layout.fillWidth: true
+                text: root.dragController ? root.dragController.status : ""
+                textFormat: Text.PlainText
+                elide: Text.ElideMiddle
+                color: root.palette.highlight
+            }
+            Label { visible: root.dragController && root.dragController.ready; text: qsTr("Drag selected rows into a folder"); textFormat: Text.PlainText; font.pixelSize: 12; opacity: 0.7 }
+            ToolButton {
+                objectName: "dragPreparedFiles"
+                visible: root.dragController && root.dragController.ready
+                text: qsTr("Drag out")
+                icon.source: "../icons/export.svg"
+                icon.color: palette.buttonText
+                DragHandler { target: null; onActiveChanged: { if (active) root.dragController.startDrag() } }
+                Accessible.name: qsTr("Drag prepared files out")
+            }
+            ToolButton { text: root.dragController && root.dragController.busy ? qsTr("Cancel") : qsTr("Dismiss"); onClicked: root.dragController.cancel() }
+        }
         RowLayout {
         Layout.fillWidth: true
         BusyIndicator {
@@ -31,8 +58,10 @@ ToolBar {
             opacity: 0.65
         }
         Label { textFormat: Text.PlainText;
-            text: qsTr("%1 entries").arg(root.showingCompression
-                ? root.compressionController.processedEntries : root.archiveController.entryCount)
+            text: !root.showingCompression && root.archiveController.entryModel.query.length > 0
+                ? qsTr("%1 of %2 entries").arg(root.archiveController.entryModel.count).arg(root.archiveController.entryModel.totalCount)
+                : qsTr("%1 entries").arg(root.showingCompression
+                    ? root.compressionController.processedEntries : root.archiveController.entryCount)
             Accessible.name: text
         }
         Label { textFormat: Text.PlainText;

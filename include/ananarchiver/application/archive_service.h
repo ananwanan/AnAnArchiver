@@ -12,6 +12,8 @@ class ArchiveService {
   public:
     explicit ArchiveService(TaskManager& tasks, ReaderFactory factory = {}, WriterFactory writer = {});
     Result<TaskId> open(const std::filesystem::path& path, std::string password = {});
+    // Content detection only, on a worker; never builds the metadata index.
+    Result<TaskId> probe(const std::filesystem::path& path);
     Result<TaskId> extract(const std::filesystem::path& path, ExtractionRequest request);
     // Capability discovery configures backend options only; it performs no IO.
     std::vector<ArchiveCapabilities> compressionCapabilities() const;

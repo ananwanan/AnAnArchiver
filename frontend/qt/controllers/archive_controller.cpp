@@ -10,6 +10,10 @@ ArchiveController::ArchiveController(application::ReaderFactory factory, QObject
     : QObject(parent), service_(tasks_, std::move(factory)), status_(tr("Ready"))
 {
     connect(&entries_, &ArchiveEntryModel::selectionChanged, this, &ArchiveController::changed);
+    connect(&entries_, &ArchiveEntryModel::queryingChanged, this, &ArchiveController::changed);
+    connect(&entries_, &ArchiveEntryModel::queryFailed, this, [this](const QString& message) {
+        showError({ArchiveErrorCode::ResourceLimitExceeded, message.toStdString(), {}, {}});
+    });
     timer_.setInterval(30);
     connect(&timer_, &QTimer::timeout, this, &ArchiveController::poll);
     timer_.start();
@@ -94,6 +98,8 @@ void ArchiveController::startPending()
     }
     active_ = *result;
     status_ = tr("Indexing archive…");
+    if (auto snapshot = tasks_.snapshot(*active_))
+        emit taskObserved(*snapshot, currentFile_);
     emit changed();
 }
 
@@ -110,6 +116,28 @@ void ArchiveController::cancel()
         status_ = tr("Cancelling…");
         emit changed();
     }
+}
+
+void ArchiveController::cancelTask(application::TaskId id)
+{
+    if (active_ && *active_ == id)
+        cancel();
+    else if (retired_ && *retired_ == id)
+        tasks_.cancel(id);
+}
+
+Result<ExtractionRequest> ArchiveController::selectedExtractionRequest(
+    const std::filesystem::path& destination) const
+{
+    if (!canExtract() || selectionCount() == 0)
+        return std::unexpected(ArchiveError{ArchiveErrorCode::UnsupportedOperation,
+            "Select archive entries after indexing has finished.", {}, {}});
+    ExtractionRequest request;
+    request.destination = destination;
+    request.selectedIndices = entries_.selectedIndices();
+    request.overwrite = OverwritePolicy::Overwrite;
+    request.links = LinkPolicy::Skip;
+    return request;
 }
 
 void ArchiveController::close()
@@ -225,6 +253,8 @@ void ArchiveController::extract(const QString& destination, bool onlySelected, Q
         remainingMilliseconds_ = -1;
         currentEntry_.clear();
         status_ = tr("Extracting archive…");
+        if (auto snapshot = tasks_.snapshot(*active_))
+            emit taskObserved(*snapshot, destination);
         emit changed();
     } catch (const std::bad_alloc&) {
         allocationFailed();
@@ -349,7 +379,16 @@ void ArchiveController::pollTasks()
 {
     if (retired_) {
         tasks_.takeEntries(*retired_, 2);
-        if (tasks_.release(*retired_))
+        auto snapshot = tasks_.snapshot(*retired_);
+        const bool released = tasks_.release(*retired_);
+        if (snapshot) {
+            using application::TaskState;
+            const bool terminal = snapshot->state == TaskState::Succeeded ||
+                snapshot->state == TaskState::Cancelled || snapshot->state == TaskState::Failed;
+            if (terminal && !released) snapshot->state = TaskState::Running;
+            emit taskObserved(*snapshot, {});
+        }
+        if (released)
             retired_.reset();
     }
     if (!active_ && !pendingFile_.isEmpty() && !retired_)
@@ -387,12 +426,21 @@ void ArchiveController::pollTasks()
     }
     const auto terminal = snapshot->state == TaskState::Cancelled ||
         snapshot->state == TaskState::Succeeded || snapshot->state == TaskState::Failed;
-    if (terminal && tasks_.release(id)) {
+    const bool released = terminal && tasks_.release(id);
+    // Backend completion can precede draining the final metadata batches.
+    // Keep the task active in the center until the controller has finished too.
+    auto observed = *snapshot;
+    if (terminal && !released)
+        observed.state = TaskState::Running;
+    emit taskObserved(observed, currentFile_);
+    if (released) {
         active_.reset();
         conflictId_ = 0;
         conflictPath_.clear();
         if (!extracting_)
             indexed_ = snapshot->state == TaskState::Succeeded;
+        if (!extracting_ && indexed_)
+            emit archiveIndexed(currentFile_);
         if (!extracting_ && snapshot->error &&
             (snapshot->error->code == ArchiveErrorCode::PasswordRequired ||
              snapshot->error->code == ArchiveErrorCode::WrongPassword))

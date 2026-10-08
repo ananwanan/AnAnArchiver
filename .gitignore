@@ -91,3 +91,6 @@ out/
 /Testing/
 /compile_commands.json
 /dependencies/
+
+# Generated files from the build process
+/dist/

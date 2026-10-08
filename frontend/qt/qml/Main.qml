@@ -5,12 +5,16 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import "./pages"
 import "./dialogs"
+import "./components"
 
 ApplicationWindow {
     id: window
     required property var archiveController
     required property var compressionController
     required property var directoryModel
+    property var desktopController: null
+    property var taskController: null
+    property var dragController: null
     width: 1180
     height: 740
     minimumWidth: 760
@@ -20,20 +24,47 @@ ApplicationWindow {
            ? window.archiveController.currentFile.split(/[\\/]/).pop() + " — AnAnArchiver"
            : "AnAnArchiver"
 
-    property int themeMode: 0
+    property int themeMode: desktopController ? desktopController.themeMode : 0
+    onThemeModeChanged: {
+        if (desktopController && desktopController.themeMode !== themeMode)
+            desktopController.themeMode = themeMode
+    }
     readonly property bool darkTheme: themeMode === 2
         || (themeMode === 0 && systemPalette.window.r + systemPalette.window.g + systemPalette.window.b < 1.5)
     SystemPalette { id: systemPalette }
-    palette.window: darkTheme ? "#191c22" : "#f5f6f8"
-    palette.base: darkTheme ? "#22262e" : "#ffffff"
-    palette.alternateBase: darkTheme ? "#292e38" : "#f0f2f5"
-    palette.button: darkTheme ? "#303641" : "#e8ebf0"
-    palette.text: darkTheme ? "#e9ecf2" : "#232833"
-    palette.windowText: palette.text
-    palette.buttonText: palette.text
-    palette.highlight: darkTheme ? "#4d79bf" : "#3568ad"
+    font.pixelSize: 14
+    palette.window: darkTheme ? "#1b2029" : "#f3f5f9"
+    palette.base: darkTheme ? "#242a35" : "#ffffff"
+    palette.alternateBase: darkTheme ? "#2e3644" : "#edf1f8"
+    palette.button: darkTheme ? "#343e50" : "#e7ecf5"
+    palette.mid: darkTheme ? "#78869c" : "#687891"
+    palette.text: darkTheme ? "#e8edf5" : "#26334b"
+    palette.placeholderText: darkTheme ? "#9ba8bb" : "#718098"
+    palette.windowText: darkTheme ? "#e8edf5" : "#26334b"
+    palette.buttonText: darkTheme ? "#e8edf5" : "#26334b"
+    palette.highlight: darkTheme ? "#557edc" : "#4268cf"
     palette.highlightedText: "#ffffff"
     color: palette.window
+
+    Connections {
+        target: window.desktopController
+        function onSettingsErrorChanged() {
+            if (window.desktopController.settingsError.length > 0 && !settingsErrorDialog.opened)
+                settingsErrorDialog.open()
+        }
+    }
+    Component.onCompleted: {
+        if (window.desktopController && window.desktopController.settingsError.length > 0)
+            settingsErrorDialog.open()
+    }
+    ErrorDetailsDialog {
+        id: settingsErrorDialog
+        objectName: "settingsErrorDialog"
+        hostWindow: window
+        title: qsTr("Settings error")
+        message: qsTr("Preferences or recent history could not be saved.")
+        details: window.desktopController ? window.desktopController.settingsError : ""
+    }
 
     Action {
         id: openAction
@@ -54,11 +85,43 @@ ApplicationWindow {
         text: qsTr("Cancel")
         shortcut: "Escape"
         enabled: window.archiveController.busy || window.compressionController.busy
+            || (window.dragController && window.dragController.busy)
         onTriggered: {
-            if (window.compressionController.busy)
+            if (window.dragController && window.dragController.busy)
+                window.dragController.cancel()
+            else if (window.compressionController.busy)
                 window.compressionController.cancel()
             else
                 window.archiveController.cancel()
+        }
+    }
+
+    Action {
+        id: searchAction
+        objectName: "searchAction"
+        text: qsTr("Search archive")
+        shortcut: StandardKey.Find
+        enabled: window.archiveController.currentFile.length > 0 && !window.archiveController.busy
+        onTriggered: homePage.focusSearch()
+    }
+    Action {
+        id: taskAction
+        objectName: "taskCenterAction"
+        text: qsTr("Task center")
+        shortcut: "Ctrl+J"
+        enabled: window.taskController !== null
+        onTriggered: taskCenter.open()
+    }
+    Action {
+        id: exportAction
+        objectName: "exportAction"
+        text: window.dragController && window.dragController.ready ? qsTr("Drag prepared files out") : qsTr("Prepare selected files to drag out…")
+        shortcut: "Ctrl+Shift+E"
+        enabled: window.dragController && !window.dragController.busy
+            && window.archiveController.canExtract && window.archiveController.selectionCount > 0
+        onTriggered: {
+            if (window.dragController.ready) window.dragController.startDrag()
+            else exportDialog.open()
         }
     }
     Action {
@@ -90,6 +153,7 @@ ApplicationWindow {
             MenuItem { action: compressAction }
             MenuItem { action: closeAction }
             MenuItem { action: extractAction }
+            MenuItem { action: exportAction; visible: window.dragController !== null }
             MenuItem {
                 text: qsTr("Select all")
                 enabled: window.archiveController.canExtract
@@ -104,6 +168,11 @@ ApplicationWindow {
                     onTriggered: Qt.quit()
                 }
             }
+        }
+        Menu {
+            title: qsTr("View")
+            MenuItem { action: searchAction }
+            MenuItem { action: taskAction }
         }
         Menu {
             title: qsTr("Appearance")
@@ -159,6 +228,7 @@ ApplicationWindow {
     }
 
     HomePage {
+        id: homePage
         anchors.fill: parent
         archiveController: window.archiveController
         compressionController: window.compressionController
@@ -167,7 +237,96 @@ ApplicationWindow {
         cancelAction: cancelAction
         extractAction: extractAction
         compressAction: compressAction
+        exportAction: window.dragController ? exportAction : null
+        taskAction: window.taskController ? taskAction : null
+        desktopController: window.desktopController
+        taskController: window.taskController
+        dragController: window.dragController
         onBrowseFolder: folderDialog.open()
+    }
+
+    TaskCenter { id: taskCenter; hostWindow: window; controller: window.taskController }
+    DropArea {
+        id: dropArea
+        objectName: "archiveDropArea"
+        anchors.fill: parent
+        enabled: window.dragController !== null
+        onEntered: function(drag) {
+            drag.accepted = drag.hasUrls && !window.compressionController.busy
+                && !window.archiveController.busy && !window.dragController.busy
+        }
+        onDropped: function(drop) {
+            if (drop.hasUrls && window.dragController) {
+                window.dragController.dropUrls(drop.urls)
+                drop.acceptProposedAction()
+            }
+        }
+        Rectangle {
+            anchors.fill: parent
+            visible: dropArea.containsDrag
+            color: window.palette.base
+            opacity: 0.96
+            border.width: 2
+            border.color: window.palette.highlight
+            ColumnLayout {
+                anchors.centerIn: parent
+                width: Math.min(parent.width - 48, 480)
+                spacing: 18
+                AppIcon { name: "open"; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 48; Layout.preferredHeight: 48 }
+                Label { Layout.fillWidth: true; text: qsTr("Drop to open or create an archive"); textFormat: Text.PlainText; font.pixelSize: 23; font.weight: Font.DemiBold; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
+                Label { Layout.fillWidth: true; text: qsTr("An archive opens here. Files and folders are added to a new archive."); textFormat: Text.PlainText; opacity: 0.65; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
+            }
+        }
+    }
+    Connections {
+        target: window.dragController
+        function onCreateRequested() { compressionDialog.open() }
+        function onChanged() {
+            if (window.dragController.errorMessage.length > 0 && !dragErrorDialog.opened)
+                dragErrorDialog.open()
+        }
+    }
+    ErrorDetailsDialog {
+        id: dragErrorDialog
+        objectName: "dragErrorDialog"
+        hostWindow: window
+        title: qsTr("File transfer failed")
+        message: window.dragController ? window.dragController.errorMessage : ""
+        details: window.dragController ? window.dragController.errorDetails : ""
+        onClosed: if (window.dragController) window.dragController.dismissError()
+    }
+    Dialog {
+        id: exportDialog
+        objectName: "exportDialog"
+        title: qsTr("Prepare files to drag out")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(540, window.width - 48)
+        onClosed: exportPassword.clear()
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("%1 selected entries will be extracted to temporary storage. When ready, drag the selected rows into a folder.").arg(window.archiveController.selectionCount)
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+            }
+            Label { text: qsTr("Password (if required)"); textFormat: Text.PlainText }
+            TextField {
+                id: exportPassword
+                objectName: "exportPassword"
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+                Accessible.name: qsTr("Password (if required)")
+            }
+        }
+        footer: DialogButtonBox {
+            Button { text: qsTr("Cancel"); DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+            Button { objectName: "prepareExport"; text: qsTr("Prepare"); DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole; enabled: exportAction.enabled }
+            onAccepted: { window.dragController.prepareExport(exportPassword.text); exportPassword.clear(); exportDialog.close() }
+            onRejected: exportDialog.close()
+        }
     }
 
     CompressionDialog {
@@ -175,38 +334,14 @@ ApplicationWindow {
         controller: window.compressionController
         hostWindow: window
     }
-    Dialog {
+    ErrorDetailsDialog {
         id: compressionErrorDialog
         objectName: "compressionErrorDialog"
+        hostWindow: window
         title: qsTr("Archive creation failed")
-        modal: true
-        anchors.centerIn: Overlay.overlay
-        width: Math.min(580, window.width - 48)
-        standardButtons: Dialog.Ok
+        message: window.compressionController.errorMessage
+        details: window.compressionController.errorDetails
         onClosed: window.compressionController.dismissError()
-        contentItem: ColumnLayout {
-            spacing: 12
-            Label {
-                Layout.fillWidth: true
-                text: window.compressionController.errorMessage
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                font.bold: true
-            }
-            ScrollView {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(220, compressionDetails.implicitHeight + 16)
-                TextArea {
-                    id: compressionDetails
-                    text: window.compressionController.errorDetails
-                    textFormat: TextEdit.PlainText
-                    readOnly: true
-                    selectByMouse: true
-                    wrapMode: TextEdit.Wrap
-                    Accessible.name: qsTr("Error details")
-                }
-            }
-        }
     }
     Connections {
         target: window.compressionController
@@ -216,37 +351,14 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    ErrorDetailsDialog {
         id: errorDialog
         objectName: "errorDialog"
+        hostWindow: window
         title: qsTr("Archive operation failed")
-        modal: true
-        anchors.centerIn: Overlay.overlay
-        width: Math.min(580, window.width - 48)
-        standardButtons: Dialog.Ok
+        message: window.archiveController.errorMessage
+        details: window.archiveController.errorDetails
         onClosed: window.archiveController.dismissError()
-        contentItem: ColumnLayout {
-            spacing: 12
-            Label { textFormat: Text.PlainText;
-                Layout.fillWidth: true
-                text: window.archiveController.errorMessage
-                wrapMode: Text.WordWrap
-                font.bold: true
-            }
-            ScrollView {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(220, details.implicitHeight + 16)
-                TextArea {
-                    id: details
-                    text: window.archiveController.errorDetails
-                    textFormat: TextEdit.PlainText
-                    readOnly: true
-                    selectByMouse: true
-                    wrapMode: TextEdit.Wrap
-                    Accessible.name: qsTr("Error details")
-                }
-            }
-        }
     }
     Connections {
         target: window.archiveController
@@ -274,8 +386,29 @@ ApplicationWindow {
         modal: true
         anchors.centerIn: Overlay.overlay
         width: Math.min(580, window.width - 48)
+        height: Math.min(450, window.height - 48)
+        onOpened: destinationField.forceActiveFocus()
         onClosed: extractionPassword.clear()
-        contentItem: ColumnLayout {
+        contentItem: ScrollView {
+            id: extractionForm
+            clip: true
+            contentWidth: availableWidth
+            rightPadding: effectiveScrollBarWidth + 4
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+            function revealFocusedControl() {
+                const control = window.activeFocusItem
+                const viewport = contentItem as Flickable
+                if (!control || !viewport) return
+                let ancestor = control
+                while (ancestor && ancestor !== viewport.contentItem) ancestor = ancestor.parent
+                if (!ancestor) return
+                const top = control.mapToItem(viewport.contentItem, 0, 0).y
+                if (top < viewport.contentY) viewport.contentY = top
+                else if (top + control.height > viewport.contentY + viewport.height)
+                    viewport.contentY = Math.max(0, top + control.height - viewport.height)
+            }
+            ColumnLayout {
+            width: parent.width
             spacing: 12
             Label { textFormat: Text.PlainText; text: qsTr("Destination folder") }
             RowLayout {
@@ -333,6 +466,7 @@ ApplicationWindow {
                     model: [qsTr("Safe links"), qsTr("Preserve links inside destination"), qsTr("Skip links")]
                 }
             }
+            }
         }
         footer: DialogButtonBox {
             Button { text: qsTr("Cancel"); DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
@@ -349,6 +483,12 @@ ApplicationWindow {
                 extractionDialog.close()
             }
             onRejected: extractionDialog.close()
+        }
+    }
+    Connections {
+        target: window
+        function onActiveFocusItemChanged() {
+            if (extractionDialog.opened) Qt.callLater(extractionForm.revealFocusedControl)
         }
     }
     Dialog {
@@ -368,6 +508,10 @@ ApplicationWindow {
                 textFormat: Text.PlainText
                 text: window.archiveController.conflictPath
                 wrapMode: Text.WrapAnywhere
+                maximumLineCount: 6
+                elide: Text.ElideRight
+                HoverHandler { id: conflictPathHover }
+                PlainToolTip { visible: conflictPathHover.hovered; text: window.archiveController.conflictPath }
             }
             ComboBox {
                 id: conflictChoice
@@ -428,15 +572,11 @@ ApplicationWindow {
             folderError.open()
         }
     }
-    Dialog {
+    ErrorDetailsDialog {
         id: folderError
-        property string details: ""
+        hostWindow: window
         title: qsTr("Unable to read folder")
-        modal: true
-        anchors.centerIn: Overlay.overlay
-        width: Math.min(520, window.width - 48)
-        standardButtons: Dialog.Ok
-        Label { textFormat: Text.PlainText; width: parent.width; text: folderError.details; wrapMode: Text.WordWrap }
+        message: qsTr("Unable to read folder")
     }
     Dialog {
         id: aboutDialog

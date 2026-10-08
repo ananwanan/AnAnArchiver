@@ -94,11 +94,15 @@ Dialog {
                     id: addFiles
                     objectName: "compressionAddFiles"
                     text: qsTr("Add files…")
+                    icon.source: "../icons/file.svg"
+                    icon.color: palette.buttonText
                     onClicked: sourceFiles.open()
                 }
                 Button {
                     objectName: "compressionAddFolder"
                     text: qsTr("Add folder…")
+                    icon.source: "../icons/folder.svg"
+                    icon.color: palette.buttonText
                     onClicked: sourceFolder.open()
                 }
             }

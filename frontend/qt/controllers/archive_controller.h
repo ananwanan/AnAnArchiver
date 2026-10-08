@@ -43,9 +43,9 @@ public:
     QString errorMessage() const { return errorMessage_; }
     QString errorDetails() const { return errorDetails_; }
     bool busy() const { return active_.has_value() || !pendingFile_.isEmpty(); }
-    int entryCount() const { return entries_.count(); }
+    int entryCount() const { return entries_.totalCount(); }
     qint64 elapsedMilliseconds() const { return elapsedMilliseconds_; }
-    bool canExtract() const { return indexed_ && !busy(); }
+    bool canExtract() const { return indexed_ && !busy() && !entries_.querying(); }
     bool extracting() const { return extracting_; }
     int selectionCount() const { return entries_.selectionCount(); }
     double processedBytes() const { return processedBytes_; }
@@ -69,10 +69,14 @@ public:
     Q_INVOKABLE void retryOpenPassword(QString password);
     Q_INVOKABLE void dismissPassword();
     Q_INVOKABLE QString localPath(const QUrl& url) const { return url.toLocalFile(); }
+    Result<ExtractionRequest> selectedExtractionRequest(const std::filesystem::path& destination) const;
+    void cancelTask(application::TaskId id);
 
 signals:
     void changed();
     void operationFinished(bool succeeded);
+    void archiveIndexed(const QString& path);
+    void taskObserved(const application::TaskSnapshot& snapshot, const QString& path);
 
 private:
     void poll();
