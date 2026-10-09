@@ -57,6 +57,35 @@ std::string describeNames(const std::vector<std::string>& names) {
     return '[' + description + ']';
 }
 
+std::string archiveFixtureName(std::string name) {
+#ifdef __APPLE__
+    // libarchive exposes UTF-8 archive pathnames in NFD on Apple platforms.
+    // APFS may retain the composed source spelling, unlike HFS+. Map only this
+    // known fixture component; actual archive names remain exact byte checks.
+    constexpr std::string_view composed = "한국어-é-可可🐄.txt";
+    constexpr std::string_view decomposed = "한국어-e\u0301-可可🐄.txt";
+    const auto separator = name.find_last_of('/');
+    const auto start = separator == std::string::npos ? 0 : separator + 1;
+    if (std::string_view{name}.substr(start) == composed)
+        name.replace(start, composed.size(), decomposed);
+#endif
+    return name;
+}
+
+std::vector<std::string> expectedArchiveTree(const std::filesystem::path& input) {
+    auto expected = treeIn(input);
+    const auto basename = pathToUtf8(input.filename());
+    for (auto& name : expected) name = archiveFixtureName(basename + '/' + name);
+    expected.push_back(basename + '/');
+    std::ranges::sort(expected);
+    return expected;
+}
+
+std::filesystem::path archivedFixtureRelativePath(const std::filesystem::path& relative) {
+    const auto bytes = relative.generic_u8string();
+    return pathFromUtf8(archiveFixtureName(std::string{bytes.begin(), bytes.end()}));
+}
+
 class CTypeLocale {
 public:
     explicit CTypeLocale(const char* value) : previous_(std::setlocale(LC_CTYPE, nullptr)) {
@@ -122,11 +151,7 @@ unsigned int archivedPermissions(const std::filesystem::path& path, std::string_
 void roundTripTree(ArchiveWriter& writer, const CompressionRequest& request,
                    const std::filesystem::path& input, const std::filesystem::path& output) {
     succeeded(writer.create(request), "Create " + pathToUtf8(request.destination.filename()));
-    auto expected = treeIn(input);
-    const auto basename = pathToUtf8(input.filename());
-    for (auto& name : expected) name = basename + '/' + name;
-    expected.push_back(basename + '/');
-    std::ranges::sort(expected);
+    const auto expected = expectedArchiveTree(input);
     std::vector<std::string> actual;
     for (const auto& entry : entriesIn(request.destination)) actual.push_back(entryPath(entry));
     std::ranges::sort(actual);
@@ -140,7 +165,7 @@ void roundTripTree(ArchiveWriter& writer, const CompressionRequest& request,
     for (const auto& file : fixtureTreeEntries(nativeInput)) {
         if (file.directory) continue;
         const auto relative = relativeFixturePath(file.path, nativeInput);
-        check(equalFiles(file.path, output / input.filename() / relative),
+        check(equalFiles(file.path, output / input.filename() / archivedFixtureRelativePath(relative)),
               "Created archive preserves bytes: " + pathToUtf8(relative));
     }
 }
@@ -281,11 +306,7 @@ int main() {
                         const CTypeLocale locale{"C"};
                         succeeded(createAndCheckLocale(*writer, request), "Unicode creation is independent of process LC_CTYPE");
                     }
-                    auto expected = treeIn(input);
-                    const auto basename = pathToUtf8(input.filename());
-                    for (auto& name : expected) name = basename + '/' + name;
-                    expected.push_back(basename + '/');
-                    std::ranges::sort(expected);
+                    const auto expected = expectedArchiveTree(input);
                     std::vector<std::string> actual;
                     for (const auto& entry : entriesIn(request.destination)) actual.push_back(entryPath(entry));
                     std::ranges::sort(actual);
@@ -298,7 +319,7 @@ int main() {
                     for (const auto& file : fixtureTreeEntries(nativeInput)) {
                         if (file.directory) continue;
                         const auto relative = relativeFixturePath(file.path, nativeInput);
-                        check(equalFiles(file.path, output / input.filename() / relative),
+                        check(equalFiles(file.path, output / input.filename() / archivedFixtureRelativePath(relative)),
                               "C-locale-created archive retains exact payload bytes");
                     }
                 });
@@ -435,7 +456,9 @@ int main() {
             std::filesystem::create_directory(output);
             auto request = requestFor(input, output / pathFromUtf8("こんにちは-é-안안.zip"));
             roundTripTree(*writer, request, input, fixtures.path / "unicode-destination-out");
-            check(childrenIn(output) == std::vector<std::string>{pathToUtf8(request.destination.filename())},
+            const auto children = childrenIn(output);
+            check(children.size() == 1 &&
+                  std::filesystem::equivalent(output / pathFromUtf8(children.front()), request.destination),
                   "Unicode archive destination leaves no temporary files");
         });
 

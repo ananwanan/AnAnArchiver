@@ -261,11 +261,26 @@ int main() {
         tests.run("Unicode archive path and entry names", [&] {
             const auto unicodeArchive = fixtures.path / pathFromUtf8("安安-こんにちは-🐈.tar");
             const std::string unicodeEntry = "中文/こんにちは/한글/可可🐄🐈/café.txt";
-            createFixture(unicodeArchive, FixtureFormat::Tar, {{unicodeEntry, "unicode"}});
+            const std::string decomposedEntry =
+                "中文/こんにちは/\u1112\u1161\u11ab\u1100\u1173\u11af/可可🐄🐈/cafe\u0301.txt";
+            createFixture(unicodeArchive, FixtureFormat::Tar,
+                          {{unicodeEntry, "unicode"}, {decomposedEntry, "decomposed unicode"}});
             auto reader = makeLibArchiveReader();
             succeeded(reader->open(unicodeArchive), "Open Unicode native path");
             const auto entries = entriesIn(*reader);
-            check(entries.size() == 1 && entries[0].path == unicodeEntry, "Unicode metadata preserved");
+            // libarchive deliberately returns decomposed UTF-8 pathnames on
+            // macOS (archive_string.c); other platforms use composed names.
+            // Keep exact comparisons for both encoded inputs, without changing
+            // production metadata or relying on filesystem normalization.
+#ifdef __APPLE__
+            const auto& expected = decomposedEntry;
+#else
+            const auto& expected = unicodeEntry;
+#endif
+            check(entries.size() == 2, "Both Unicode metadata entries are enumerated");
+            check(entries[0].path == expected, "Composed Unicode metadata has the backend's native representation");
+            check(entries[1].path == expected, "Decomposed Unicode metadata has the backend's native representation");
+            check(entries[0].size == 7 && entries[1].size == 18, "Unicode entries retain independent payload metadata");
         });
 
         tests.run("7z format and enumeration", [&] {
