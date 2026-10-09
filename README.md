@@ -1,6 +1,6 @@
 # AnAnArchiver
 
-跨平台归档管理器，使用 C++23、Qt 6 Quick/QML 和固定版本的
+跨平台归档管理器，使用 C++23、Qt 6 Quick/QML 和
 [ananwanan/libarchive](https://github.com/ananwanan/libarchive)。
 
 当前完成 AGENTS.md 的 M1、M2、M3 与 M4：独立 Core、libarchive RAII 适配器、
@@ -23,7 +23,7 @@ src/core/                 元数据、格式、Unicode
 src/backend/libarchive/   唯一调用 libarchive C API 的生产代码
 src/application/          归档服务、受管理任务、按需目录扫描
 frontend/qt/              Qt Controller、Model、QML、平台路径转换
-third_party/              固定 Git commit 的依赖源码子仓库
+third_party/              依赖源码子仓库与上游来源
 cmake/                    依赖子项目构建、项目 warnings、sanitizers
 tests/                    无 GUI 核心测试和 Qt 适配器测试
 docs/architecture/        分层与线程决策
@@ -34,24 +34,31 @@ Core 和 Application 使用标准 C++，支持不安装 Qt 时独立编译和测
 
 ## 构建依赖
 
-依赖源码全部保存在 `third_party` 的 Git 子模块中，由父仓库 gitlink 固定提交：
+依赖方案统一采用指定上游的最新稳定发布版，不固定历史版本号、tag 或 commit。
+`ananwanan/libarchive` 没有独立正式发布版时使用默认分支最新提交。
+依赖源码保存在 `third_party` 的 Git 子模块中：
 libarchive、zlib、bzip2、XZ/liblzma、Zstandard、LZ4、Expat、Mbed TLS、Qt，
 以及 Qt 可选图形接口所用的 Khronos Vulkan-Headers。
-Qt 使用 qtbase、qtshadertools、qtdeclarative、qtsvg；其内嵌依赖也由 Qt 提交锁定。
+Qt 使用 qtbase、qtshadertools、qtdeclarative、qtsvg，各模块和内嵌依赖跟随
+最新 Qt 正式发布版的配套源码；Mbed TLS framework 也跟随对应发布版。
 编译器、CMake、Ninja、Python 和操作系统 SDK 是本机工具链，不复制到仓库。
 各第三方许可证随其源码保留。
-具体版本、提交和初始化方式见 [依赖固定版本表](third_party/README.md)。
+上游来源、更新策略和当前初始化方式见 [依赖方案](third_party/README.md)。
 
 默认 superbuild 从这些源码构建依赖，安装到当前构建目录的
 `dependencies/install`，随后构建应用。默认不搜索机器上的随机 libarchive 或
-codec 版本，也不在构建过程中下载浮动版本。依赖更新应修改 gitlink 并重新运行
-回归测试。
+codec 版本。方案要求在依赖初始化或更新时解析最新版本，并记录本次构建的
+实际版本与提交；编译过程中使用同一份源码。依赖更新后重新运行回归测试。
+
+当前 `scripts/init-dependencies.cmake` 仍按父仓库 gitlink 记录的提交初始化源码，
+superbuild 构建已获取的源码。这次修改的是依赖方案，自动解析最新版本的逻辑
+尚未接入，运行下面的现有命令不会自动升级依赖。
 
 要求 CMake 3.25+、Ninja 和支持 C++23 / `std::expected` 的编译器。
 Windows 推荐 MSVC x64；Linux 使用现代 GCC/Clang；macOS 使用现代 Clang。
 Qt 源码构建还需要 Python，以及目标平台的图形/窗口系统开发环境。
 
-先初始化项目固定的归档依赖：
+先初始化当前仓库记录的归档依赖源码：
 
 ```sh
 cmake -P scripts/init-dependencies.cmake
@@ -84,7 +91,7 @@ Windows 非 Developer Shell 可使用仓库脚本自动发现并初始化 MSVC �
 
 开发时也可以显式选择已安装、与编译器 ABI 匹配的 Qt kit。设置 `QTDIR` 为
 该 kit 的安装根目录，再使用 `desktop-developer` 代替 `desktop-release`。
-这只替换 Qt 来源，归档 backend 和 codecs 仍由项目固定源码构建。
+这只替换 Qt 来源，归档 backend 和 codecs 仍由项目内已获取的源码构建。
 `ANANARCHIVER_USE_SYSTEM_LIBARCHIVE=ON` 是额外的开发选项，不属于默认发布路径。
 
 `core-debug` 提供 Debug 构建；`core-sanitizers` 在支持的平台启用 ASan/UBSan。
@@ -112,7 +119,7 @@ $env:PATH = (Resolve-Path out/build/desktop-release/dependencies/install/qt/bin)
 ### Android 测试 APK
 
 Windows 上可用同版本的 Qt Android kit 与宿主 Qt kit 构建测试 APK；归档 backend
-与 codecs 仍使用项目固定源码。先按 [Qt Android 环境要求](https://doc.qt.io/qt-6.11/android-configure-dev-environment.html)
+与 codecs 仍使用项目内已获取的源码。先按 [Qt Android 环境要求](https://doc.qt.io/qt-6.11/android-configure-dev-environment.html)
 准备对应 NDK、JDK、SDK API 36 与 build-tools。工具链路径通过参数传入：
 
 ```powershell

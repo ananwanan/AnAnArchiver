@@ -10,8 +10,14 @@ Dependency direction:
 QML -> Qt ArchiveController / model adapters
     -> Application ArchiveService / TaskManager / DirectoryService
     -> ArchiveReader / ArchiveEntry / ArchiveInfo / ArchiveError
-    -> libarchive adapter -> pinned ananwanan/libarchive
+    -> libarchive adapter -> ananwanan/libarchive
 ```
+
+Dependency policy uses the latest stable upstream releases rather than a fixed
+historical version. For ananwanan/libarchive without separately maintained
+releases, use the latest default-branch commit. Resolve sources before building
+and record the actual revisions used. See the [dependency plan](../../third_party/README.md)
+for source selection, matching nested modules, and current implementation status.
 
 Only the backend adapter includes libarchive headers. Only `frontend/qt` includes
 Qt headers. Public headers under `include/ananarchiver` contain standard C++

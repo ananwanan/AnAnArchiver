@@ -441,7 +441,11 @@ https://github.com/ananwanan/libarchive
 
 该仓库是 AnAnArchiver 的 libarchive 上游来源。
 
-Release 构建必须能够确定具体 libarchive revision。
+使用该仓库的最新版本，不固定历史版本号、tag 或 commit。
+
+优先使用该仓库的最新正式发布版；如果没有独立维护的正式发布版，使用默认分支的最新提交。
+
+Release 构建必须记录实际使用的 libarchive 版本和 revision，便于诊断和追踪。
 
 推荐方式：
 
@@ -455,7 +459,7 @@ Git Submodule
 third_party/libarchive
 ```
 
-必须锁定 commit。
+Git Submodule 用于管理源码来源。父仓库 gitlink 可以记录一次依赖解析的结果，但不能作为长期固定版本的要求；初始化或更新依赖时应重新获取最新版本。
 
 不要让正式构建依赖：
 
@@ -474,7 +478,7 @@ ANANARCHIVER_USE_SYSTEM_LIBARCHIVE
 例如：
 
 ```text
-OFF = 默认，使用项目固定版本
+OFF = 默认，从指定项目上游获取最新版本
 ON  = 开发者手动使用系统 libarchive
 ```
 
@@ -2001,9 +2005,18 @@ Qt6::Widgets
 ```text
 少
 稳定
+最新正式版本
 可维护
-可复现
+可追踪
 ```
+
+所有选用的第三方依赖采用官方最新稳定发布版，不固定历史版本号或提交。
+
+默认不选择 alpha、beta、RC 或 nightly；没有正式发布版的项目使用约定上游默认分支的最新提交。
+
+Qt 模块及其内嵌依赖应使用最新 Qt 正式发布版配套的源码，Mbed TLS framework 同样跟随所选 Mbed TLS 发布版，不能单独混用不配套版本。
+
+编译器、CMake、Ninja、Python 和平台 SDK 优先使用满足目标平台与 C++23 要求的最新稳定工具链；最低兼容版本声明不是固定版本要求。
 
 不要为了一个几十行能完成的功能引入巨大库。
 
@@ -2935,27 +2948,19 @@ Core 不依赖 global singleton。
 
 ---
 
-# 90. Build Must Stay Reproducible
+# 90. Latest Dependencies and Build Traceability
 
-Dependency revision 必须可追踪。
+初始化或更新依赖时，应从指定上游解析最新稳定发布版；没有独立正式发布版的项目使用约定默认分支的最新提交。
 
-不要永远依赖：
+不在方案中写死依赖版本号、release tag 或 commit，也不要求 Release 永久使用固定版本。
 
-```text
-master
-main
-latest
-```
+一次构建在开始前完成依赖解析和源码获取，编译过程中使用同一份解析结果；下一次依赖初始化或更新重新检查上游最新版本。
 
-Release 构建必须锁定 commit/tag。
+构建记录必须包含每项依赖的来源、实际版本、tag（如有）、commit 和解析时间，用于诊断、审计与复现该次构建。记录解析结果不改变后续使用最新版本的策略。
 
-更新：
+获取最新版本失败或发现兼容性问题时，应明确报告原因并修复适配，不能静默退回旧版本却宣称使用最新版本。
 
-```text
-ananwanan/libarchive
-```
-
-时单独提交 dependency update，并运行 regression tests。
+依赖更新应单独提交，并运行受影响的构建、Core regression tests 和必要的 Qt frontend 验证。
 
 ---
 
@@ -3191,7 +3196,7 @@ Phase A
 建立 ananarchiver_core
 
 Phase B
-集成固定版本 ananwanan/libarchive
+集成最新版本 ananwanan/libarchive
 
 Phase C
 实现 LibArchiveReader
