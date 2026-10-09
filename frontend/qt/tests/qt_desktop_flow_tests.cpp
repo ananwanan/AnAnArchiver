@@ -97,7 +97,11 @@ struct View {
     void drop(const QString& path) {
         QMimeData mime;
         mime.setUrls({QUrl::fromLocalFile(path)});
+#if QT_VERSION >= QT_VERSION_CHECK(6, 12, 0)
+        QDragEnterEvent enter(QPointF(400, 220), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+#else
         QDragEnterEvent enter(QPoint(400, 220), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+#endif
         QCoreApplication::sendEvent(window, &enter);
         check(enter.isAccepted(), "Production DropArea did not accept local file URLs");
         QDropEvent event(QPointF(400, 220), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
