@@ -9,8 +9,13 @@ endfunction()
 
 if(ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
     find_package(LibArchive REQUIRED)
+    set(ANANARCHIVER_LIBARCHIVE_VERSION "${LibArchive_VERSION}")
+    set(ANANARCHIVER_LIBARCHIVE_REVISION "system-package")
+    set(ANANARCHIVER_LIBARCHIVE_PATCH_SHA256 "")
+    set(ANANARCHIVER_LIBARCHIVE_PATCH_COMMIT "")
     add_library(AnAnArchiver::Archive ALIAS LibArchive::LibArchive)
 else()
+    ananarchiver_check_installed_provenance()
     if(NOT EXISTS "${ANANARCHIVER_DEPENDENCY_PREFIX}/include/archive.h")
         message(FATAL_ERROR "Bundled dependencies are missing. Configure with ANANARCHIVER_SUPERBUILD=ON first.")
     endif()
@@ -24,12 +29,20 @@ else()
     find_package(MbedTLS CONFIG REQUIRED
         PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}"
         NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+    if(TARGET MbedTLS::mbedcrypto)
+        set(archive_crypto_target MbedTLS::mbedcrypto)
+    else()
+        find_package(TF-PSA-Crypto CONFIG REQUIRED
+            PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}"
+            NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+        set(archive_crypto_target TF-PSA-Crypto::tfpsacrypto)
+    endif()
     add_library(AnAnArchiver::Archive STATIC IMPORTED GLOBAL)
     set_target_properties(AnAnArchiver::Archive PROPERTIES
         IMPORTED_LOCATION "${archive_library}"
         INTERFACE_INCLUDE_DIRECTORIES "${ANANARCHIVER_DEPENDENCY_PREFIX}/include"
         INTERFACE_COMPILE_DEFINITIONS "LIBARCHIVE_STATIC"
-        INTERFACE_LINK_LIBRARIES "${zlib_library};${bzip2_library};${lzma_library};${zstd_library};${lz4_library};${expat_library};MbedTLS::mbedcrypto;Threads::Threads")
+        INTERFACE_LINK_LIBRARIES "${zlib_library};${bzip2_library};${lzma_library};${zstd_library};${lz4_library};${expat_library};${archive_crypto_target};Threads::Threads")
     if(WIN32)
         set_property(TARGET AnAnArchiver::Archive APPEND PROPERTY INTERFACE_LINK_LIBRARIES bcrypt)
     endif()
@@ -53,16 +66,19 @@ macro(ananarchiver_find_qt)
         set(QT_HOST_PATH "${ANANARCHIVER_DEPENDENCY_PREFIX}/qt")
         set(QT_HOST_PATH_CMAKE_DIR "${ANANARCHIVER_DEPENDENCY_PREFIX}/qt/lib/cmake")
         set(Vulkan_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/third_party/vulkan-headers/include"
-            CACHE PATH "Pinned Vulkan headers for the bundled Qt kit" FORCE)
+            CACHE PATH "Resolved Vulkan headers for the bundled Qt kit" FORCE)
         file(GLOB qt_package_directories LIST_DIRECTORIES TRUE
             "${ANANARCHIVER_DEPENDENCY_PREFIX}/qt/lib/cmake/Qt6*")
         foreach(qt_package_directory IN LISTS qt_package_directories)
             get_filename_component(qt_package_name "${qt_package_directory}" NAME)
             if(EXISTS "${qt_package_directory}/${qt_package_name}Config.cmake")
-                set(${qt_package_name}_DIR "${qt_package_directory}" CACHE PATH "Pinned Qt kit component" FORCE)
+                set(${qt_package_name}_DIR "${qt_package_directory}" CACHE PATH "Resolved Qt kit component" FORCE)
             endif()
         endforeach()
         find_package(Qt6 6.10 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2
             PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}/qt" NO_DEFAULT_PATH)
+    endif()
+    if(ANANARCHIVER_RESOLVED_QT_VERSION AND NOT Qt6_VERSION VERSION_EQUAL ANANARCHIVER_RESOLVED_QT_VERSION)
+        message(FATAL_ERROR "Qt kit ${Qt6_VERSION} does not match resolved Qt ${ANANARCHIVER_RESOLVED_QT_VERSION}. Select the matching kit or resolve sources for a new build.")
     endif()
 endmacro()

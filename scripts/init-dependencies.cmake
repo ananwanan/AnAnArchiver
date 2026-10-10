@@ -1,18 +1,27 @@
 cmake_minimum_required(VERSION 3.25)
 get_filename_component(project_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-find_program(GIT_EXECUTABLE git REQUIRED)
-execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${project_root}"
-    submodule update --init --depth 1
-    third_party/libarchive third_party/zlib third_party/bzip2 third_party/xz
-    third_party/zstd third_party/lz4 third_party/expat third_party/mbedtls
-    WORKING_DIRECTORY "${project_root}" COMMAND_ERROR_IS_FATAL ANY)
-execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${project_root}/third_party/mbedtls"
-    submodule update --init --depth 1 framework COMMAND_ERROR_IS_FATAL ANY)
-if(ANANARCHIVER_INIT_QT)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${project_root}"
-        submodule update --init --depth 1 third_party/qt third_party/vulkan-headers
-        COMMAND_ERROR_IS_FATAL ANY)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${project_root}/third_party/qt"
-        submodule update --init --depth 1 qtbase qtshadertools qtdeclarative qtsvg
-        COMMAND_ERROR_IS_FATAL ANY)
+if(ANANARCHIVER_PYTHON_EXECUTABLE)
+    set(Python3_EXECUTABLE "${ANANARCHIVER_PYTHON_EXECUTABLE}")
 endif()
+find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+set(resolver_arguments "${CMAKE_CURRENT_LIST_DIR}/resolve-dependencies.py" --root "${project_root}")
+if(ANANARCHIVER_INIT_QT)
+    list(APPEND resolver_arguments --qt)
+endif()
+if(ANANARCHIVER_DEPENDENCY_CORE_ONLY)
+    list(APPEND resolver_arguments --core-only)
+endif()
+if(ANANARCHIVER_DEPENDENCY_MANIFEST)
+    list(APPEND resolver_arguments --manifest "${ANANARCHIVER_DEPENDENCY_MANIFEST}")
+endif()
+if(ANANARCHIVER_DEPENDENCY_REPLAY_MANIFEST)
+    list(APPEND resolver_arguments --replay-manifest "${ANANARCHIVER_DEPENDENCY_REPLAY_MANIFEST}")
+endif()
+if(ANANARCHIVER_DEPENDENCY_OFFLINE)
+    list(APPEND resolver_arguments --offline)
+endif()
+if(ANANARCHIVER_DEPENDENCY_RESOLVE_ONLY)
+    list(APPEND resolver_arguments --resolve-only)
+endif()
+execute_process(COMMAND "${Python3_EXECUTABLE}" ${resolver_arguments}
+    WORKING_DIRECTORY "${project_root}" COMMAND_ERROR_IS_FATAL ANY)

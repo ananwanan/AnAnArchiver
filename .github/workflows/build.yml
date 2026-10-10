@@ -1,38 +1,114 @@
 name: Build and test
 on: [push, pull_request, workflow_dispatch]
 
+permissions:
+  contents: read
+
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '>=3.10'
+          check-latest: true
+          allow-prereleases: false
+      - name: Test dependency resolution
+        run: python tests/dependencies/test_resolver.py
+      # Resolve once; every build replays these commits even if an upstream
+      # publishes another release while the matrix is still running.
+      - name: Resolve the latest stable dependency set
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/resolve-dependencies.py --qt --resolve-only --manifest out/dependencies/resolved-dependencies.json
+      - name: Show selected source revisions
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('out/dependencies/resolved-dependencies.json').read_text(encoding='utf-8'))
+          print(json.dumps(manifest, indent=2))
+      - uses: actions/upload-artifact@v7
+        with:
+          name: resolved-dependencies
+          path: out/dependencies/resolved-dependencies.json
+          if-no-files-found: error
+
   core:
+    needs: resolve
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             compiler: msvc
-          - os: ubuntu-24.04
+          - os: ubuntu-latest
             compiler: gcc
-            cc: gcc-14
-            cxx: g++-14
-          - os: ubuntu-24.04
+          - os: ubuntu-latest
             compiler: clang
-            cc: clang-18
-            cxx: clang++-18
-            cxxflags: -stdlib=libc++ -fexperimental-library
           - os: macos-latest
             compiler: apple-clang
-            cc: clang
-            cxx: clang++
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      # Clang 18 has __cpp_concepts=201907L, so libstdc++'s expected gate rejects it.
-      # libc++ 18 provides expected without redefining compiler feature macros.
-      # Its stop_token/jthread implementation also requires -fexperimental-library.
-      - name: Install the Clang C++ standard library
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '>=3.10'
+          check-latest: true
+          allow-prereleases: false
+      - name: Install current stable CMake and Ninja
+        run: python -m pip install --upgrade cmake ninja jinja2 jsonschema
+      - name: Locate Perl for source generation on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $taskPerlCommand = Get-Command perl -ErrorAction SilentlyContinue
+          if ($taskPerlCommand) {
+              $taskPerl = $taskPerlCommand.Source
+          } else {
+              $taskGitRoot = Split-Path (Split-Path (Get-Command git).Source -Parent) -Parent
+              $taskPerl = Join-Path $taskGitRoot 'usr/bin/perl.exe'
+              if (-not (Test-Path -LiteralPath $taskPerl)) { throw 'Perl is required to build Mbed TLS sources' }
+              (Split-Path $taskPerl -Parent) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+          & $taskPerl --version
+      - uses: actions/download-artifact@v8
+        with:
+          name: resolved-dependencies
+          path: out/dependencies
+      - name: Install the latest GCC available in the stable runner repository
+        if: matrix.compiler == 'gcc'
+        shell: bash
+        run: |
+          sudo apt-get update
+          package=$(apt-cache pkgnames | awk '/^g\+\+-[0-9]+$/ {print}' | sort -V | tail -n 1)
+          test -n "$package"
+          sudo apt-get install -y "$package" perl
+          major=${package##*-}
+          echo "CC=gcc-$major" >> "$GITHUB_ENV"
+          echo "CXX=g++-$major" >> "$GITHUB_ENV"
+          "g++-$major" --version
+      - name: Install current Clang and its matching C++ standard library
         if: matrix.compiler == 'clang'
-        run: sudo apt-get update && sudo apt-get install -y libc++-18-dev libc++abi-18-dev
-      - name: Initialize backend and codec sources
-        run: cmake -P scripts/init-dependencies.cmake
+        shell: bash
+        run: |
+          sudo apt-get update
+          package=$(apt-cache pkgnames | awk '/^clang-[0-9]+$/ {print}' | sort -V | tail -n 1)
+          test -n "$package"
+          major=${package##*-}
+          sudo apt-get install -y "$package" "libc++-$major-dev" "libc++abi-$major-dev" perl
+          echo "CC=clang-$major" >> "$GITHUB_ENV"
+          echo "CXX=clang++-$major" >> "$GITHUB_ENV"
+          # libc++ provides expected without redefining compiler feature macros.
+          # Enable its experimental library for stop_token/jthread when needed;
+          # CMake also probes their compile and link support.
+          echo 'CXXFLAGS=-stdlib=libc++ -fexperimental-library' >> "$GITHUB_ENV"
+          "clang++-$major" --version
+      - name: Replay resolved backend and codec sources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/resolve-dependencies.py --core-only --replay-manifest out/dependencies/resolved-dependencies.json
       - name: Configure Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -43,24 +119,132 @@ jobs:
         run: ./scripts/Invoke-Msvc.ps1 cmake --build --preset core-release
       - name: Configure Unix
         if: runner.os != 'Windows'
-        env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
-          CXXFLAGS: ${{ matrix.cxxflags }}
         run: cmake --preset core-release
       - name: Build Unix
         if: runner.os != 'Windows'
         run: cmake --build --preset core-release
-      - name: Test
-        run: ctest --preset core-release
+      - name: Test Core and Application
+        run: ctest --test-dir out/build/core-release/application --output-on-failure --output-junit ctest-results.xml
+      - name: Preserve revisions and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-${{ matrix.os }}-${{ matrix.compiler }}
+          path: |
+            out/dependencies/resolved-dependencies.json
+            out/build/core-release/**/resolved-dependencies.json
+            out/build/core-release/**/dependency-provenance.json
+            out/build/core-release/application/ctest-results.xml
+            out/build/core-release/application/Testing/Temporary/LastTest.log
+
   sanitizers:
-    runs-on: ubuntu-24.04
+    needs: resolve
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: cmake -P scripts/init-dependencies.cmake
-      - run: cmake --preset core-sanitizers
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '>=3.10'
+          check-latest: true
+          allow-prereleases: false
+      - name: Install current stable build tools
+        run: python -m pip install --upgrade cmake ninja jinja2 jsonschema
+      - name: Install current GCC
+        shell: bash
+        run: |
+          sudo apt-get update
+          package=$(apt-cache pkgnames | awk '/^g\+\+-[0-9]+$/ {print}' | sort -V | tail -n 1)
+          test -n "$package"
+          sudo apt-get install -y "$package" perl
+          major=${package##*-}
+          echo "CC=gcc-$major" >> "$GITHUB_ENV"
+          echo "CXX=g++-$major" >> "$GITHUB_ENV"
+          "g++-$major" --version
+      - uses: actions/download-artifact@v8
+        with:
+          name: resolved-dependencies
+          path: out/dependencies
+      - name: Replay resolved sources
         env:
-          CC: gcc-14
-          CXX: g++-14
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/resolve-dependencies.py --core-only --replay-manifest out/dependencies/resolved-dependencies.json
+      - run: cmake --preset core-sanitizers
       - run: cmake --build --preset core-sanitizers
-      - run: ctest --preset core-sanitizers
+      - run: ctest --test-dir out/build/core-sanitizers/application --output-on-failure --output-junit ctest-results.xml
+      - name: Preserve sanitizer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-sanitizers
+          path: |
+            out/dependencies/resolved-dependencies.json
+            out/build/core-sanitizers/**/resolved-dependencies.json
+            out/build/core-sanitizers/**/dependency-provenance.json
+            out/build/core-sanitizers/application/ctest-results.xml
+            out/build/core-sanitizers/application/Testing/Temporary/LastTest.log
+
+  desktop:
+    needs: resolve
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '>=3.10'
+          check-latest: true
+          allow-prereleases: false
+      - name: Install current stable build tools
+        run: python -m pip install --upgrade cmake ninja jinja2 jsonschema
+      - name: Locate Perl for source generation
+        shell: pwsh
+        run: |
+          $taskPerlCommand = Get-Command perl -ErrorAction SilentlyContinue
+          if ($taskPerlCommand) {
+              $taskPerl = $taskPerlCommand.Source
+          } else {
+              $taskGitRoot = Split-Path (Split-Path (Get-Command git).Source -Parent) -Parent
+              $taskPerl = Join-Path $taskGitRoot 'usr/bin/perl.exe'
+              if (-not (Test-Path -LiteralPath $taskPerl)) { throw 'Perl is required to build Mbed TLS sources' }
+              (Split-Path $taskPerl -Parent) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+          & $taskPerl --version
+      - uses: actions/download-artifact@v8
+        with:
+          name: resolved-dependencies
+          path: out/dependencies
+      # Build the selected Qt source and matching child modules. This tests the
+      # release path without depending on binary-installer catalog timing.
+      - name: Replay resolved backend, codecs, and Qt sources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/resolve-dependencies.py --qt --replay-manifest out/dependencies/resolved-dependencies.json
+      - name: Configure and build the desktop
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-Msvc.ps1 cmake --preset desktop-release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/Invoke-Msvc.ps1 cmake --build --preset desktop-release
+      - name: Lint production QML
+        shell: pwsh
+        run: ./scripts/Invoke-Msvc.ps1 cmake --build out/build/desktop-release/application --target AnAnArchiver_qmllint
+      - name: Test Core and production Qt flows
+        shell: pwsh
+        run: ctest --test-dir out/build/desktop-release/application --output-on-failure --output-junit ctest-results.xml
+      - name: Smoke the desktop executable
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: ./scripts/Start-Desktop.ps1 out/build/desktop-release --smoke-test 500
+      - name: Preserve desktop revisions and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-windows
+          path: |
+            out/dependencies/resolved-dependencies.json
+            out/build/desktop-release/**/resolved-dependencies.json
+            out/build/desktop-release/**/dependency-provenance.json
+            out/build/desktop-release/application/ctest-results.xml
+            out/build/desktop-release/application/Testing/Temporary/LastTest.log

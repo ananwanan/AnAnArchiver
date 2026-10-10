@@ -9,7 +9,7 @@
     },
     { "name": "core-release", "inherits": "base", "displayName": "Bundled backend, no Qt", "cacheVariables": { "ANANARCHIVER_BUILD_QT": "OFF" } },
     { "name": "core-debug", "inherits": "core-release", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
-    { "name": "desktop-release", "inherits": "base", "displayName": "Desktop with pinned source Qt", "cacheVariables": { "ANANARCHIVER_BUILD_QT": "ON", "ANANARCHIVER_USE_SYSTEM_QT": "OFF" } },
+    { "name": "desktop-release", "inherits": "base", "displayName": "Desktop with resolved source Qt", "cacheVariables": { "ANANARCHIVER_BUILD_QT": "ON", "ANANARCHIVER_USE_SYSTEM_QT": "OFF" } },
     { "name": "desktop-developer", "inherits": "base", "displayName": "Desktop with explicitly selected QTDIR kit", "cacheVariables": { "ANANARCHIVER_BUILD_QT": "ON", "ANANARCHIVER_USE_SYSTEM_QT": "ON", "CMAKE_PREFIX_PATH": "$env{QTDIR}" } },
     { "name": "core-sanitizers", "inherits": "core-debug", "cacheVariables": { "ANANARCHIVER_ENABLE_SANITIZERS": "ON" } }
   ],
