@@ -1,5 +1,7 @@
 """Regression tests for refusing misleading build provenance."""
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -40,6 +42,33 @@ class BuildTraceabilityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "new build directory"):
             trace.run(self.config, "record-prefix")
         self.assertFalse((Path(self.config["prefix"]) / "share/AnAnArchiver/dependency-build.json").exists())
+
+    def test_non_object_manifest_fails_before_resolver_or_metadata_changes(self):
+        trace.run(self.config, "prepare")
+        trace.run(self.config, "record-prefix")
+        provenance = Path(self.config["binary"]) / "dependency-provenance.json"
+        trace.write_json(provenance, {"build": "previous-success"})
+        records = [Path(self.config["binary"]) / "dependency-build.json", provenance,
+                   Path(self.config["prefix"]) / "share/AnAnArchiver/dependency-build.json",
+                   Path(self.config["prefix"]) / "share/AnAnArchiver/resolved-dependencies.json"]
+        previous = {path: path.read_bytes() for path in records}
+        self.sources.stop()  # Exercise the real file-reading boundary, not the fixture's source mock.
+        config_path = Path(self.config["root"]) / "config.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        for manifest in ([], None):
+            with self.subTest(manifest=manifest):
+                Path(self.config["manifest"]).write_text(json.dumps(manifest), encoding="utf-8")
+                diagnostics = io.StringIO()
+                with patch.object(trace.subprocess, "run") as resolver, \
+                        patch.object(trace, "write_json") as metadata_writer, \
+                        patch.object(sys, "argv", ["build_traceability.py", "--config", str(config_path), "--operation", "record"]), \
+                        contextlib.redirect_stderr(diagnostics):
+                    self.assertEqual(1, trace.main())
+                self.assertIn("Build traceability error: Dependency resolution manifest must be a JSON object", diagnostics.getvalue())
+                self.assertNotIn("Traceback", diagnostics.getvalue())
+                resolver.assert_not_called()
+                metadata_writer.assert_not_called()
+                self.assertEqual(previous, {path: path.read_bytes() for path in records})
 
     def test_changing_compilers_does_not_relabel_old_libraries(self):
         trace.run(self.config, "prepare")

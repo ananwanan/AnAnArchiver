@@ -71,10 +71,16 @@ libarchive 的实际版本从公开 `archive.h` 读取，为 `3.9.0dev`。
 Python、Jinja2/jsonschema 信息。显式系统库标为外部来源，不冒用 bundled revision；
 superbuild 从已完成应用记录汇入实际外部 kit。`SOURCE_DATE_EPOCH` 可用于可复现时间。
 
-最终离线套件为 51 项：36 项解析器、15 项构建溯源。真实 CI 独立工具作业已通过：
+完整构建验收时离线套件为 51 项：36 项解析器、15 项构建溯源。真实 CI 独立工具作业已通过：
 Windows 51/51（75.856 秒）、Ubuntu 51/51（5.987 秒）。本机最终 Core 和 desktop
 CTest 也分别运行并通过同一 51 项。测试覆盖 release/prerelease 与 fork/tag 选择、精确重放、
 脏文件/未发布提交保护、中断恢复、伪造 metadata、源图、Qt 选项和旧 prefix 拒绝。
+
+最后只读复核发现非对象 JSON 清单会在构建入口产生未捕获异常。入口现先验证
+根类型，数组和 `null` 返回明确错误；新增回归确认不启动 resolver、不写 metadata，
+既有记录字节保持不变。当前共有 52 项；受影响的 16 项构建溯源测试全部通过
+（0.514 秒），正常生产配置的完整 19 仓库只读验证也通过。这项错误提示修复
+没有修改 C++/Qt 或源码选择，不重复完整桌面测试。
 
 首次 PR CI [run 38130561573](https://github.com/ananwanan/AnAnArchiver/actions/runs/38130561573)
 暴露全新 clone 的深层父目录未初始化问题：预检以不存在的 TF-PSA-Crypto 目录
@@ -129,8 +135,10 @@ merge revision `d0661f5e7d89c9f3eea55be894340d3976ec97e4`。两项均已合入�
 - Linux/WSL 初次后端审计：13 项、2,783 断言通过，另有盐头/认证故障 1,063 断言通过，
   八线程共 256 次往返零失败。系统 zlib/bzip2 仅用于独立 audit；缺少的 LZMA/XZ/Zstd
   abort 子项明确跳过，不代替完整 bundled codecs 验收。
-- Linux 初次 ASan/UBSan audit：14 项、2,814 断言通过，没有 ASan/UBSan/LeakSanitizer
-  报告；crypto 库仍为 Release。PR #2 最终 sanitizer audit 结果另行补充。
+- Linux 初次 ASan/UBSan audit：14 项、2,814 断言通过。PR #2 最终独立审计为
+  14 项、2,830 断言，零失败且没有 ASan/UBSan/LeakSanitizer 诊断；deflate 和 bzip2
+  取消实际执行，缺少 codec 的 LZMA/XZ/Zstd 三个子项明确跳过。crypto 库仍为
+  Release；instrumented backend 的八线程 256 次 AES ZIP 往返也无失败或诊断。
 
 ## 历史轮次与当前边界
 
@@ -138,12 +146,21 @@ merge revision `d0661f5e7d89c9f3eea55be894340d3976ec97e4`。两项均已合入�
 整合前的 47 项结果只属于历史轮次。它们不计入 d0661f5 的最终本机验收；当前推荐
 入口、manifest 路径、metadata 文件名和安装目录以上述 canonical 契约为准。
 
-PR #6 [run 38131015354](https://github.com/ananwanan/AnAnArchiver/actions/runs/38131015354)
+截至 `2026-10-11T11:06Z`，PR #6
+[run 38131015354](https://github.com/ananwanan/AnAnArchiver/actions/runs/38131015354)
 已经确认单独解析、Windows/Ubuntu 离线工具作业和 Ubuntu sanitizer 完整 job 成功；
 sanitizer 的六个 CTest suites 全通过（7.63 秒）。Windows/MSVC、Ubuntu/GCC、
 Ubuntu/Clang 和 macOS/Apple Clang 四个 Core 完整 job 也已成功。Windows desktop
 完整源 Qt CI 已成功重放/验证，正在 configure/build，尚未声明整个工作流通过。
-本机桌面验收已经完成；安装后 metadata/DLL 校验和 desktop CI 的最终结果另行补充。
+同一实现的 [run 38132062023](https://github.com/ananwanan/AnAnArchiver/actions/runs/38132062023)
+也为上述八个作业成功，desktop 仍在 configure/build。本机桌面验收已经完成。
+
+Core 和 desktop 分别安装到 `out/validation/complete-core-install` 与
+`out/validation/complete-desktop-install`，安装的 `share/AnAnArchiver` 下两份 JSON
+与各自成功应用构建的记录一致。Core 子集含 12 项、`includes_qt=false`；desktop
+含 19 项、`includes_qt=true`，实际 libarchive 为 d0661f5/3.9.0dev，Qt 为 6.12.0
+bundled-source。安装的 desktop manifest 再次通过纯本地验证。桌面启动使用该
+源码构建的 Qt kit；本次没有制作或验收独立 portable DLL 分发包。
 
 真实外部 Explorer/Finder 拖放接收、Linux/macOS GUI、Android 设备、安装器/文件关联、
 大型性能基准和 fuzzing 不在本次验收范围内。

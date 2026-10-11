@@ -34,6 +34,8 @@ def source_dependencies(config: dict) -> tuple[dict | None, list[dict]]:
     if not path.is_file():
         raise ValueError(f"Missing dependency resolution: {path}. Run cmake -P scripts/init-dependencies.cmake first.")
     manifest = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("Dependency resolution manifest must be a JSON object")
     if manifest.get("schema_version") != 1:
         raise ValueError("Unsupported dependency resolution schema")
     arguments = [sys.executable, str(Path(config["root"]) / "scripts/resolve-dependencies.py"),
