@@ -8,7 +8,8 @@
 不传入文件时显示 Home。支持解压全部/多选条目、目录选择、密码、覆盖交互、
 实际字节进度、速度与取消。支持创建 ZIP、7z、TAR、TAR.GZ、TAR.BZ2、
 TAR.XZ、TAR.ZST 和 TAR.LZ4，创建选项由实际 writer capabilities 驱动。
-归档编辑和系统集成属于后续里程碑。
+归档编辑属于后续里程碑。M5 已增加自动发布打包、可选系统集成和安装验收；
+各平台的实际验证范围见下文。
 
 桌面体验包含统一的浅色/深色/跟随系统主题、最近归档、异步元数据搜索与
 名称/大小/类型/时间排序、任务中心、拖入打开或创建归档、选中条目拖出、
@@ -140,8 +141,8 @@ $env:PATH = (Resolve-Path out/build/desktop-release/dependencies/install/qt/bin)
 ./out/build/desktop-release/application/AnAnArchiver.exe
 ```
 
-开发 Qt kit 则将 `$env:QTDIR/bin` 加入当前终端的 PATH。可移植分发包和安装器
-仍属于后续里程碑，当前构建产物使用对应构建目录中的 Qt 运行时。
+开发 Qt kit 则将 `$env:QTDIR/bin` 加入当前终端的 PATH。供最终用户使用的
+分发包通过以下打包入口部署运行时，不需要配置 Qt 或开发环境 PATH。
 
 也可以由脚本从应用构建的 CMake cache 自动定位对应 Qt kit 并启动，不修改全局 PATH：
 
@@ -150,6 +151,56 @@ $env:PATH = (Resolve-Path out/build/desktop-release/dependencies/install/qt/bin)
 ```
 
 脚本同时支持 superbuild 和直接应用构建目录，并把附加参数传给应用。
+
+### 自动发布与系统集成
+
+Windows Release MSVC x64 构建完成后：
+
+```powershell
+./scripts/Package-Windows.ps1 -BuildDirectory out/build/desktop-release -SkipBuild -BootstrapInstaller
+```
+
+脚本使用 CMake 所选的同一 Qt kit 部署 DLL、QML、平台与 SVG 插件，并加入
+MSVC app-local runtime、依赖来源、许可证和逐文件 SHA-256 清单。
+`out/artifacts/windows` 生成完整 portable ZIP 和当前用户安装器。
+portable 包必须完整解压后运行；安装器提供中英界面，无需管理员权限。
+“打开方式”注册、资源管理器右键菜单与桌面快捷方式均为可选项。
+关联注册保留 Windows 的现有默认应用；在系统设置中选择默认应用即可双击打开。
+Windows 11 的传统菜单项目可能显示在“显示更多选项”中。
+升级会更新已选择的集成项目；卸载只删除本程序管理的文件和注册，保留用户另加文件。
+
+系统入口使用以下参数，归档读取和写入仍由原任务系统执行：
+
+```text
+AnAnArchiver archive.zip
+AnAnArchiver --extract-here archive.zip
+AnAnArchiver --extract-to-folder archive.tar.gz
+AnAnArchiver --compress file1 folder2
+```
+
+解压保留覆盖询问、密码交互与安全限制。压缩入口打开已填入输入和建议输出路径的
+创建对话框，确认后才写入归档。文件名以 `-` 开头时，参数与路径之间可加 `--`。
+
+`scripts/Test-Package.ps1` 校验部署哈希、最小 PATH 启动、中文与长路径、系统操作、
+Core/Qt 回归，以及隔离注册表下的安装、版本升级、取消集成选项和卸载。
+升级测试需要用同一安装脚本构造较低产品版本的安装器 fixture，详细参数见
+[Windows 发布说明](packaging/windows/README.md)。
+
+Linux 和 macOS 在相应本机 Release 构建后打包：
+
+```sh
+bash scripts/Package-Linux.sh out/build/desktop-release
+bash scripts/Package-macOS.sh out/build/desktop-release --dmg
+```
+
+Linux 生成 Qt/QML runtime 与启动脚本配套的 tar.gz，提供可选的当前用户
+`.desktop`/MIME 安装与卸载脚本，不覆盖默认 MIME 应用。macOS 部署 `.app`、
+归档 document types 和 Finder 打开事件，可生成 app ZIP 与 DMG。
+系统图形库、glibc 等遵循构建主机的兼容范围；macOS 分发签名与公证需发布者身份。
+详细用法见 [Linux 集成](packaging/linux/README.md) 和 [macOS 部署](packaging/macos/README.md)。
+本阶段 Windows 可交付包与安装流程已在本机验收；Linux/macOS 已验证元数据和脚本，
+尚未进行这两个平台的原生 GUI/打包运行验收。证据见
+[M5 验收记录](docs/validation/2026-10-12-m5.md)。
 
 ### Android 测试 APK
 

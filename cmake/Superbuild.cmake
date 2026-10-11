@@ -156,7 +156,15 @@ if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT)
     foreach(module IN ITEMS qtbase qtshadertools qtdeclarative qtsvg)
         ananarchiver_require_source(qt "${module}/CMakeLists.txt")
     endforeach()
-    ananarchiver_dependency(qt "${PROJECT_SOURCE_DIR}/third_party/qt"
+    include("${PROJECT_SOURCE_DIR}/cmake/PrepareQt.cmake")
+    ananarchiver_prepare_qt(qt_build_source)
+    if(ANANARCHIVER_QT_PATCH_SHA256)
+        string(SUBSTRING "${ANANARCHIVER_QT_PATCH_SHA256}" 0 12 qt_patch_id)
+        # An existing cache cannot switch CMAKE_HOME_DIRECTORY to the private
+        # export. Keep the selected short build root with a patch-specific suffix.
+        set(ANANARCHIVER_QT_BUILD_DIRECTORY "${ANANARCHIVER_QT_BUILD_DIRECTORY}-${qt_patch_id}")
+    endif()
+    ananarchiver_dependency(qt "${qt_build_source}"
         "-DCMAKE_INSTALL_PREFIX:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}/qt"
         "-DQT_BUILD_SUBMODULES:STRING=qtbase|qtshadertools|qtdeclarative|qtsvg"
         "-DVulkan_INCLUDE_DIR:PATH=${Vulkan_INCLUDE_DIR}"
@@ -182,7 +190,7 @@ add_custom_target(dependency_provenance
         "${ANANARCHIVER_DEPENDENCY_PREFIX}/share/AnAnArchiver/build-patches.json"
     DEPENDS ${archive_dependencies} ${qt_dependencies})
 file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/build-patches.json"
-    CONTENT "{\"libarchive_mbedtls4_sha256\":\"${ANANARCHIVER_LIBARCHIVE_PATCH_SHA256}\",\"libarchive_patch_commit\":\"${ANANARCHIVER_LIBARCHIVE_PATCH_COMMIT}\",\"libarchive_base_revision\":\"${ANANARCHIVER_LIBARCHIVE_REVISION}\"}\n" @ONLY)
+    CONTENT "{\"libarchive_mbedtls4_sha256\":\"${ANANARCHIVER_LIBARCHIVE_PATCH_SHA256}\",\"libarchive_patch_commit\":\"${ANANARCHIVER_LIBARCHIVE_PATCH_COMMIT}\",\"libarchive_base_revision\":\"${ANANARCHIVER_LIBARCHIVE_REVISION}\",\"qt_windows_longpaths_sha256\":\"${ANANARCHIVER_QT_PATCH_SHA256}\",\"qtbase_revision\":\"${ANANARCHIVER_QTBASE_REVISION}\"}\n" @ONLY)
 add_custom_target(dependencies DEPENDS dependency_provenance)
 set(application_arguments ${dependency_arguments}
     -DANANARCHIVER_SUPERBUILD=OFF

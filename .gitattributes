@@ -1,2 +1,4 @@
 # Git-format patches preserve upstream context whitespace and stable hashes.
 cmake/patches/*.patch text eol=lf -whitespace
+*.sh text eol=lf
+packaging/**/*.desktop text eol=lf
