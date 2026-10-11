@@ -10,6 +10,7 @@ set(ANANARCHIVER_DEPENDENCY_JOBS 4 CACHE STRING "Parallel jobs per dependency bu
 set(dependency_build_root "${CMAKE_BINARY_DIR}/dependencies/build")
 set(ANANARCHIVER_QT_BUILD_DIRECTORY "${CMAKE_BINARY_DIR}/qt" CACHE PATH
     "Short Qt source build directory, to avoid generated MSVC object path limits")
+ananarchiver_configure_traceability()
 set(dependency_arguments
     "-DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}"
     "-DCMAKE_INSTALL_PREFIX:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
@@ -22,6 +23,14 @@ set(dependency_arguments
     "-DBUILD_SHARED_LIBS:BOOL=OFF"
     "-DBUILD_TESTING:BOOL=OFF"
     "-DCMAKE_POLICY_VERSION_MINIMUM:STRING=3.5")
+foreach(variable IN ITEMS CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE
+        CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG
+        CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_RELWITHDEBINFO
+        CMAKE_C_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_MSVC_RUNTIME_LIBRARY)
+    if(DEFINED ${variable})
+        list(APPEND dependency_arguments "-D${variable}:STRING=${${variable}}")
+    endif()
+endforeach()
 if(CMAKE_TOOLCHAIN_FILE)
     list(APPEND dependency_arguments "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}")
 endif()
@@ -61,11 +70,12 @@ function(ananarchiver_dependency name source)
         BUILD_ALWAYS ON
         LIST_SEPARATOR "|"
         CMAKE_ARGS ${dependency_arguments} ${dependency_UNPARSED_ARGUMENTS}
-        DEPENDS ${dependency_DEPENDS}
+        DEPENDS ananarchiver_verify_dependencies ${dependency_DEPENDS}
         BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --parallel "${ANANARCHIVER_DEPENDENCY_JOBS}"
         INSTALL_COMMAND "${CMAKE_COMMAND}" --install <BINARY_DIR>
         LOG_CONFIGURE ON LOG_BUILD ON LOG_INSTALL ON
         LOG_OUTPUT_ON_FAILURE ON)
+    add_dependencies(dependency_${name} ananarchiver_verify_dependencies)
 endfunction()
 
 set(archive_dependencies "")
@@ -89,8 +99,25 @@ if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
         -DEXPAT_BUILD_TOOLS=OFF -DEXPAT_BUILD_EXAMPLES=OFF -DEXPAT_BUILD_TESTS=OFF
         -DEXPAT_BUILD_DOCS=OFF -DEXPAT_SHARED_LIBS=OFF)
     ananarchiver_require_source(mbedtls framework/CMakeLists.txt)
+    execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import jinja2, jsonschema"
+        RESULT_VARIABLE mbedtls_python_status ERROR_VARIABLE mbedtls_python_error)
+    if(NOT mbedtls_python_status EQUAL 0)
+        message(FATAL_ERROR "Mbed TLS source generation requires Jinja2 and jsonschema in ${Python3_EXECUTABLE}. Run python -m pip install --upgrade jinja2 jsonschema. ${mbedtls_python_error}")
+    endif()
+    find_package(Git REQUIRED)
+    get_filename_component(git_binary_directory "${GIT_EXECUTABLE}" DIRECTORY)
+    find_program(ANANARCHIVER_PERL_EXECUTABLE NAMES perl
+        HINTS "${git_binary_directory}/../usr/bin" "${git_binary_directory}/../../usr/bin" REQUIRED)
+    set(mbedtls_pthread OFF)
+    if(NOT WIN32)
+        set(mbedtls_pthread ON)
+    endif()
     ananarchiver_dependency(mbedtls "${PROJECT_SOURCE_DIR}/third_party/mbedtls"
-        -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DGEN_FILES=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF)
+        -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DGEN_FILES=ON -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
+        "-DLINK_WITH_PTHREAD:BOOL=${mbedtls_pthread}"
+        "-DPython3_EXECUTABLE:FILEPATH=${Python3_EXECUTABLE}"
+        "-DPERL_EXECUTABLE:FILEPATH=${ANANARCHIVER_PERL_EXECUTABLE}"
+        "-DTF_PSA_CRYPTO_USER_CONFIG_FILE:FILEPATH=${PROJECT_SOURCE_DIR}/cmake/vendor/mbedtls/crypto_config.h")
     set(codec_dependencies dependency_zlib dependency_bzip2 dependency_xz dependency_zstd
         dependency_lz4 dependency_expat dependency_mbedtls)
     # Searches inside this build's prefix only; no optional codec can come from the host.
@@ -114,7 +141,7 @@ set(qt_dependencies "")
 if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT)
     ananarchiver_require_source(vulkan-headers include/vulkan/vulkan.h)
     set(Vulkan_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/third_party/vulkan-headers/include" CACHE PATH
-        "Vulkan API headers used to compile Qt (default: pinned project submodule)")
+        "Vulkan API headers used to compile Qt (default: resolved project submodule)")
     foreach(module IN ITEMS qtbase qtshadertools qtdeclarative qtsvg)
         ananarchiver_require_source(qt "${module}/CMakeLists.txt")
     endforeach()
@@ -136,7 +163,11 @@ if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT)
     list(APPEND qt_dependencies dependency_qt)
 endif()
 
-add_custom_target(dependencies DEPENDS ${archive_dependencies} ${qt_dependencies})
+add_custom_target(ananarchiver_record_dependencies
+    COMMAND ${ANANARCHIVER_TRACE_COMMAND} --operation record-prefix
+    DEPENDS ${archive_dependencies} ${qt_dependencies} VERBATIM)
+add_custom_target(dependencies DEPENDS ananarchiver_record_dependencies)
+add_dependencies(ananarchiver_build_info ananarchiver_record_dependencies)
 set(application_arguments ${dependency_arguments}
     -DANANARCHIVER_SUPERBUILD=OFF
     "-DANANARCHIVER_BUILD_QT:BOOL=${ANANARCHIVER_BUILD_QT}"
@@ -144,6 +175,7 @@ set(application_arguments ${dependency_arguments}
     "-DANANARCHIVER_USE_SYSTEM_LIBARCHIVE:BOOL=${ANANARCHIVER_USE_SYSTEM_LIBARCHIVE}"
     "-DANANARCHIVER_ENABLE_SANITIZERS:BOOL=${ANANARCHIVER_ENABLE_SANITIZERS}"
     "-DANANARCHIVER_DEPENDENCY_PREFIX:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
+    "-DANANARCHIVER_DEPENDENCY_MANIFEST:FILEPATH=${ANANARCHIVER_DEPENDENCY_MANIFEST}"
     "-DBUILD_TESTING:BOOL=${BUILD_TESTING}")
 if(CMAKE_PREFIX_PATH)
     string(REPLACE ";" "|" developer_prefix_path "${CMAKE_PREFIX_PATH}")
@@ -160,7 +192,8 @@ ExternalProject_Add(ananarchiver
     CMAKE_ARGS ${application_arguments}
     BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --parallel "${ANANARCHIVER_DEPENDENCY_JOBS}"
     BUILD_ALWAYS ON INSTALL_COMMAND ""
-    DEPENDS ${archive_dependencies} ${qt_dependencies})
+    DEPENDS ananarchiver_record_dependencies)
+add_dependencies(ananarchiver_build_info ananarchiver)
 if(BUILD_TESTING)
     add_test(NAME application_suite COMMAND "${CMAKE_CTEST_COMMAND}"
         --test-dir "${CMAKE_BINARY_DIR}/application" --output-on-failure)

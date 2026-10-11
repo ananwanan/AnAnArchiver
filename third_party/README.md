@@ -1,4 +1,4 @@
-# Build dependency plan
+# Build dependencies
 
 Use the latest stable release from each dependency's designated upstream when
 initializing or updating sources. Do not prescribe a fixed historical version,
@@ -40,28 +40,83 @@ the shorter `out/build/<preset>/qt`, adjustable with
 | Qt supermodule | [qt/qt5](https://github.com/qt/qt5) | Latest stable Qt 6 release with matching qtbase, qtshadertools, qtdeclarative, and qtsvg modules | Desktop frontend source build |
 | Vulkan-Headers | [KhronosGroup/Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | Latest stable release | Qt's Vulkan API headers; no Vulkan SDK library is linked |
 
-## Current initialization behavior
+## Resolve, restore, and verify
 
-This is a plan change. The current initialization script still checks out the
-commits recorded by the parent repository's gitlinks; the superbuild compiles
-those local sources without downloading or updating them. Automatic resolution
-of the latest upstream versions is not yet implemented. The commands below
-initialize the recorded source snapshot and do not upgrade it to the latest.
+The CMake entry point calls `scripts/resolve_dependencies.py` using Python's
+standard library and Git. A normal invocation checks the designated upstreams
+again, resolves the latest stable source set, fetches and checks out those
+revisions, and writes `out/dependency-resolution.json`. It does not initialize
+the historical gitlinks and stop there. Local dependency modifications are
+protected; resolve conflicts before retrying rather than discarding them.
 
-When implementing the revised policy, update source resolution and CI together,
-preserve matching nested module sets, record the resolved revisions, and run the
-affected builds and regression tests. Existing reports in `docs/validation`
-remain historical evidence for the versions actually tested there.
-
-Initialize only the required sources (avoids cloning all of Qt):
+Initialize the archive dependencies only, or include source Qt:
 
 ```sh
 cmake -P scripts/init-dependencies.cmake
 cmake -DANANARCHIVER_INIT_QT=ON -P scripts/init-dependencies.cmake
 ```
 
-The first command initializes the archive dependencies. The second additionally
-initializes the four Qt modules.
+The second command also obtains the Qt supermodule's matching qtbase,
+qtshadertools, qtdeclarative, and qtsvg revisions and Vulkan-Headers. Mbed TLS's
+framework is always checked out at the revision selected by the Mbed TLS
+supermodule. Nested repositories are recorded as part of the source set, not
+upgraded to their individual latest branches.
+
+The schema-versioned manifest records each dependency's source URL, actual
+version, release tag when applicable, commit revision, selection rule, UTC
+resolution time, and parent relationship. It is a record of one resolution,
+not a permanent dependency lock. To use another manifest path, pass
+`-DANANARCHIVER_DEPENDENCY_MANIFEST=<path>` to both initialization and CMake
+configuration. Keep this JSON with the build artifacts to reproduce a build.
+
+To restore a saved `out/dependency-resolution.json` without selecting newer
+versions:
+
+```sh
+cmake -DANANARCHIVER_DEPENDENCY_RESTORE=ON -P scripts/init-dependencies.cmake
+cmake --preset core-release
+cmake --build --preset core-release
+ctest --preset core-release
+```
+
+For a source Qt build, restore a manifest that includes Qt, add
+`-DANANARCHIVER_INIT_QT=ON` to the restore command, and use `desktop-release`.
+Restoration fetches the recorded revisions if needed; it does not silently
+replace an unavailable revision with a newer or older one. A subsequent normal
+initialization still checks for the latest stable sources.
+
+Check the current checkout against the manifest without fetching or updating:
+
+```sh
+cmake -DANANARCHIVER_DEPENDENCY_VERIFY=ON -P scripts/init-dependencies.cmake
+python -m unittest discover -s tests/dependencies -p 'test_*.py' -v
+```
+
+Source Qt verification also requires `-DANANARCHIVER_INIT_QT=ON`. The resolver
+regression suite uses local fixture repositories and mocked release metadata;
+it does not contact upstreams. GitHub API authentication may use `GITHUB_TOKEN`
+or `GH_TOKEN` in the environment. Tokens are used only in request headers and
+are never written into manifests, source URLs, or Git configuration.
+
+CMake verifies that the bundled sources match the chosen manifest before
+configuration. The superbuild uses those sources without downloading or
+updating them during compilation. After dependency changes use a fresh build
+directory; a build directory already bound to a different source set is
+rejected, so stale installed libraries cannot be reported as the new versions.
+Updating resolution timestamps without changing sources or the toolchain does
+not invalidate the existing build directory.
+`out/build/<preset>/build-info.json` and
+`out/build/<preset>/application/build-info.json` record the actual source set
+and build environment; installation preserves the record at
+`share/ananarchiver/build-info.json`. Explicit developer system dependencies are
+identified separately and do not inherit the bundled source provenance.
+
+CI resolves once in a dedicated job and passes the manifest artifact to all
+four platform/compiler builds and the sanitizer build. Each restores that
+exact source set and uploads its resolution, available build metadata, and
+diagnostics even on failure. Resolver tests run independently on Windows and
+Linux. Existing reports in `docs/validation` remain historical evidence for
+the versions actually tested there.
 
 `cmake/vendor/zlib` and `cmake/vendor/bzip2` contain build descriptions only.
 The zlib adapter avoids source-header mutation during dependency configuration.
@@ -72,9 +127,11 @@ An existing Qt kit is available only through the explicit `desktop-developer`
 preset and `QTDIR`. `ANANARCHIVER_USE_SYSTEM_LIBARCHIVE=ON` is a separate developer
 escape hatch; record that selected backend's source and version separately.
 
-CMake, Ninja/Make, the C/C++ compiler, and operating-system SDK/display APIs are
-build tools and platform prerequisites. Prefer their latest stable versions that
-support the target platform and C++23. Minimum compatibility requirements in
+CMake, Ninja/Make, Python, Jinja2, jsonschema, Perl, the C/C++ compiler, and operating-system
+SDK/display APIs are build tools and platform prerequisites. Mbed TLS uses
+Python/Jinja2/jsonschema and Perl to generate its sources; install the latest stable
+Python modules with `python -m pip install --upgrade jinja2 jsonschema`. Prefer the latest stable
+tool versions that support the target platform and C++23. Minimum compatibility requirements in
 CMake are lower bounds, not fixed dependency versions. Linux Qt needs the platform's X11/XCB or
 Wayland development packages; macOS uses the Xcode SDK; Windows uses the Windows
 SDK. These platform interfaces are not copied into the application repository.

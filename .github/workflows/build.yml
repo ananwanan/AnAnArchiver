@@ -1,8 +1,55 @@
 name: Build and test
 on: [push, pull_request, workflow_dispatch]
 
+permissions:
+  contents: read
+
 jobs:
+  dependency-resolver-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+          check-latest: true
+      - name: Test dependency selection and restoration without network access
+        run: python -m unittest discover -s tests/dependencies -p 'test_*.py' -v
+
+  resolve-dependencies:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+          check-latest: true
+      - name: Install current stable build tools
+        run: python -m pip install --upgrade cmake ninja jinja2 jsonschema
+      # Resolve once for this workflow. Every compiler consumes this exact source set,
+      # including Mbed TLS's matching framework revision, even if upstream moves later.
+      - name: Resolve and fetch latest stable backend and codec sources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: cmake -P scripts/init-dependencies.cmake
+      - name: Save the shared dependency resolution
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-resolution
+          path: out/dependency-resolution.json
+          if-no-files-found: error
+
   core:
+    needs: resolve-dependencies
     strategy:
       fail-fast: false
       matrix:
@@ -24,15 +71,27 @@ jobs:
             cxx: clang++
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+          check-latest: true
+      - name: Install current stable build tools
+        run: python -m pip install --upgrade cmake ninja jinja2 jsonschema
+      - uses: actions/download-artifact@v8
+        with:
+          name: dependency-resolution
+          path: out
       # Clang 18 has __cpp_concepts=201907L, so libstdc++'s expected gate rejects it.
       # libc++ 18 provides expected without redefining compiler feature macros.
       # Its stop_token/jthread implementation also requires -fexperimental-library.
       - name: Install the Clang C++ standard library
         if: matrix.compiler == 'clang'
         run: sudo apt-get update && sudo apt-get install -y libc++-18-dev libc++abi-18-dev
-      - name: Initialize backend and codec sources
-        run: cmake -P scripts/init-dependencies.cmake
+      - name: Restore the shared backend and codec source revisions
+        run: cmake -DANANARCHIVER_DEPENDENCY_RESTORE=ON -P scripts/init-dependencies.cmake
       - name: Configure Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -53,14 +112,57 @@ jobs:
         run: cmake --build --preset core-release
       - name: Test
         run: ctest --preset core-release
+      - name: Save build provenance and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-info-${{ matrix.os }}-${{ matrix.compiler }}
+          path: |
+            out/dependency-resolution.json
+            out/build/core-release/build-info.json
+            out/build/core-release/application/build-info.json
+            out/build/core-release/**/dependency-build.json
+            out/build/core-release/**/build-trace-config.json
+            out/build/core-release/**/Testing/Temporary/*.log
+            out/build/core-release/*-prefix/src/*-stamp/*.log
+          if-no-files-found: warn
+
   sanitizers:
+    needs: resolve-dependencies
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - run: cmake -P scripts/init-dependencies.cmake
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+          check-latest: true
+      - name: Install current stable build tools
+        run: python -m pip install --upgrade cmake ninja jinja2 jsonschema
+      - uses: actions/download-artifact@v8
+        with:
+          name: dependency-resolution
+          path: out
+      - name: Restore the shared backend and codec source revisions
+        run: cmake -DANANARCHIVER_DEPENDENCY_RESTORE=ON -P scripts/init-dependencies.cmake
       - run: cmake --preset core-sanitizers
         env:
           CC: gcc-14
           CXX: g++-14
       - run: cmake --build --preset core-sanitizers
       - run: ctest --preset core-sanitizers
+      - name: Save sanitizer build provenance and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-info-ubuntu-sanitizers
+          path: |
+            out/dependency-resolution.json
+            out/build/core-sanitizers/build-info.json
+            out/build/core-sanitizers/application/build-info.json
+            out/build/core-sanitizers/**/dependency-build.json
+            out/build/core-sanitizers/**/build-trace-config.json
+            out/build/core-sanitizers/**/Testing/Temporary/*.log
+            out/build/core-sanitizers/*-prefix/src/*-stamp/*.log
+          if-no-files-found: warn

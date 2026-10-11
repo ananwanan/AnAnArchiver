@@ -24,12 +24,20 @@ else()
     find_package(MbedTLS CONFIG REQUIRED
         PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}"
         NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+    if(TARGET MbedTLS::tfpsacrypto)
+        set(ananarchiver_crypto_library MbedTLS::tfpsacrypto)
+    elseif(TARGET MbedTLS::mbedcrypto)
+        # Restoring a previously resolved pre-4.x snapshot remains supported.
+        set(ananarchiver_crypto_library MbedTLS::mbedcrypto)
+    else()
+        message(FATAL_ERROR "The selected Mbed TLS package exports no supported crypto target")
+    endif()
     add_library(AnAnArchiver::Archive STATIC IMPORTED GLOBAL)
     set_target_properties(AnAnArchiver::Archive PROPERTIES
         IMPORTED_LOCATION "${archive_library}"
         INTERFACE_INCLUDE_DIRECTORIES "${ANANARCHIVER_DEPENDENCY_PREFIX}/include"
         INTERFACE_COMPILE_DEFINITIONS "LIBARCHIVE_STATIC"
-        INTERFACE_LINK_LIBRARIES "${zlib_library};${bzip2_library};${lzma_library};${zstd_library};${lz4_library};${expat_library};MbedTLS::mbedcrypto;Threads::Threads")
+        INTERFACE_LINK_LIBRARIES "${zlib_library};${bzip2_library};${lzma_library};${zstd_library};${lz4_library};${expat_library};${ananarchiver_crypto_library};Threads::Threads")
     if(WIN32)
         set_property(TARGET AnAnArchiver::Archive APPEND PROPERTY INTERFACE_LINK_LIBRARIES bcrypt)
     endif()
