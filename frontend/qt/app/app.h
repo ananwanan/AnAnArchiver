@@ -1,5 +1,6 @@
 #pragma once
 
+#include "build_info.h"
 #include "controllers/archive_controller.h"
 #include "controllers/compression_controller.h"
 #include "controllers/desktop_controller.h"
@@ -24,6 +25,7 @@ public:
     ArchiveController& archiveController() { return archives_; }
 
 private:
+    BuildInfo buildInfo_;
     ArchiveController archives_;
     CompressionController compression_;
     FileTreeModel directories_;
