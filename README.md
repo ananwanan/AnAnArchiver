@@ -102,8 +102,9 @@ GitHub API 限流时通过环境变量 `GITHUB_TOKEN` 提供只读凭据，不�
 
 Mbed TLS 4 公共 PSA API 与 ZIP 取消资源清理修复已通过
 [libarchive PR #1](https://github.com/ananwanan/libarchive/pull/1) 合入指定上游，
-应用直接构建解析到的上游源码，移除父项目中的兼容补丁副本。旧补丁的并发调用
-包装和持久 AES operation 还需在上游补齐，相关验证与后续状态见
+应用直接构建解析到的上游源码，移除父项目中的兼容补丁副本。共享 PSA 并发保护、
+持久 AES operation 和 CryptoOnly 支持也已通过
+[libarchive PR #2](https://github.com/ananwanan/libarchive/pull/2) 合入上游，相关验证见
 [本次依赖验证记录](docs/validation/2026-10-11-dependency-resolution.md)。
 
 构建和测试不依赖 Qt 的 Core、Backend、Application：

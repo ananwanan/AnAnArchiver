@@ -132,8 +132,9 @@ frontend. Public PSA Crypto support for Mbed TLS 4 and ZIP abort cleanup were
 merged into the designated upstream through
 [libarchive PR #1](https://github.com/ananwanan/libarchive/pull/1). The parent
 project's compatibility-patch copy is removed; the build uses the resolved
-upstream checkout directly. The previous patch's concurrent-call wrapper and
-persistent AES operation still require upstream follow-up. Current status and
+upstream checkout directly. The previous patch's shared concurrency protection,
+persistent AES operation, and CryptoOnly support were also merged through
+[libarchive PR #2](https://github.com/ananwanan/libarchive/pull/2). Current status and
 the distinction between independent backend audits and application validation
 are recorded in `docs/validation/2026-10-11-dependency-resolution.md`.
 
