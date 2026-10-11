@@ -495,5 +495,88 @@ class ReplayTests(unittest.TestCase):
             self.assertNotIn("Traceback", diagnostics.getvalue())
 
 
+class FreshReplayTests(unittest.TestCase):
+    def test_entirely_fresh_three_nested_levels_replay_and_read_only_verify(self):
+        with tempfile.TemporaryDirectory(prefix="ananarchiver-fresh-nested-") as temporary:
+            base = Path(temporary).resolve()
+            root = base / "application"
+            rows, upstreams = [], {}
+            # Build upward from the leaf: Mbed TLS -> PSA -> framework -> vendor.
+            definitions = [
+                ("mbedtls/tf-psa-crypto/framework/vendor", "https://github.com/example/vendor.git", None),
+                ("mbedtls/tf-psa-crypto/framework", "https://github.com/Mbed-TLS/mbedtls-framework.git", "vendor"),
+                ("mbedtls/tf-psa-crypto", "https://github.com/Mbed-TLS/TF-PSA-Crypto.git", "framework"),
+                ("mbedtls", "https://github.com/Mbed-TLS/mbedtls.git", "tf-psa-crypto"),
+            ]
+            for name, url, child_path in definitions:
+                checkout = base / "upstreams" / name.replace("/", "-")
+                resolver.git("init", str(checkout))
+                (checkout / "payload.txt").write_text(name + "\n", encoding="utf-8")
+                resolver.git("add", "payload.txt", cwd=checkout)
+                if name == "mbedtls/tf-psa-crypto":
+                    header = checkout / "include/tf-psa-crypto/build_info.h"
+                    header.parent.mkdir(parents=True)
+                    header.write_text('#define TF_PSA_CRYPTO_VERSION_STRING "1.2.0"\n', encoding="utf-8")
+                    resolver.git("add", "include/tf-psa-crypto/build_info.h", cwd=checkout)
+                if child_path:
+                    child = rows[-1]
+                    (checkout / ".gitmodules").write_text(
+                        f'[submodule "{child_path}"]\npath={child_path}\nurl={child["url"]}\n', encoding="utf-8")
+                    resolver.git("add", ".gitmodules", cwd=checkout)
+                    resolver.git("update-index", "--add", "--cacheinfo", f"160000,{child['revision']},{child_path}", cwd=checkout)
+                resolver.git("-c", "user.name=Resolver Tests", "-c", "user.email=resolver@example.invalid", "commit", "-m", "matched source fixture", cwd=checkout)
+                revision = resolver.git("rev-parse", "HEAD", cwd=checkout)
+                row = {"name": name, "path": "third_party/" + name, "url": url,
+                       "version": "git-" + revision[:12], "ref": revision, "revision": revision,
+                       "selection": "coupled-gitlink", "metadata_source": "https://github.com/fixture/gitlink"}
+                if name == "mbedtls":
+                    row.update(version="4.2.0", ref="refs/tags/mbedtls-4.2.0", selection="release")
+                else:
+                    row["coupled_to"] = name.rsplit("/", 1)[0]
+                if name == "mbedtls/tf-psa-crypto":
+                    row["version"] = "1.2.0"
+                rows.append(row)
+                upstreams[url] = checkout
+            rows.reverse()
+            resolver.git("init", str(root))
+            (root / ".gitmodules").write_text(
+                '[submodule "mbedtls"]\npath=third_party/mbedtls\nurl=' + rows[0]["url"] + "\n", encoding="utf-8")
+            resolver.git("add", ".gitmodules", cwd=root)
+            # The application's historical gitlink is deliberately unavailable.
+            resolver.git("update-index", "--add", "--cacheinfo", f"160000,{A},third_party/mbedtls", cwd=root)
+            resolver.git("-c", "user.name=Resolver Tests", "-c", "user.email=resolver@example.invalid", "commit", "-m", "historical unavailable gitlink", cwd=root)
+            manifest = {"schema_version": 1, "resolved_at": NOW, "includes_qt": False, "dependencies": rows}
+            source, output = base / "input.json", root / "out/resolved.json"
+            resolver.atomic_write_manifest(source, manifest)
+            for row in rows:
+                self.assertFalse(resolver.repository_present(root / row["path"]))
+            self.assertFalse((root / "third_party/mbedtls/tf-psa-crypto").exists())
+            original_git, fetched = resolver.git, []
+
+            def local_upstreams(*args, **kwargs):
+                if args[0] == "fetch":
+                    fetched.append(args[-1])
+                    args = tuple(str(upstreams[value]) if value in upstreams else value for value in args)
+                return original_git(*args, **kwargs)
+
+            diagnostics = io.StringIO()
+            with patch.object(resolver, "CORE", ("mbedtls",)), \
+                    patch.object(resolver, "git", side_effect=local_upstreams), \
+                    patch.object(resolver.GitHub, "request", side_effect=AssertionError("API forbidden during replay")), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(diagnostics):
+                result = resolver.main(["--root", str(root), "--replay-manifest", str(source), "--manifest", str(output)])
+                self.assertEqual(0, result, diagnostics.getvalue())
+                original_record = output.read_bytes()
+                with patch.object(resolver, "atomic_write_manifest", side_effect=AssertionError("Verify must not write")):
+                    result = resolver.main(["--root", str(root), "--core-only", "--verify", "--replay-manifest", str(output)])
+                self.assertEqual(0, result, diagnostics.getvalue())
+                self.assertEqual(original_record, output.read_bytes())
+            self.assertEqual([row["revision"] for row in rows], fetched)
+            self.assertNotIn(A, fetched)
+            for row in rows:
+                self.assertEqual(row["revision"], resolver.git("rev-parse", "HEAD", cwd=root / row["path"]))
+                self.assertTrue((root / row["path"] / ".git").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

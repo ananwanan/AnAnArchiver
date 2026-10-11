@@ -342,6 +342,10 @@ def repository_present(path: Path) -> bool:
 
 
 def recorded_gitlink(parent: Path, relative: str) -> str:
+    # Replay checks the complete dependency graph before creating any checkout.
+    # A grandchild's parent can therefore be absent on a fresh clone.
+    if not repository_present(parent):
+        return ""
     link = git("ls-tree", "HEAD", "--", relative, cwd=parent, check=False).split()
     return link[2] if len(link) >= 3 and link[0] == "160000" else ""
 
