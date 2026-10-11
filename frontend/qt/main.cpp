@@ -3,6 +3,7 @@
 
 #include <QCommandLineParser>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QLocale>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -15,6 +16,7 @@ int main(int argc, char* argv[])
     QCoreApplication::setApplicationName(QStringLiteral("AnAnArchiver"));
     QCoreApplication::setApplicationVersion(QStringLiteral("1.0.0"));
     QCoreApplication::setOrganizationName(QStringLiteral("AnAnArchiver"));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/branding/ananarchiver.png")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QCommandLineParser parser;
@@ -29,11 +31,14 @@ int main(int argc, char* argv[])
         QCoreApplication::translate("main", "Exit after archive indexing; failure returns exit code 1"));
     QCommandLineOption screenshotOption(QStringLiteral("smoke-screenshot"),
         QStringLiteral("Save the rendered main window for launch verification"), QStringLiteral("file"));
+    QCommandLineOption aboutOption(QStringLiteral("smoke-about"),
+        QStringLiteral("Open the About dialog for launch verification"));
     QCommandLineOption languageOption(QStringLiteral("language"),
         QStringLiteral("Select the interface language (en or zh-CN)"), QStringLiteral("language"));
     parser.addOption(smokeOption);
     parser.addOption(smokeArchiveOption);
     parser.addOption(screenshotOption);
+    parser.addOption(aboutOption);
     parser.addOption(languageOption);
     parser.process(app);
 
@@ -62,6 +67,18 @@ int main(int argc, char* argv[])
     ananarchiver::qt::App application;
     if (!application.initialize(file))
         return 1;
+    if (parser.isSet(aboutOption)) {
+        bool opened = false;
+        for (auto* window : app.allWindows()) {
+            auto* dialog = window->findChild<QObject*>(QStringLiteral("aboutDialog"));
+            if (dialog) {
+                opened = QMetaObject::invokeMethod(dialog, "open");
+                break;
+            }
+        }
+        if (!opened)
+            return 5;
+    }
     if (parser.isSet(smokeArchiveOption)) {
         if (file.isEmpty()) {
             std::cerr << "--smoke-archive requires an archive argument\n";

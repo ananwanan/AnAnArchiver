@@ -1,5 +1,6 @@
 add_library(ananarchiver_qt STATIC
     app/app.cpp app/app.h
+    app/build_info.cpp app/build_info.h
     controllers/archive_controller.cpp controllers/archive_controller.h
     controllers/compression_controller.cpp controllers/compression_controller.h
     controllers/desktop_controller.cpp controllers/desktop_controller.h
@@ -16,13 +17,26 @@ target_link_libraries(ananarchiver_qt PUBLIC
     ananarchiver_application Qt6::Core Qt6::Gui Qt6::Qml)
 set_target_properties(ananarchiver_qt PROPERTIES AUTOMOC ON)
 
+set(ananarchiver_timestamp_header "${CMAKE_CURRENT_BINARY_DIR}/generated/ananarchiver_build_timestamp.h")
+add_custom_target(ananarchiver_build_timestamp
+    COMMAND "${CMAKE_COMMAND}" "-DOUTPUT_FILE=${ananarchiver_timestamp_header}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/WriteBuildTimestamp.cmake"
+    BYPRODUCTS "${ananarchiver_timestamp_header}"
+    COMMENT "Recording application build time (UTC)"
+    VERBATIM)
+add_dependencies(ananarchiver_qt ananarchiver_build_timestamp)
+target_include_directories(ananarchiver_qt PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set_source_files_properties(app/build_info.cpp PROPERTIES OBJECT_DEPENDS "${ananarchiver_timestamp_header}")
+
 qt_add_executable(AnAnArchiver main.cpp)
 ananarchiver_project_options(AnAnArchiver)
 if(WIN32)
-    target_sources(AnAnArchiver PRIVATE resources/AnAnArchiver.manifest)
+    enable_language(RC)
+    target_sources(AnAnArchiver PRIVATE resources/app_icon.rc)
     if(MINGW)
-        enable_language(RC)
         target_sources(AnAnArchiver PRIVATE resources/windows.rc)
+    else()
+        target_sources(AnAnArchiver PRIVATE resources/AnAnArchiver.manifest)
     endif()
 endif()
 target_link_libraries(AnAnArchiver PRIVATE
@@ -62,6 +76,12 @@ set_target_properties(AnAnArchiver PROPERTIES
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
     WIN32_EXECUTABLE TRUE)
+if(APPLE)
+    target_sources(AnAnArchiver PRIVATE resources/icons/ananarchiver.icns)
+    set_source_files_properties(resources/icons/ananarchiver.icns PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(AnAnArchiver PROPERTIES MACOSX_BUNDLE_ICON_FILE ananarchiver.icns)
+endif()
 if(ANDROID)
     set_target_properties(AnAnArchiver PROPERTIES
         QT_ANDROID_PACKAGE_NAME com.ananwanan.ananarchiver
@@ -78,6 +98,11 @@ qt_add_resources(AnAnArchiver "desktop_icons"
     PREFIX "/qt/qml/AnAnArchiver"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/qml"
     FILES ${ANANARCHIVER_ICON_FILES} qml/icons/LICENSE.txt)
+
+qt_add_resources(AnAnArchiver "app_branding"
+    PREFIX "/branding"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons"
+    FILES resources/icons/ananarchiver.png)
 
 install(TARGETS AnAnArchiver
     BUNDLE DESTINATION .
