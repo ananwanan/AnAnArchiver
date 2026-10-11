@@ -1,7 +1,35 @@
 include_guard(GLOBAL)
 find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
-set(ANANARCHIVER_DEPENDENCY_MANIFEST "${PROJECT_SOURCE_DIR}/out/dependency-resolution.json"
+set(ANANARCHIVER_DEPENDENCY_MANIFEST "${PROJECT_SOURCE_DIR}/out/dependencies/resolved-dependencies.json"
     CACHE FILEPATH "Resolved dependency snapshot produced by init-dependencies.cmake")
+set(ANANARCHIVER_QT_SOURCE_OPTIONS
+    -DBUILD_SHARED_LIBS=ON
+    "-DQT_BUILD_SUBMODULES:STRING=qtbase|qtshadertools|qtdeclarative|qtsvg"
+    -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF -DQT_BUILD_BENCHMARKS=OFF
+    -DQT_BUILD_TESTS_BY_DEFAULT=OFF -DFEATURE_openssl=OFF
+    -DFEATURE_system_zlib=OFF -DFEATURE_system_pcre2=OFF -DFEATURE_system_freetype=OFF
+    -DFEATURE_system_harfbuzz=OFF -DFEATURE_system_libb2=OFF -DFEATURE_system_doubleconversion=OFF
+    -DFEATURE_system_png=OFF -DFEATURE_system_jpeg=OFF
+    -DFEATURE_icu=OFF -DFEATURE_dbus=OFF -DFEATURE_cups=OFF
+    -DFEATURE_quickcontrols2_basic=ON -DFEATURE_quickcontrols2_fusion=OFF
+    -DFEATURE_quickcontrols2_imagine=OFF -DFEATURE_quickcontrols2_material=OFF
+    -DFEATURE_quickcontrols2_universal=OFF -DFEATURE_quickcontrols2_fluentwinui3=OFF
+    -DFEATURE_quickcontrols2_windows=OFF -DFEATURE_quickcontrols2_macos=OFF
+    -DFEATURE_quickcontrols2_ios=OFF)
+if(EXISTS "${ANANARCHIVER_DEPENDENCY_MANIFEST}")
+    file(READ "${ANANARCHIVER_DEPENDENCY_MANIFEST}" ananarchiver_resolution)
+    string(JSON ananarchiver_source_count ERROR_VARIABLE ananarchiver_resolution_error
+        LENGTH "${ananarchiver_resolution}" dependencies)
+    if(NOT ananarchiver_resolution_error AND ananarchiver_source_count GREATER 0)
+        math(EXPR ananarchiver_last_source "${ananarchiver_source_count} - 1")
+        foreach(index RANGE ${ananarchiver_last_source})
+            string(JSON source_name GET "${ananarchiver_resolution}" dependencies ${index} name)
+            if(source_name STREQUAL "qt")
+                string(JSON ANANARCHIVER_RESOLVED_QT_VERSION GET "${ananarchiver_resolution}" dependencies ${index} version)
+            endif()
+        endforeach()
+    endif()
+endif()
 
 function(ananarchiver_json_quote output value)
     string(REPLACE "\\" "\\\\" value "${value}")
@@ -12,7 +40,11 @@ function(ananarchiver_json_quote output value)
     set(${output} "\"${value}\"" PARENT_SCOPE)
 endfunction()
 
-function(ananarchiver_configure_traceability)
+function(ananarchiver_configure_dependency_provenance)
+    set(libarchive_cng false)
+    if(ANANARCHIVER_LIBARCHIVE_USE_CNG)
+        set(libarchive_cng true)
+    endif()
     set(source_qt false)
     if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT)
         set(source_qt true)
@@ -36,6 +68,12 @@ function(ananarchiver_configure_traceability)
         ananarchiver_json_quote(json_${variable} "${${variable}}")
     endforeach()
     set(external_libraries "[]")
+    set(qt_options "[]")
+    foreach(option IN LISTS ANANARCHIVER_QT_SOURCE_OPTIONS)
+        ananarchiver_json_quote(quoted_option "${option}")
+        string(JSON option_count LENGTH "${qt_options}")
+        string(JSON qt_options SET "${qt_options}" ${option_count} "${quoted_option}")
+    endforeach()
     if(ANANARCHIVER_USE_SYSTEM_LIBARCHIVE AND NOT ANANARCHIVER_SUPERBUILD)
         ananarchiver_json_quote(version "${LibArchive_VERSION}")
         ananarchiver_json_quote(location "${LibArchive_LIBRARIES}")
@@ -54,7 +92,9 @@ function(ananarchiver_configure_traceability)
   \"root\":${json_PROJECT_SOURCE_DIR}, \"binary\":${json_CMAKE_BINARY_DIR},
   \"prefix\":${json_ANANARCHIVER_DEPENDENCY_PREFIX}, \"manifest\":${json_ANANARCHIVER_DEPENDENCY_MANIFEST},
   \"qt_build_binary\":${json_ANANARCHIVER_QT_BUILD_DIRECTORY},
+  \"qt_options\":${qt_options},
   \"superbuild\":${superbuild}, \"source_qt\":${source_qt}, \"system_backend\":${system_backend},
+  \"libarchive_cng\":${libarchive_cng},
   \"application_version\":${json_PROJECT_VERSION}, \"cmake_version\":${json_CMAKE_VERSION},
   \"generator\":${json_CMAKE_GENERATOR}, \"external_libraries\":${external_libraries},
   \"toolchain\":{
@@ -79,5 +119,8 @@ function(ananarchiver_configure_traceability)
         COMMAND ${trace_command} --operation record
         DEPENDS ananarchiver_verify_dependencies VERBATIM)
     set(ANANARCHIVER_TRACE_COMMAND "${trace_command}" PARENT_SCOPE)
-    install(FILES "${CMAKE_BINARY_DIR}/build-info.json" DESTINATION share/ananarchiver)
+    install(FILES "${CMAKE_BINARY_DIR}/dependency-provenance.json" DESTINATION share/AnAnArchiver)
+    if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE OR source_qt)
+        install(FILES "${CMAKE_BINARY_DIR}/resolved-dependencies.json" DESTINATION share/AnAnArchiver)
+    endif()
 endfunction()

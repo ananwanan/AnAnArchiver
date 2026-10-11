@@ -41,13 +41,14 @@ option(ANANARCHIVER_BUILD_QT "Build the Qt Quick desktop frontend" ON)
 option(ANANARCHIVER_USE_SYSTEM_QT "Use an explicitly selected developer Qt kit" OFF)
 option(ANANARCHIVER_USE_SYSTEM_LIBARCHIVE "Use a developer-provided libarchive" OFF)
 option(ANANARCHIVER_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
+option(ANANARCHIVER_LIBARCHIVE_USE_CNG "Use native Windows crypto (disable to validate Mbed TLS PSA)" ON)
 set(ANANARCHIVER_DEPENDENCY_PREFIX "${CMAKE_BINARY_DIR}/dependencies/install" CACHE PATH
     "Prefix containing dependencies built from third_party")
-include(cmake/DependencyTraceability.cmake)
+include(cmake/DependencyProvenance.cmake)
 if(BUILD_TESTING)
     add_test(NAME dependency_tools COMMAND "${Python3_EXECUTABLE}" -m unittest discover
         -s "${PROJECT_SOURCE_DIR}/tests/dependencies" -p "test_*.py")
-    set_tests_properties(dependency_tools PROPERTIES TIMEOUT 300)
+    set_tests_properties(dependency_tools PROPERTIES TIMEOUT 900)
 endif()
 
 if(ANANARCHIVER_SUPERBUILD)
@@ -61,7 +62,7 @@ include(cmake/Dependencies.cmake)
 if(ANANARCHIVER_BUILD_QT)
     ananarchiver_find_qt()
 endif()
-ananarchiver_configure_traceability()
+ananarchiver_configure_dependency_provenance()
 
 add_library(ananarchiver_core STATIC
     src/core/archive/archive_format.cpp

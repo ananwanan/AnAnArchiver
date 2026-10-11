@@ -43,33 +43,68 @@ Qt 使用 qtbase、qtshadertools、qtdeclarative、qtsvg，各模块和内嵌依
 最新 Qt 正式发布版的配套源码；Mbed TLS framework 也跟随对应发布版。
 编译器、CMake、Ninja、Python 和操作系统 SDK 是本机工具链，不复制到仓库。
 各第三方许可证随其源码保留。
-上游来源、解析规则和复现方式见 [依赖方案](third_party/README.md)。
+上游来源、更新策略和解析清单见 [依赖方案](third_party/README.md)。
 
 默认 superbuild 从这些源码构建依赖，安装到当前构建目录的
 `dependencies/install`，随后构建应用。默认不搜索机器上的随机 libarchive 或
-codec 版本。`scripts/init-dependencies.cmake` 在每次初始化或更新时检查上游，
-解析并获取最新稳定源码，写入 `out/dependency-resolution.json`。记录包含来源、
-版本、tag、commit、解析时间，以及配套子模块关系；父仓库 gitlink 只是一份
-历史解析结果。获取失败或版本不兼容会明确报错。编译阶段只使用已经解析的
-同一份源码，不重新联网选版本。依赖更新后重新运行回归测试。
+codec 版本。方案要求在依赖初始化或更新时解析最新版本，并记录本次构建的
+实际版本与提交；编译过程中使用同一份源码。依赖更新后重新运行回归测试。
 
-配置及构建时验证 manifest 与本地源码是否一致，构建时生成 `out/build/<preset>/build-info.json`
-和应用子构建中的 `application/build-info.json`，安装时保存到
-`share/ananarchiver/build-info.json`。记录包含实际依赖与构建工具链信息。更新依赖后
-使用新的构建目录，避免把旧依赖产物误当成新版本；已绑定其他源码的构建目录会报错。
-只更新解析时间、源码和工具链未改变时，可以继续使用原构建目录。
+`scripts/resolve-dependencies.py` 在初始化时查询指定上游的正式发布记录或正式版本 tag，
+排除预发布版本，解析并检出最新源码；没有独立正式发布版的 libarchive 使用
+默认分支最新提交。Qt 子模块和 Mbed TLS framework 使用所选发布版记录的配套
+提交，不独立升级。解析失败、脏源码或不兼容版本会明确报错，不自动降级。
+`scripts/init-dependencies.cmake` 是调用该解析器的兼容入口。
 
-要求 CMake 3.25+、Ninja 和支持 C++23 / `std::expected` 的编译器。
+默认解析清单位于 `out/dependencies/resolved-dependencies.json`，记录 URL、
+版本、ref、实际 commit 和 UTC 解析时间。CMake 验证源码与清单一致，构建目录
+另存 `resolved-dependencies.json` 和 `dependency-provenance.json`，记录实际
+backend、Qt 和编译器信息；安装时复制到 `share/AnAnArchiver`。
+构建前再次纯本地验证源码，并将依赖源码、工具链、编译选项和构建适配器绑定到
+构建目录及安装 prefix。版本或构建参数变化时使用新的目录，防止旧库误标新版本；
+只有解析时间改变而源码与构建参数未改变时可以复用原目录。最终 provenance 在
+生产产物成功构建后记录，包含实际生成工具版本；配置/失败诊断与最终记录分开。
+
+要求 Python 3.10+、CMake 3.25+、Ninja 和支持 C++23 / `std::expected` 的编译器。
 Windows 推荐 MSVC x64；Linux 使用现代 GCC/Clang；macOS 使用现代 Clang。
-Mbed TLS 的源码生成需要 Python、Jinja2、jsonschema 和 Perl；Python 模块可通过
-`python -m pip install --upgrade jinja2 jsonschema` 获取最新稳定版。Qt 源码构建还需要
-目标平台的图形/窗口系统开发环境。
+Qt 源码构建还需要 Python，以及目标平台的图形/窗口系统开发环境。
+Mbed TLS Git 源码构建需要 Perl 和当前稳定版 Python `jinja2` / `jsonschema`，
+生成文件写入构建目录，保留上游源码检出的干净状态：
 
-先解析并获取最新稳定归档依赖源码（需要 Git、Python 和网络）：
+```sh
+python -m pip install --upgrade jinja2 jsonschema
+```
+
+Windows 可以将 Git for Windows 的 `usr/bin` 临时加入当前终端 PATH 来提供
+Perl，或通过 CMake 的 `PERL_EXECUTABLE` 明确选择安装位置。
+
+先解析并初始化最新归档依赖源码：
 
 ```sh
 cmake -P scripts/init-dependencies.cmake
 ```
+
+也可直接调用 Python 解析器。先只解析、不修改源码，再按同一份清单检出：
+
+```sh
+python scripts/resolve-dependencies.py --qt --resolve-only --manifest out/dependencies/selected.json
+python scripts/resolve-dependencies.py --qt --replay-manifest out/dependencies/selected.json
+python scripts/resolve-dependencies.py --qt --verify --replay-manifest out/dependencies/selected.json
+```
+
+重放用于复现一次构建，不更改后续初始化选择最新版本的策略。已有所需 Git
+提交时可加 `--offline` 完全离线重放；缺少提交时失败。清单不是长期版本锁。
+GitHub API 限流时通过环境变量 `GITHUB_TOKEN` 提供只读凭据，不把 token 写入
+清单或日志。依赖源码有本地修改时，先保存这些修改再执行更新。
+`--verify` 只检查清单、配套源码、origin、版本和本地修改，不联网、不检出源码
+也不改写清单；CMake 入口可用 `ANANARCHIVER_DEPENDENCY_VERIFY=ON` 配合
+`ANANARCHIVER_DEPENDENCY_REPLAY_MANIFEST`。Core-only 验证增加 `--core-only`。
+
+Mbed TLS 4 公共 PSA API 与 ZIP 取消资源清理修复已通过
+[libarchive PR #1](https://github.com/ananwanan/libarchive/pull/1) 合入指定上游，
+应用直接构建解析到的上游源码，移除父项目中的兼容补丁副本。旧补丁的并发调用
+包装和持久 AES operation 还需在上游补齐，相关验证与后续状态见
+[本次依赖验证记录](docs/validation/2026-10-11-dependency-resolution.md)。
 
 构建和测试不依赖 Qt 的 Core、Backend、Application：
 
@@ -88,28 +123,6 @@ cmake --build --preset desktop-release
 ctest --preset desktop-release
 ```
 
-重新运行初始化命令会重新检查最新稳定版。需要复现某次构建时，将保存的
-manifest 放回 `out/dependency-resolution.json`，显式恢复该次源码集：
-
-```sh
-cmake -DANANARCHIVER_DEPENDENCY_RESTORE=ON -P scripts/init-dependencies.cmake
-cmake --preset core-release
-cmake --build --preset core-release
-ctest --preset core-release
-```
-
-桌面源码构建需要使用含 Qt 的 manifest，并在恢复命令增加
-`-DANANARCHIVER_INIT_QT=ON`，随后使用 `desktop-release` preset。恢复模式使用
-记录的 revision，不重新选择版本；下次普通初始化仍会检查上游最新版本。
-只验证当前源码集、不下载或更新，可运行
-`cmake -DANANARCHIVER_DEPENDENCY_VERIFY=ON -P scripts/init-dependencies.cmake`。
-初始化和恢复会保护依赖中的本地修改，修改冲突需要先处理后重试。
-
-GitHub Actions 先在独立 job 中解析一次，Windows/MSVC、Ubuntu/GCC、
-Ubuntu/Clang、macOS/Clang 和 ASan/UBSan job 都恢复同一份 manifest。
-解析器离线回归独立运行；每个构建即使失败也上传 manifest、可用的构建信息
-和诊断日志。CI 当前验证不依赖 Qt 的构建，Qt 桌面回归在已选择的本地 kit 中执行。
-
 Windows 非 Developer Shell 可使用仓库脚本自动发现并初始化 MSVC 环境：
 
 ```powershell
@@ -120,12 +133,21 @@ Windows 非 Developer Shell 可使用仓库脚本自动发现并初始化 MSVC �
 
 开发时也可以显式选择已安装、与编译器 ABI 匹配的 Qt kit。设置 `QTDIR` 为
 该 kit 的安装根目录，再使用 `desktop-developer` 代替 `desktop-release`。
+若清单包含 Qt，kit 必须与清单中的正式发布版一致；其实际版本会写入构建记录。
 这只替换 Qt 来源，归档 backend 和 codecs 仍由项目内已获取的源码构建。
 `ANANARCHIVER_USE_SYSTEM_LIBARCHIVE=ON` 是额外的开发选项，不属于默认发布路径。
 
 `core-debug` 提供 Debug 构建；`core-sanitizers` 在支持的平台启用 ASan/UBSan。
 应用子构建位于 `out/build/<preset>/application`，其 CTest 可以独立运行。
 个人路径配置放到被忽略的 `CMakeUserPresets.json`，不要提交机器绝对路径。
+
+CI 先解析一次完整清单，随后 MSVC、GCC、Clang/libc++、Apple Clang 和
+ASan/UBSan 作业重放同一组依赖提交，防止并行作业之间发生版本漂移。
+Windows 桌面作业使用 `desktop-release` 构建所选 Qt 的完整配套源码，执行
+Core、生产 QML 解压/创建/桌面交互/拖放回归、QML lint 和应用启动 smoke。
+解析清单、构建来源信息与 CTest 结果保存为 CI artifacts。
+Windows/Linux 另设独立离线依赖工具回归；各编译作业重放后再次纯本地验证，
+失败时也上传可用的 provenance、配置记录、CTest/JUnit 与依赖构建日志。
 
 Windows 源码构建完成后，在当前终端加入项目内 Qt 的运行时目录再启动应用：
 
@@ -148,7 +170,7 @@ $env:PATH = (Resolve-Path out/build/desktop-release/dependencies/install/qt/bin)
 ### Android 测试 APK
 
 Windows 上可用同版本的 Qt Android kit 与宿主 Qt kit 构建测试 APK；归档 backend
-与 codecs 仍使用项目内已获取的源码。先按 [Qt Android 环境要求](https://doc.qt.io/qt-6.11/android-configure-dev-environment.html)
+与 codecs 仍使用项目内已获取的源码。先按 [Qt Android 环境要求](https://doc.qt.io/qt-6/android-configure-dev-environment.html)
 准备对应 NDK、JDK、SDK API 36 与 build-tools。工具链路径通过参数传入：
 
 ```powershell

@@ -11,6 +11,7 @@ import json
 import importlib.metadata
 import hashlib
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -35,10 +36,12 @@ def source_dependencies(config: dict) -> tuple[dict | None, list[dict]]:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != 1:
         raise ValueError("Unsupported dependency resolution schema")
-    arguments = [sys.executable, str(Path(config["root"]) / "scripts/resolve_dependencies.py"),
-                 "--root", config["root"], "--manifest", str(path), "--verify"]
+    arguments = [sys.executable, str(Path(config["root"]) / "scripts/resolve-dependencies.py"),
+                 "--root", config["root"], "--replay-manifest", str(path), "--verify"]
     if config["source_qt"]:
-        arguments.append("--with-qt")
+        arguments.append("--qt")
+    else:
+        arguments.append("--core-only")
     subprocess.run(arguments, check=True)
     selected = []
     for entry in manifest["dependencies"]:
@@ -51,7 +54,7 @@ def source_dependencies(config: dict) -> tuple[dict | None, list[dict]]:
 def identity(config: dict, dependencies: list[dict]) -> dict:
     # Resolution timestamps do not change compiled sources. Parent relationships
     # and source URLs do: preserve them along with exact commit identities.
-    fields = ("name", "path", "source", "version", "tag", "revision", "parent")
+    fields = ("name", "path", "url", "version", "ref", "revision", "coupled_to")
     root = Path(config["root"])
     recipe_paths = [root / "cmake/Superbuild.cmake", root / "cmake/Dependencies.cmake"]
     recipe_paths.extend(sorted((root / "cmake/vendor").rglob("*")))
@@ -61,6 +64,7 @@ def identity(config: dict, dependencies: list[dict]) -> dict:
         "dependencies": sorted(({key: entry.get(key) for key in fields} for entry in dependencies), key=lambda entry: entry["path"]),
         "toolchain": config["toolchain"],
         "build_recipe": recipe,
+        "build_options": {"libarchive_cng": None if config["system_backend"] else config.get("libarchive_cng", True)},
     }
 
 
@@ -70,10 +74,51 @@ def assert_same(previous: dict, current: dict, location: Path, *, subset: bool =
         matches = all(expected.get(item["path"]) == item for item in current["dependencies"])
         matches = matches and previous["toolchain"] == current["toolchain"]
         matches = matches and previous["build_recipe"] == current["build_recipe"]
+        matches = matches and previous.get("build_options") == current.get("build_options")
     else:
         matches = previous == current
     if not matches:
         raise ValueError(f"Resolved sources or toolchain differ from {location}. Use a new build directory and dependency prefix; an old binary must not be labelled with new source revisions.")
+
+
+def qt_build_identity(config: dict, dependencies: list[dict]) -> dict:
+    # Qt never links the archive backend. Its reusable source cache is bound to
+    # Qt's source commits and actual compilation options, independently of a
+    # libarchive update or a descriptive manifest schema change.
+    entries = [entry for entry in dependencies if entry["path"] == "third_party/qt"
+               or entry["path"].startswith("third_party/qt/") or entry["path"] == "third_party/vulkan-headers"]
+    return {"dependencies": sorted(({"path": entry["path"], "url": entry.get("url", entry.get("source")),
+                                     "revision": entry["revision"]} for entry in entries), key=lambda row: row["path"]),
+            "toolchain": config["toolchain"], "options": config.get("qt_options", [])}
+
+
+def validate_qt_cache(config: dict, previous: dict, current: dict, cache_directory: Path) -> None:
+    old_sources = qt_build_identity({"toolchain": previous["toolchain"]}, previous["dependencies"])
+    if old_sources["dependencies"] != current["dependencies"] or previous["toolchain"] != current["toolchain"]:
+        raise ValueError("The shared Qt build belongs to different sources or compiler options. Select a new Qt build directory.")
+    if "options" in previous:
+        if previous["options"] != current["options"]:
+            raise ValueError("The shared Qt build uses different Qt options. Select a new Qt build directory.")
+        return
+    # Upgrade our earlier source-cache record only when the completed CMake
+    # configuration proves every requested Qt option. Never infer compilation
+    # options from installed headers or an unrecorded directory.
+    cache = {}
+    path = cache_directory / "CMakeCache.txt"
+    if not path.is_file():
+        raise ValueError("Qt cache migration requires its recorded CMake configuration")
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = re.match(r"([^#/:][^:]*):[^=]*=(.*)", line)
+        if match:
+            cache[match[1]] = match[2]
+    for option in current["options"]:
+        key, value = option[2:].split("=", 1)
+        key = key.split(":", 1)[0]
+        actual = cache.get(key)
+        if actual is None and key.startswith("FEATURE_"):
+            actual = cache.get("QT_" + key)
+        if actual != value.replace("|", ";"):
+            raise ValueError(f"Qt cache migration cannot prove option {key}; select a new Qt build directory.")
 
 
 def build_record(config: dict, manifest: dict | None, dependencies: list[dict]) -> dict:
@@ -88,7 +133,7 @@ def build_record(config: dict, manifest: dict | None, dependencies: list[dict]) 
     if config["superbuild"]:
         # This target waits for the complete application build. Its package
         # discovery is authoritative for explicitly selected developer libraries.
-        application_record = Path(config["binary"]) / "application/build-info.json"
+        application_record = Path(config["binary"]) / "application/dependency-provenance.json"
         if not application_record.is_file():
             raise ValueError("Application build provenance is missing; complete the application build first.")
         external_libraries = json.loads(application_record.read_text(encoding="utf-8"))["external_libraries"]
@@ -104,7 +149,19 @@ def build_record(config: dict, manifest: dict | None, dependencies: list[dict]) 
         "external_libraries": external_libraries,
         "python_version": sys.version.split()[0],
         "source_generation_tools": {},
+        "dependency_options": {"libarchive_cng": None if config["system_backend"] else config.get("libarchive_cng", True)},
     }
+    backend = next((entry for entry in dependencies if entry["name"] == "libarchive"), None)
+    qt = next((entry for entry in dependencies if entry["name"] == "qt"), None)
+    external_backend = next((entry for entry in external_libraries if entry["name"] == "libarchive"), None)
+    external_qt = next((entry for entry in external_libraries if entry["name"] == "Qt"), None)
+    record.update({"project_version": config["application_version"],
+                   "compiler_id": config["toolchain"]["cxx_compiler"]["id"],
+                   "compiler_version": config["toolchain"]["cxx_compiler"]["version"],
+                   "libarchive_version": (backend or external_backend or {}).get("version"),
+                   "libarchive_revision": (backend or {}).get("revision"),
+                   "qt_version": (qt or external_qt or {}).get("version"),
+                   "qt_source": "bundled-source" if qt else "explicit-developer-kit" if external_qt else "disabled"})
     for package in ("jinja2", "jsonschema"):
         try:
             record["source_generation_tools"][package] = importlib.metadata.version(package)
@@ -117,7 +174,7 @@ def run(config: dict, operation: str) -> None:
     manifest, dependencies = source_dependencies(config)
     current = identity(config, dependencies)
     state_path = Path(config["binary"]) / "dependency-build.json"
-    prefix_path = Path(config["prefix"]) / "share/ananarchiver/dependency-build.json"
+    prefix_path = Path(config["prefix"]) / "share/AnAnArchiver/dependency-build.json"
     if state_path.exists():
         assert_same(json.loads(state_path.read_text(encoding="utf-8")), current, state_path)
     elif operation != "prepare":
@@ -132,11 +189,9 @@ def run(config: dict, operation: str) -> None:
     if config["superbuild"] and config["source_qt"]:
         qt_binary = Path(config["qt_build_binary"])
         qt_state_path = qt_binary / "dependency-source.json"
-        qt_identity = {**current, "dependencies": [entry for entry in current["dependencies"]
-                       if entry["path"] == "third_party/qt" or entry["path"].startswith("third_party/qt/")
-                       or entry["path"] == "third_party/vulkan-headers"]}
+        qt_identity = qt_build_identity(config, dependencies)
         if qt_state_path.exists():
-            assert_same(json.loads(qt_state_path.read_text(encoding="utf-8")), qt_identity, qt_state_path, subset=True)
+            validate_qt_cache(config, json.loads(qt_state_path.read_text(encoding="utf-8")), qt_identity, qt_binary)
         elif qt_binary.exists() and any(qt_binary.iterdir()):
             raise ValueError("An existing Qt build has no source identity. Select a new Qt build directory.")
     if dependencies and not config["superbuild"]:
@@ -153,8 +208,14 @@ def run(config: dict, operation: str) -> None:
         # Called only after all ExternalProject dependency builds/installations
         # succeed. A failed build never grants provenance to an old prefix.
         write_json(prefix_path, current)
+        if manifest:
+            write_json(prefix_path.parent / "resolved-dependencies.json",
+                       {**manifest, "includes_qt": config["source_qt"], "dependencies": dependencies})
     elif operation == "record":
-        write_json(Path(config["binary"]) / "build-info.json", build_record(config, manifest, dependencies))
+        write_json(Path(config["binary"]) / "dependency-provenance.json", build_record(config, manifest, dependencies))
+        if manifest:
+            write_json(Path(config["binary"]) / "resolved-dependencies.json",
+                       {**manifest, "includes_qt": config["source_qt"], "dependencies": dependencies})
 
 
 def main() -> int:

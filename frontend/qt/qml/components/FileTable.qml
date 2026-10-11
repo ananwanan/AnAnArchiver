@@ -54,7 +54,7 @@ SplitView {
                 font.pixelSize: 12
             }
             TreeView {
-                id: treeView
+                id: directoryTree
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -66,7 +66,7 @@ SplitView {
                     required property string fullPath
                     required property bool isDirectory
                     text: treeRow.model.display
-                    implicitWidth: treeView.width
+                    implicitWidth: directoryTree.width
                     implicitHeight: 32
                     icon.source: isDirectory ? "../icons/folder.svg" : "../icons/file.svg"
                     icon.color: treeRow.highlighted ? palette.highlightedText : palette.buttonText
