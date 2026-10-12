@@ -109,17 +109,28 @@ const
   ArchiveProgID = 'AnAnArchiver.Archive';
   ArchiveExtensions = '.zip;.zipx;.7z;.rar;.tar;.gz;.tgz;.bz2;.tbz;.tbz2;.xz;.txz;.zst;.tzst;.lz4;.cab;.cpio;.ar;.iso;.lha;.lzh;.xar';
   TestPrefix = 'Software\AnAnArchiver\PackageValidation\';
+type
+  TObsoleteOwnedFile = record
+    Relative, Candidate, Backup, Hash: String;
+    Removed: Boolean;
+  end;
+  TObsoleteOwnedFiles = array of TObsoleteOwnedFile;
 var
   CachedRegistryPrefix: String;
   RegistryPrefixLoaded: Boolean;
   InstallFolderPage: TInputQueryWizardPage;
   InstallFolderBrowseButton: TNewButton;
   SelectedInstallFolder: String;
+  ObsoleteFiles: TObsoleteOwnedFiles;
+  ObsoleteBackupDirectory, ObsoleteFailure: String;
+  ObsoleteCommitted, ObsoleteReadyToCommit: Boolean;
 
 function GetFileAttributesW(Name: String): LongWord;
   external 'GetFileAttributesW@kernel32.dll stdcall';
 function NativeLastError: LongWord;
   external 'GetLastError@kernel32.dll stdcall';
+function SetFileAttributesW(Name: String; Attributes: LongWord): Boolean;
+  external 'SetFileAttributesW@kernel32.dll stdcall';
 
 function ValidTestPrefix(Value: String): Boolean; forward;
 function AppRoot: String; forward;
@@ -338,7 +349,7 @@ begin
   Result := True;
 end;
 
-function WithoutReparsePoints(Relative: String): Boolean;
+function WithoutReparsePoints(Relative: String; AllowMissingLeaf: Boolean): Boolean;
 var
   Current, Remaining, Segment: String;
   Separator: Integer;
@@ -363,6 +374,7 @@ begin
       ErrorCode := NativeLastError;
       if (ErrorCode <> 2) and (ErrorCode <> 3) then
         RaiseException('An obsolete package path could not be checked safely: ' + Relative + ' (Windows error ' + IntToStr(ErrorCode) + ').');
+      Result := AllowMissingLeaf and (Remaining = '');
       Exit;
     end;
     if (Attributes and $400) <> 0 then Exit;
@@ -370,11 +382,106 @@ begin
   Result := True;
 end;
 
-procedure RemoveObsoleteOwnedFiles;
+function OwnedFileName(Relative: String): String;
+begin
+  Result := Relative;
+  StringChangeEx(Result, '/', '\', True);
+  Result := PathConvertNormalToSuper(AddBackslash(InstallRoot('')) + Result);
+end;
+
+function SafeObsoleteBackupDirectory: Boolean;
+var
+  Attributes: LongWord;
+begin
+  Result := False;
+  Attributes := GetFileAttributesW(PathConvertNormalToSuper(UninstallDataRoot('')));
+  if (Attributes = $FFFFFFFF) or ((Attributes and $400) <> 0) then Exit;
+  Attributes := GetFileAttributesW(PathConvertNormalToSuper(ObsoleteBackupDirectory));
+  Result := (Attributes <> $FFFFFFFF) and ((Attributes and $400) = 0) and ((Attributes and $10) <> 0);
+end;
+
+procedure DiscardObsoleteBackups;
+var
+  I: Integer;
+  Attributes: LongWord;
+begin
+  if ObsoleteBackupDirectory = '' then Exit;
+  if not SafeObsoleteBackupDirectory then begin
+    Log('Recovery directory is no longer safe; retained backups: ' + ObsoleteBackupDirectory);
+    Exit;
+  end;
+  for I := 0 to GetArrayLength(ObsoleteFiles) - 1 do begin
+    if FileExists(ObsoleteFiles[I].Backup) then begin
+      Attributes := GetFileAttributesW(ObsoleteFiles[I].Backup);
+      if (Attributes <> $FFFFFFFF) and ((Attributes and $400) = 0) then
+        SetFileAttributesW(ObsoleteFiles[I].Backup, Attributes and not $1);
+      if not DeleteFile(ObsoleteFiles[I].Backup) then
+        Log('Could not discard obsolete-file backup: ' + ObsoleteFiles[I].Backup);
+    end;
+  end;
+  DeleteFile(ObsoleteBackupDirectory + '\restore-files.txt');
+  if RemoveDir(ObsoleteBackupDirectory) then ObsoleteBackupDirectory := ''
+  else Log('Retained obsolete-file backup directory: ' + ObsoleteBackupDirectory);
+end;
+
+function RestoreObsoleteOwnedFiles: String;
+var
+  I: Integer;
+  Problem: String;
+  Attributes: LongWord;
+begin
+  Result := '';
+  for I := 0 to GetArrayLength(ObsoleteFiles) - 1 do begin
+    if ObsoleteFiles[I].Removed then begin
+      Problem := '';
+      try
+        if not SafeOwnedPath(ObsoleteFiles[I].Relative) or
+           not WithoutReparsePoints(ObsoleteFiles[I].Relative, True) then
+          Problem := 'The original path is no longer safe'
+        else if not SafeObsoleteBackupDirectory then
+          Problem := 'The recovery directory is no longer safe'
+        else begin
+          Attributes := GetFileAttributesW(ObsoleteFiles[I].Backup);
+          if (Attributes = $FFFFFFFF) or ((Attributes and ($400 or $10)) <> 0) then
+            Problem := 'The recovery copy is missing or no longer a regular file';
+        end;
+        if (Problem = '') and (not FileExists(ObsoleteFiles[I].Backup) or
+                (CompareText(GetSHA256OfFile(ObsoleteFiles[I].Backup), ObsoleteFiles[I].Hash) <> 0)) then
+          Problem := 'The recovery copy could not be verified';
+        if (Problem = '') and FileExists(ObsoleteFiles[I].Candidate) then begin
+          { Never replace an unknown file created after cleanup began. }
+          if CompareText(GetSHA256OfFile(ObsoleteFiles[I].Candidate), ObsoleteFiles[I].Hash) <> 0 then
+            Problem := 'Another file now occupies the original path';
+        end else if (Problem = '') and not CopyFile(ObsoleteFiles[I].Backup, ObsoleteFiles[I].Candidate, True) then
+          Problem := 'The original file could not be restored';
+        if (Problem = '') and
+           (CompareText(GetSHA256OfFile(ObsoleteFiles[I].Candidate), ObsoleteFiles[I].Hash) <> 0) then
+          Problem := 'The restored file could not be verified';
+      except
+        Problem := GetExceptionMessage;
+      end;
+      if Problem = '' then begin
+        ObsoleteFiles[I].Removed := False;
+        Log('Restored obsolete package file after failed upgrade: ' + ObsoleteFiles[I].Relative);
+      end else begin
+        Result := Result + #13#10 + ObsoleteFiles[I].Relative + ': ' + Problem;
+      end;
+    end;
+  end;
+  if Result = '' then DiscardObsoleteBackups
+  else begin
+    Result := 'Upgrade recovery was incomplete. Recovery copies remain in ' +
+      ObsoleteBackupDirectory + '.' + Result;
+    Log(Result);
+  end;
+end;
+
+procedure StageObsoleteOwnedFiles;
 var
   Previous, Current: TArrayOfString;
-  I, J, Separator: Integer;
-  Relative, ExpectedHash, Candidate: String;
+  Journal: TArrayOfString;
+  I, J, Separator, Index: Integer;
+  Relative, ExpectedHash, Candidate, BackupDirectory: String;
   Retained: Boolean;
 begin
   if not LoadStringsFromFile(PathConvertNormalToSuper(ExpandConstant('{code:InstallRoot}\package-owned-files.txt')), Previous) then begin
@@ -390,20 +497,38 @@ begin
     if Separator > 1 then begin
       Relative := Copy(Previous[I], 1, Separator - 1);
       ExpectedHash := Copy(Previous[I], Separator + 1, MaxInt);
-      if SafeOwnedPath(Relative) and (Length(ExpectedHash) = 64) and WithoutReparsePoints(Relative) then begin
+      if SafeOwnedPath(Relative) and (Length(ExpectedHash) = 64) and WithoutReparsePoints(Relative, False) then begin
         Retained := False;
         for J := 0 to GetArrayLength(Current) - 1 do
           if Copy(Current[J], 1, Length(Relative) + 1) = Relative + '|' then Retained := True;
         if not Retained then begin
-          Candidate := Relative;
-          StringChangeEx(Candidate, '/', '\', True);
-          Candidate := PathConvertNormalToSuper(ExpandConstant('{code:InstallRoot}\') + Candidate);
+          Candidate := OwnedFileName(Relative);
           if FileExists(Candidate) then begin
             { Preserve files the user replaced or edited after the older installation. }
             if CompareText(GetSHA256OfFile(Candidate), ExpectedHash) = 0 then begin
-              if not DeleteFile(Candidate) then
-                RaiseException('An obsolete package file could not be removed: ' + Relative);
-              Log('Removed unchanged obsolete package file: ' + Relative);
+              if ObsoleteBackupDirectory = '' then begin
+                { The random Setup temp-directory name makes this slot unique,
+                  but keep backups outside Setup's automatically removed temp directory. }
+                if not ForceDirectories(UninstallDataRoot('')) then
+                  RaiseException('The upgrade recovery directory could not be created.');
+                if (GetFileAttributesW(PathConvertNormalToSuper(UninstallDataRoot(''))) and $400) <> 0 then
+                  RaiseException('The upgrade recovery directory is a reparse path.');
+                BackupDirectory := UninstallDataRoot('') + '\obsolete-rollback-' +
+                  ExtractFileName(ExpandConstant('{tmp}'));
+                if not CreateDir(BackupDirectory) then
+                  RaiseException('The private upgrade recovery directory already exists or could not be created.');
+                ObsoleteBackupDirectory := BackupDirectory;
+              end;
+              Index := GetArrayLength(ObsoleteFiles);
+              SetArrayLength(ObsoleteFiles, Index + 1);
+              ObsoleteFiles[Index].Relative := Relative;
+              ObsoleteFiles[Index].Candidate := Candidate;
+              ObsoleteFiles[Index].Hash := ExpectedHash;
+              ObsoleteFiles[Index].Backup := ObsoleteBackupDirectory + '\' + IntToStr(Index) + '.bin';
+              ObsoleteFiles[Index].Removed := False;
+              if not CopyFile(Candidate, ObsoleteFiles[Index].Backup, True) or
+                 (CompareText(GetSHA256OfFile(ObsoleteFiles[Index].Backup), ExpectedHash) <> 0) then
+                RaiseException('An obsolete package file could not be backed up safely: ' + Relative);
             end else begin
               Log('Preserved modified obsolete package file: ' + Relative);
             end;
@@ -411,6 +536,41 @@ begin
         end;
       end;
     end;
+  end;
+  if ObsoleteBackupDirectory <> '' then begin
+    SetArrayLength(Journal, GetArrayLength(ObsoleteFiles) + 1);
+    Journal[0] := InstallRoot('');
+    for I := 0 to GetArrayLength(ObsoleteFiles) - 1 do
+      Journal[I + 1] := ObsoleteFiles[I].Relative + '|' + IntToStr(I) + '.bin|' + ObsoleteFiles[I].Hash;
+    if not SaveStringsToUTF8File(ObsoleteBackupDirectory + '\restore-files.txt', Journal, False) then
+      RaiseException('The upgrade recovery record could not be saved.');
+    Log('Backed up all obsolete package files before cleanup: ' + IntToStr(GetArrayLength(ObsoleteFiles)));
+  end;
+end;
+
+procedure RemoveObsoleteOwnedFiles;
+var
+  I: Integer;
+  Failure, Recovery: String;
+begin
+  try
+    StageObsoleteOwnedFiles;
+    for I := 0 to GetArrayLength(ObsoleteFiles) - 1 do begin
+      { A file may have changed while the complete backup set was prepared. }
+      if WithoutReparsePoints(ObsoleteFiles[I].Relative, False) and
+         FileExists(ObsoleteFiles[I].Candidate) and
+         (CompareText(GetSHA256OfFile(ObsoleteFiles[I].Candidate), ObsoleteFiles[I].Hash) = 0) then begin
+        if not DeleteFile(ObsoleteFiles[I].Candidate) then
+          RaiseException('An obsolete package file could not be removed: ' + ObsoleteFiles[I].Relative);
+        ObsoleteFiles[I].Removed := True;
+        Log('Removed unchanged obsolete package file: ' + ObsoleteFiles[I].Relative);
+      end;
+    end;
+  except
+    Failure := GetExceptionMessage;
+    Recovery := RestoreObsoleteOwnedFiles;
+    ObsoleteFailure := Failure + #13#10 + Recovery;
+    RaiseException(ObsoleteFailure);
   end;
 end;
 
@@ -710,13 +870,54 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Recovery: String;
 begin
   if CurStep = ssInstall then RemoveObsoleteOwnedFiles;
   if CurStep = ssPostInstall then begin
     { Reconcile previous selections on upgrades, including options explicitly deselected. }
-    DeleteOwnedIntegration;
-    RegisterIntegration;
+    try
+      DeleteOwnedIntegration;
+      RegisterIntegration;
+      ObsoleteReadyToCommit := True;
+    except
+      ObsoleteFailure := GetExceptionMessage;
+      Recovery := RestoreObsoleteOwnedFiles;
+      RaiseException(ObsoleteFailure + #13#10 + Recovery);
+    end;
   end;
+  if (CurStep = ssDone) and ObsoleteReadyToCommit then begin
+    { ssPostInstall is too early: installation can still fail afterwards. }
+    ObsoleteCommitted := True;
+    DiscardObsoleteBackups;
+  end;
+end;
+
+procedure DeinitializeSetup;
+var
+  Recovery: String;
+begin
+  if not ObsoleteCommitted then begin
+    Recovery := RestoreObsoleteOwnedFiles;
+    if Recovery <> '' then begin
+      ObsoleteFailure := ObsoleteFailure + #13#10 + Recovery;
+      SuppressibleMsgBox(Recovery, mbCriticalError, MB_OK, IDOK);
+    end;
+  end;
+end;
+
+function GetCustomSetupExitCode: Integer;
+var
+  Recovery: String;
+begin
+  { Inno 7 calls this before DeinitializeSetup. Perform any pending recovery
+    here on an otherwise successful exit, so failure is reported as nonzero. }
+  if not ObsoleteCommitted and (GetArrayLength(ObsoleteFiles) > 0) then begin
+    Recovery := RestoreObsoleteOwnedFiles;
+    ObsoleteFailure := 'The upgrade did not complete.' + #13#10 + ObsoleteFailure + #13#10 + Recovery;
+  end;
+  { A recovery problem must not turn an otherwise successful exit into code 0. }
+  if ObsoleteFailure <> '' then Result := 8 else Result := 0;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

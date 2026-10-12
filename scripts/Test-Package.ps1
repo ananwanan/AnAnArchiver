@@ -22,6 +22,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Package-RegressionCoverage.ps1')
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'Package validation requires PowerShell 7 or newer.' }
 if (-not $IsWindows) { throw 'This script validates the Windows portable package and installer.' }
 $taskArchive = (Resolve-Path -LiteralPath $PortableArchive).Path
@@ -443,10 +444,7 @@ try {
 
     $taskTests = & $taskCtest --test-dir $taskBuild --show-only=json-v1 | ConvertFrom-Json
     $taskTestNames = @($taskTests.tests.name)
-    foreach ($taskRequired in @('dependency_resolver', 'core', 'archive', 'extraction', 'compression', 'application',
-        'platform_packaging_metadata', 'qt_shell', 'qt_desktop_flow', 'qt_drag', 'qt_compression')) {
-        Assert-Condition ($taskTestNames -contains $taskRequired) ('Regression coverage is missing: ' + $taskRequired)
-    }
+    Assert-PackageRegressionCoverage $taskTestNames
     Invoke-TestProcess $taskCtest @('--test-dir', $taskBuild, '--output-on-failure', '--parallel', "$Jobs", '--output-junit',
         (Join-Path $taskOutput 'regression-results.xml')) 'core-qt-regressions' -TimeoutSeconds 600 | Out-Null
     Complete-Check 'Core, Application, and production Qt desktop regressions' @{ suites = $taskTestNames.Count; junit = 'regression-results.xml' }

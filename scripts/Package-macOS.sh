@@ -35,7 +35,9 @@ cleanup() { [[ "$stage" == "$output"/.macos-stage.* ]] && rm -rf -- "$stage"; }
 trap cleanup EXIT
 
 cmake -S "$source" -B "$build" -DANANARCHIVER_DEPLOY_RUNTIME=ON
-cmake --build "$build" --config Release --target AnAnArchiver --parallel "${ANANARCHIVER_JOBS:-4}"
+# Record final provenance after the executable build, including when this cache
+# already contains metadata from a previous application revision.
+cmake --build "$build" --config Release --target ananarchiver_build_info --parallel "${ANANARCHIVER_JOBS:-4}"
 metadata="$build/frontend/qt/packaging-metadata.txt"
 version=$(sed -n 's/^version=//p' "$metadata")
 qt_version=$(sed -n 's/^qt_version=//p' "$metadata")

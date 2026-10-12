@@ -25,7 +25,9 @@ trap cleanup EXIT
 
 # Reuse the exact compiler, codecs and Qt configuration recorded in this cache.
 cmake -S "$source" -B "$build" -DANANARCHIVER_DEPLOY_RUNTIME=ON -DCMAKE_INSTALL_LIBDIR=lib
-cmake --build "$build" --config Release --target AnAnArchiver --parallel "${ANANARCHIVER_JOBS:-4}"
+# This target depends on the desktop executable, then records its final source
+# revision and build metadata. Building AnAnArchiver alone skips that record.
+cmake --build "$build" --config Release --target ananarchiver_build_info --parallel "${ANANARCHIVER_JOBS:-4}"
 metadata="$build/frontend/qt/packaging-metadata.txt"
 version=$(sed -n 's/^version=//p' "$metadata")
 qt_version=$(sed -n 's/^qt_version=//p' "$metadata")

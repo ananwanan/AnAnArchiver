@@ -277,6 +277,12 @@ jobs:
       - name: Package portable ZIP and current-user installer
         shell: pwsh
         run: ./scripts/Package-Windows.ps1 -BuildDirectory out/build/desktop-release -SkipBuild -BootstrapInstaller
+      - name: Verify failed-upgrade obsolete-file rollback
+        shell: pwsh
+        run: |
+          $taskPackage = Get-ChildItem out/artifacts/windows -Directory -Filter 'AnAnArchiver-*-windows-x64' | Select-Object -First 1
+          $taskManifest = Get-Content (Join-Path $taskPackage.FullName 'package-manifest.json') -Raw | ConvertFrom-Json
+          ./scripts/Test-WindowsInstallerTransaction.ps1 -InstallerCompiler $taskManifest.installer_compiler.path -TemporaryRoot $env:RUNNER_TEMP -OutputDirectory out/artifacts/windows/upgrade-rollback-validation
       - name: Build previous-version installer fixture and verify the release package
         shell: pwsh
         run: |
@@ -303,3 +309,4 @@ jobs:
             out/artifacts/windows/AnAnArchiver-*-windows-x64-setup.exe
             out/artifacts/windows/*-artifacts.json
             out/artifacts/windows/package-validation/**
+            out/artifacts/windows/upgrade-rollback-validation/**

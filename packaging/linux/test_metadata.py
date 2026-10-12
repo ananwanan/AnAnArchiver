@@ -15,6 +15,7 @@ import plistlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from collect_licenses import collect
@@ -69,6 +70,130 @@ def desktop_executable(value: str) -> str:
 
 
 class MetadataTests(unittest.TestCase):
+    @unittest.skipUnless(bash_executable() and shutil.which("cmake") and shutil.which("ninja"),
+                         "Bash, CMake and Ninja are required")
+    def test_package_records_fresh_and_changed_application_revision(self) -> None:
+        """Run both real package scripts through their build/install boundary.
+
+        The fixture has the same CMake target dependency direction as the app
+        and uses the production provenance writer. No Qt or installer runs.
+        """
+        for platform, filename in [("Linux", "Package-Linux.sh"), ("Darwin", "Package-macOS.sh")]:
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory(prefix="AnAnArchiver-package-info-") as temporary:
+                base = Path(temporary)
+                source, build, mock_tools = base / "source", base / "build", base / "tools"
+                source.mkdir()
+                mock_tools.mkdir()
+                (source / "packaging/linux").mkdir(parents=True)
+                (source / "packaging/macos").mkdir(parents=True)
+                (source / f"packaging/linux/{DESKTOP_ID}.desktop").touch()
+                (source / "packaging/macos/Info.plist.in").touch()
+                deploy = source / "qt-kit/bin/macdeployqt"
+                deploy.parent.mkdir(parents=True)
+                deploy.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+                deploy.chmod(0o755)
+                helpers = base / "fixture.py"
+                helpers.write_text('''import json, os, pathlib, sys
+sys.path.insert(0, os.environ["PACKAGE_FIXTURE_SCRIPTS"])
+import build_traceability as trace
+source, build = pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+if sys.argv[1] == "record":
+    config = {"root": str(source), "superbuild": False, "application_version": "1.0.0",
+              "toolchain": {"cxx_compiler": {"id": "Fixture", "version": "0"}},
+              "cmake_version": "fixture", "generator": "Ninja", "external_libraries": [],
+              "system_backend": True}
+    trace.write_json(build / "dependency-provenance.json", trace.build_record(config, None, []))
+elif sys.argv[1] == "normalize":
+    # Windows CMake emits CRLF; the real Unix scripts consume Unix cache files.
+    for name in ["CMakeCache.txt", "frontend/qt/packaging-metadata.txt"]:
+        path = build / name
+        if path.exists():
+            value = path.read_bytes()
+            if b"\\r\\n" in value:
+                path.write_bytes(value.replace(b"\\r\\n", b"\\n"))
+else:
+    record = json.loads((build / "dependency-provenance.json").read_text(encoding="utf-8"))
+    assert record["application"]["revision"] == os.environ["PACKAGE_FIXTURE_REVISION"], record
+    pathlib.Path(os.environ["PACKAGE_FIXTURE_CHECKPOINT"]).write_text(json.dumps(record), encoding="utf-8")
+''', encoding="utf-8")
+                cmake_source = '''cmake_minimum_required(VERSION 3.25)
+project(PackageProvenanceFixture VERSION 1.0.0 LANGUAGES NONE)
+add_custom_target(AnAnArchiver
+    COMMAND "${CMAKE_COMMAND}" -E touch "${CMAKE_BINARY_DIR}/application-built")
+add_custom_target(ananarchiver_build_info ALL
+    COMMAND "@PYTHON@" "@HELPERS@" record "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
+add_dependencies(ananarchiver_build_info AnAnArchiver)
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/frontend/qt")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/frontend/qt/packaging-metadata.txt"
+    CONTENT "version=1.0.0\\nqt_version=fixture\\nqt_prefix=${CMAKE_SOURCE_DIR}/qt-kit\\nsource=${CMAKE_SOURCE_DIR}\\n")
+'''
+                cmake_source = cmake_source.replace("@PYTHON@", Path(sys.executable).as_posix()).replace("@HELPERS@", helpers.as_posix())
+                (source / "CMakeLists.txt").write_text(cmake_source, encoding="utf-8")
+                uname = mock_tools / "uname"
+                uname.write_text(f"#!/usr/bin/env bash\nif [[ ${{1:-}} == -s ]]; then printf '{platform}\\n'; else printf 'x86_64\\n'; fi\n",
+                                 encoding="utf-8")
+                uname.chmod(0o755)
+                cmake_wrapper = mock_tools / "cmake"
+                cmake_wrapper.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} == --install ]]; then
+    "$PACKAGE_FIXTURE_PYTHON" "$PACKAGE_FIXTURE_HELPERS" checkpoint "$PACKAGE_FIXTURE_SOURCE" "$PACKAGE_FIXTURE_BUILD"
+    exit 86 # Stop before deployment/signing/registration, after verifying the package input.
+fi
+"$PACKAGE_FIXTURE_CMAKE" "$@"
+"$PACKAGE_FIXTURE_PYTHON" "$PACKAGE_FIXTURE_HELPERS" normalize "$PACKAGE_FIXTURE_SOURCE" "$PACKAGE_FIXTURE_BUILD"
+''', encoding="utf-8")
+                cmake_wrapper.chmod(0o755)
+                environment = os.environ.copy()
+                environment.update({
+                    "PACKAGE_FIXTURE_SCRIPTS": str(ROOT / "scripts"),
+                    "PACKAGE_FIXTURE_PYTHON": shell_path(Path(sys.executable)),
+                    "PACKAGE_FIXTURE_CMAKE": shell_path(Path(shutil.which("cmake"))),
+                    "PACKAGE_FIXTURE_HELPERS": shell_path(helpers),
+                    "PACKAGE_FIXTURE_SOURCE": shell_path(source),
+                    "PACKAGE_FIXTURE_BUILD": shell_path(build),
+                    "PACKAGE_FIXTURE_CHECKPOINT": str(base / "checkpoint.json"),
+                })
+
+                def command(arguments: list[str]) -> str:
+                    result = subprocess.run(arguments, env=environment, capture_output=True, text=True, encoding="utf-8")
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    return result.stdout.strip()
+
+                command(["git", "init", "--quiet", str(source)])
+                git = ["git", "-C", str(source), "-c", "user.name=Package regression",
+                       "-c", "user.email=package-test@example.invalid", "-c", "commit.gpgsign=false",
+                       "-c", "core.hooksPath=" + str(base / "no-hooks")]
+                command(git + ["add", "."])
+                command(git + ["commit", "--quiet", "-m", "First application revision"])
+                command([shutil.which("cmake"), "-S", str(source), "-B", str(build), "-G", "Ninja",
+                         "-DCMAKE_BUILD_TYPE=Release"])
+                previous = None
+                for pass_number in range(2):
+                    if pass_number:
+                        (source / "changed-source.txt").write_text("New application revision\n", encoding="utf-8")
+                        command(git + ["add", "."])
+                        command(git + ["commit", "--quiet", "-m", "Changed application revision"])
+                    expected = command(git + ["rev-parse", "HEAD"])
+                    environment["PACKAGE_FIXTURE_REVISION"] = expected
+                    record_file = build / "dependency-provenance.json"
+                    if not pass_number:
+                        self.assertFalse(record_file.exists(), "Fresh configure must not record final build provenance")
+                    else:
+                        self.assertEqual(json.loads(record_file.read_text())["application"]["revision"], previous)
+                        self.assertNotEqual(previous, expected)
+                    checkpoint = Path(environment["PACKAGE_FIXTURE_CHECKPOINT"])
+                    checkpoint.unlink(missing_ok=True)
+                    result = subprocess.run([
+                        bash_executable(), "-c", 'export PATH="$1:$PATH"; shift; exec bash "$@"',
+                        "package-regression", shell_path(mock_tools), shell_path(ROOT / "scripts" / filename),
+                        shell_path(build), shell_path(base / "output")], env=environment,
+                        capture_output=True, text=True, encoding="utf-8")
+                    self.assertEqual(result.returncode, 86, result.stdout + result.stderr)
+                    self.assertTrue((build / "application-built").exists())
+                    self.assertEqual(json.loads(checkpoint.read_text())["application"]["revision"], expected)
+                    previous = expected
+
     def test_license_collection_and_source_path_validation(self) -> None:
         with tempfile.TemporaryDirectory(prefix="AnAnArchiver-licenses-") as temporary:
             base = Path(temporary)

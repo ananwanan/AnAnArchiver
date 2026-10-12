@@ -41,7 +41,14 @@ registration exposes supported formats to Windows; selecting a default remains
 a Windows setting. Explorer commands appear in Windows 11's classic **Show more
 options** menu. Upgrades reconcile deselected options and remove obsolete managed
 files only if their original SHA-256 still matches; reparse paths and modified
-files are retained. Conflicting integration commands are checked before file
+files are retained. All obsolete files are backed up and verified before any is
+removed. A cleanup error or subsequent installation failure restores the removed
+files. Recovery never overwrites a new, unknown file or follows a reparse path;
+if recovery is blocked, setup still fails and reports the persistent backup
+directory and its `restore-files.txt` record. Backups are discarded after a
+successful installation. This transaction covers obsolete-file cleanup; it does
+not promise rollback of every file overwritten by Inno Setup, or automatic
+recovery after forced process termination or power loss. Conflicting integration commands are checked before file
 installation. Uninstall removes only
 commands owned by this installation and leaves user settings and user-added files.
 Upgrades use the existing installation directory. Installing into another
@@ -77,6 +84,13 @@ Test uninstall data is written below the test process's `TEMP` in the fixed
 Tests locate the uninstaller through the namespace's `UninstallString`. Starting
 an installed executable beyond 260 characters uses Windows' extended-length path
 prefix while retaining the same physical application directory.
+
+`scripts/Test-WindowsInstallerTransaction.ps1 -InstallerCompiler <ISCC.exe>`
+independently compiles small payloads and checks backup failure, a locked obsolete
+file, a later installation-engine failure, blocked recovery without overwriting
+unknown data, and successful cleanup with modified/reparse files in a long
+Chinese/emoji directory. It uses private registry namespaces and retains its
+report and Inno logs under `out/fix-main/installer-transaction`.
 
 Create a version-changing fixture from the final portable directory:
 

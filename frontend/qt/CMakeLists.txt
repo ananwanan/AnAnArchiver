@@ -167,6 +167,16 @@ file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/packaging-metadata.txt"
     CONTENT "version=${PROJECT_VERSION}\nqt_version=${Qt6_VERSION}\nqt_prefix=${QT6_INSTALL_PREFIX}\nsource=${PROJECT_SOURCE_DIR}\n")
 
 if(BUILD_TESTING)
+    if(WIN32)
+        find_program(ananarchiver_pwsh NAMES pwsh NO_CACHE)
+        if(ananarchiver_pwsh)
+            add_test(NAME package_regression_coverage
+                COMMAND "${ananarchiver_pwsh}" -NoProfile -File
+                    "${PROJECT_SOURCE_DIR}/tests/integration/Test-PackageCoverage.ps1"
+                    -BuildDirectory "${CMAKE_BINARY_DIR}")
+            set_tests_properties(package_regression_coverage PROPERTIES TIMEOUT 30)
+        endif()
+    endif()
     add_test(NAME platform_packaging_metadata COMMAND "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/packaging/linux/test_metadata.py")
     set_tests_properties(platform_packaging_metadata PROPERTIES TIMEOUT 30)
