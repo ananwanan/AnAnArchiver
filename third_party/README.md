@@ -72,6 +72,7 @@ it in every build:
 ```sh
 python scripts/resolve-dependencies.py --qt --resolve-only --manifest out/dependencies/selected.json
 python scripts/resolve-dependencies.py --qt --replay-manifest out/dependencies/selected.json
+python scripts/resolve-dependencies.py --qt --verify --replay-manifest out/dependencies/selected.json
 ```
 
 The default output is `out/dependencies/resolved-dependencies.json`. The JSON
@@ -90,9 +91,17 @@ without downloading Qt or Vulkan sources, preserving the selected Qt metadata
 for checking an explicit developer kit. The CMake wrapper accepts
 `ANANARCHIVER_DEPENDENCY_REPLAY_MANIFEST`, `ANANARCHIVER_DEPENDENCY_MANIFEST`,
 `ANANARCHIVER_DEPENDENCY_OFFLINE`, `ANANARCHIVER_DEPENDENCY_CORE_ONLY`,
-`ANANARCHIVER_DEPENDENCY_RESOLVE_ONLY`, and `ANANARCHIVER_PYTHON_EXECUTABLE`.
+`ANANARCHIVER_DEPENDENCY_RESOLVE_ONLY`, `ANANARCHIVER_DEPENDENCY_VERIFY`, and
+`ANANARCHIVER_PYTHON_EXECUTABLE`.
 Use an environment `GITHUB_TOKEN` when the upstream API requires a higher rate
 limit; credentials are not recorded in manifests or logs.
+
+`--verify` checks the recorded graph, origins, source versions, revisions, and
+local modifications without network access, checkout operations, or manifest
+writes. It requires `--replay-manifest`; use `--core-only` for a full manifest
+whose Qt sources are intentionally omitted. The offline resolver/provenance
+regression suite runs with
+`python -m unittest discover -s tests/dependencies -p 'test_*.py' -v`.
 
 CMake verifies checked-out sources against the manifest before building and
 copies the actual selected subset to each build's `resolved-dependencies.json`.
@@ -100,6 +109,12 @@ copies the actual selected subset to each build's `resolved-dependencies.json`.
 and Qt information; installation preserves these files under
 `share/AnAnArchiver`. Existing reports in `docs/validation` remain historical
 evidence for the source revisions and platforms actually tested there.
+Sources are verified again before compilation. Source, toolchain, compile-option,
+and build-adapter identities bind the build directory and installed dependency
+prefix; incompatible identities require a fresh build directory/prefix, and
+unidentified old libraries cannot acquire new revision metadata. Resolution-time
+changes alone do not invalidate unchanged sources. Final provenance is recorded
+after production targets succeed, including actual source-generator versions.
 
 CI has a single resolution job and replays its uploaded manifest for the Core
 compiler matrix, sanitizers, and Windows Qt desktop job. The desktop job builds
@@ -107,15 +122,21 @@ the exact resolved Qt release and its matching modules through `desktop-release`
 then runs production QML, archive flows, drag tests, lint, and executable smoke
 tests. Core and sanitizer jobs omit Qt source downloads with `--core-only` while
 preserving the original selected manifest.
+Offline dependency-tool regressions run independently on Windows and Linux.
+Replay is followed by pure local verification; each build preserves available
+provenance, configure metadata, JUnit/CTest output, and dependency logs on failure.
 
 When an upstream release changes an API before the designated archive backend
 adapts to it, compatibility fixes belong to the backend rather than the Qt
-frontend. The Mbed TLS 4 adapter patch under `cmake/patches` is applied to a
-generated libarchive build source directory; the resolved upstream checkout
-remains unchanged. Its SHA-256 and local backend fix commit are included in build
-provenance, so the upstream revision alone is not reported as the entire backend
-source. Submission of that backend fix to the upstream repository is separate
-from local build validation.
+frontend. Public PSA Crypto support for Mbed TLS 4 and ZIP abort cleanup were
+merged into the designated upstream through
+[libarchive PR #1](https://github.com/ananwanan/libarchive/pull/1). The parent
+project's compatibility-patch copy is removed; the build uses the resolved
+upstream checkout directly. The previous patch's shared concurrency protection,
+persistent AES operation, and CryptoOnly support were also merged through
+[libarchive PR #2](https://github.com/ananwanan/libarchive/pull/2). Current status and
+the distinction between independent backend audits and application validation
+are recorded in `docs/validation/2026-10-11-dependency-resolution.md`.
 
 Mbed TLS and TF-PSA-Crypto Git checkouts require generated C/header sources which
 release tarballs may already contain. The superbuild enables their upstream

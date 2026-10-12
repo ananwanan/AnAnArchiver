@@ -41,15 +41,14 @@ option(ANANARCHIVER_BUILD_QT "Build the Qt Quick desktop frontend" ON)
 option(ANANARCHIVER_USE_SYSTEM_QT "Use an explicitly selected developer Qt kit" OFF)
 option(ANANARCHIVER_USE_SYSTEM_LIBARCHIVE "Use a developer-provided libarchive" OFF)
 option(ANANARCHIVER_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
+option(ANANARCHIVER_LIBARCHIVE_USE_CNG "Use native Windows crypto (disable to validate Mbed TLS PSA)" ON)
 set(ANANARCHIVER_DEPENDENCY_PREFIX "${CMAKE_BINARY_DIR}/dependencies/install" CACHE PATH
     "Prefix containing dependencies built from third_party")
 include(cmake/DependencyProvenance.cmake)
-ananarchiver_load_dependency_provenance()
 if(BUILD_TESTING)
-    find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
-    add_test(NAME dependency_resolver COMMAND "${Python3_EXECUTABLE}"
-        "${PROJECT_SOURCE_DIR}/tests/dependencies/test_resolver.py")
-    set_tests_properties(dependency_resolver PROPERTIES TIMEOUT 180)
+    add_test(NAME dependency_tools COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+        -s "${PROJECT_SOURCE_DIR}/tests/dependencies" -p "test_*.py")
+    set_tests_properties(dependency_tools PROPERTIES TIMEOUT 900)
 endif()
 
 if(ANANARCHIVER_SUPERBUILD)
@@ -60,6 +59,10 @@ endif()
 include(cmake/CompilerWarnings.cmake)
 include(cmake/Sanitizers.cmake)
 include(cmake/Dependencies.cmake)
+if(ANANARCHIVER_BUILD_QT)
+    ananarchiver_find_qt()
+endif()
+ananarchiver_configure_dependency_provenance()
 
 add_library(ananarchiver_core STATIC
     src/core/archive/archive_format.cpp
@@ -72,6 +75,7 @@ ananarchiver_project_options(ananarchiver_core)
 add_library(ananarchiver_libarchive STATIC
     src/backend/libarchive/libarchive_reader.cpp
     src/backend/libarchive/libarchive_writer.cpp)
+add_dependencies(ananarchiver_libarchive ananarchiver_verify_dependencies)
 if(WIN32)
     target_sources(ananarchiver_libarchive PRIVATE
         src/platform/windows/safe_output.cpp
@@ -92,13 +96,13 @@ add_library(ananarchiver_application STATIC
 target_link_libraries(ananarchiver_application PUBLIC ananarchiver_core Threads::Threads
     PRIVATE ananarchiver_libarchive)
 ananarchiver_project_options(ananarchiver_application)
+add_dependencies(ananarchiver_build_info ananarchiver_application)
 
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
 if(ANANARCHIVER_BUILD_QT)
-    ananarchiver_find_qt()
     qt_standard_project_setup(REQUIRES 6.10)
     add_subdirectory(frontend/qt)
+    add_dependencies(ananarchiver_build_info AnAnArchiver)
 endif()
-ananarchiver_write_build_provenance()

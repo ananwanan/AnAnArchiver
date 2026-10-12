@@ -6,23 +6,26 @@ import copy
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("dependency_resolver", ROOT / "scripts/resolve-dependencies.py")
 resolver = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(resolver)
 A, B, C = "a" * 40, "b" * 40, "c" * 40
+NOW = "2026-10-09T00:00:00+00:00"
 
 
 class FakeGitHub:
     def __init__(self, *, fork=False, releases=None, contents=None, links=None):
         self.fork = fork
-        self.release_rows = releases or []
+        self.release_rows = [{"published_at": NOW, **row} for row in (releases or [])]
         self.contents = contents or {}
         self.links = links or {}
 
@@ -55,6 +58,7 @@ class PolicyTests(unittest.TestCase):
     def test_release_metadata_excludes_drafts_and_prereleases(self):
         rows = [{"tag_name": "v1.10.0"}, {"tag_name": "v1.11.0", "prerelease": True},
                 {"tag_name": "v1.12.0", "draft": True}, {"tag_name": "v1.20.0-rc1"}, {"tag_name": "v1.9.0"}]
+        rows = [{"published_at": NOW, **row} for row in rows]
         self.assertEqual("v1.10.0", resolver.choose_release("zlib", rows)["tag_name"])
 
     def test_independent_fork_release_is_used_and_tag_peeled(self):
@@ -126,6 +130,62 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(resolver.ResolutionError):
                 resolver.parse_gitmodules(f'[submodule "source"]\npath={path}\nurl=https://github.com/source/source\n')
 
+    def test_libarchive_import_with_inherited_tags_still_follows_default_branch(self):
+        api = FakeGitHub(fork=False, contents={("ananwanan/libarchive", B, "libarchive/archive.h"):
+                                              '#define ARCHIVE_VERSION_ONLY_STRING "3.9.0dev"'})
+        with patch.object(resolver, "remote_refs", return_value={"refs/tags/v99.0.0": A, "refs/heads/main": B}):
+            row = resolver.select_source("libarchive", "https://github.com/ananwanan/libarchive.git", api)
+        self.assertEqual((B, "default-branch"), (row["revision"], row["selection"]))
+
+    def test_unpublished_release_metadata_is_not_formal_release(self):
+        self.assertIsNone(resolver.choose_release("zlib", [{"tag_name": "v1.2.3", "published_at": None}]))
+
+    def test_tag_fallback_does_not_select_an_explicit_prerelease(self):
+        api = FakeGitHub(releases=[{"tag_name": "v2.0.0", "prerelease": True}])
+        with patch.object(resolver, "remote_refs", return_value={"refs/tags/v1.0.0": A, "refs/tags/v2.0.0": B}):
+            row = resolver.select_source("zlib", "https://github.com/madler/zlib.git", api)
+        self.assertEqual((A, "stable-tag"), (row["revision"], row["selection"]))
+
+    def test_malformed_api_shapes_fail_explicitly(self):
+        api = resolver.GitHub()
+        for rows in ({}, [None], ["release"], [{"tag_name": None}],
+                     [{"tag_name": "v1.2.3", "prerelease": "false"}]):
+            with self.subTest(rows=rows), patch.object(api, "request", return_value=(rows, "")):
+                with self.assertRaisesRegex(resolver.ResolutionError, "Invalid GitHub release response"):
+                    api.releases("owner/repository")
+        for invalid in ([], None, {"encoding": "base64", "content": 42}):
+            with self.subTest(content=invalid), patch.object(api, "request", return_value=(invalid, "")):
+                if invalid is None:
+                    continue
+                with self.assertRaises(resolver.ResolutionError):
+                    api.content("owner/repository", A, ".gitmodules")
+        with patch.object(api, "request", return_value=({"tree": [None]}, "")), self.assertRaises(resolver.ResolutionError):
+            api.gitlinks("owner/repository", A, [])
+
+    def test_pagination_never_sends_authentication_to_another_host(self):
+        api = resolver.GitHub()
+        response = io.BytesIO(b"[]")
+        response.headers = {"Link": '<https://other.example/releases?page=2>; rel="next"'}
+        with patch.object(resolver.urllib.request, "urlopen", return_value=response) as request:
+            with self.assertRaisesRegex(resolver.ResolutionError, "pagination host"):
+                api.releases("owner/repository")
+        self.assertEqual(1, request.call_count)
+
+    def test_token_uses_header_and_api_failures_close_response(self):
+        response = io.BytesIO(b"[]")
+        response.headers = {}
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "test-private-token"}), \
+                patch.object(resolver.urllib.request, "urlopen", return_value=response) as request:
+            resolver.GitHub().releases("owner/repository")
+        self.assertEqual("Bearer test-private-token", request.call_args.args[0].get_header("Authorization"))
+        self.assertNotIn("test-private-token", request.call_args.args[0].full_url)
+        error = urllib.error.HTTPError("https://api.github.com/example", 403, "limited", {}, io.BytesIO())
+        with patch.object(resolver.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(resolver.ResolutionError) as caught:
+                resolver.GitHub().releases("owner/repository")
+        self.assertNotIn("test-private-token", str(caught.exception))
+        self.assertTrue(error.closed)
+
 
 class ReplayTests(unittest.TestCase):
     @classmethod
@@ -170,6 +230,11 @@ class ReplayTests(unittest.TestCase):
     def make_repo(self, path):
         resolver.git("init", str(path))
         (path / "source.txt").write_text("original\n", encoding="utf-8")
+        if path.name == "libarchive":
+            header = path / "libarchive/archive.h"
+            header.parent.mkdir()
+            header.write_text('#define ARCHIVE_VERSION_ONLY_STRING "1.2.3"\n', encoding="utf-8")
+            resolver.git("add", "libarchive/archive.h", cwd=path)
         resolver.git("add", "source.txt", cwd=path)
         resolver.git("-c", "user.name=Resolver Tests", "-c", "user.email=resolver@example.invalid", "commit", "-m", "fixture", cwd=path)
         return resolver.git("rev-parse", "HEAD", cwd=path)
@@ -307,6 +372,7 @@ class ReplayTests(unittest.TestCase):
         for name in resolver.QT_MODULES:
             self.rows.append({**qt, "name": "qt/" + name, "path": "third_party/qt/" + name,
                               "url": "https://github.com/qt/" + name + ".git", "revision": B,
+                              "ref": B, "version": "git-" + B[:12],
                               "selection": "coupled-gitlink", "coupled_to": "qt"})
         self.rows.append(vulkan)
         self.write_modules(self.root, [row for row in self.rows if not row.get("coupled_to")])
@@ -317,6 +383,199 @@ class ReplayTests(unittest.TestCase):
                                           "--replay-manifest", str(source), "--manifest", str(output)]))
         self.assertEqual(self.manifest, json.loads(output.read_text(encoding="utf-8")))
         self.assertFalse((self.root / "third_party/qt/.git").exists())
+
+    def test_verify_is_read_only_offline_and_never_writes_output(self):
+        source, output = self.root / "full.json", self.root / "must-not-exist.json"
+        resolver.atomic_write_manifest(source, self.manifest)
+        original_git = resolver.git
+
+        def reads_only(*args, **kwargs):
+            self.assertIn(args[0], ("rev-parse", "remote", "status", "show", "ls-tree"))
+            if args[0] == "remote":
+                self.assertEqual("get-url", args[1])
+            return original_git(*args, **kwargs)
+
+        with patch.object(resolver.GitHub, "request", side_effect=AssertionError("Network forbidden")), \
+                patch.object(resolver, "git", side_effect=reads_only), \
+                patch.object(resolver, "atomic_write_manifest", side_effect=AssertionError("Write forbidden")):
+            self.assertEqual(0, resolver.main(["--root", str(self.root), "--verify", "--core-only",
+                                              "--replay-manifest", str(source), "--manifest", str(output)]))
+        self.assertFalse(output.exists())
+
+    def test_verify_rejects_forged_versions_and_dirty_sources(self):
+        invalid = copy.deepcopy(self.manifest)
+        invalid["dependencies"][0]["version"] = "999.0.0"
+        with self.assertRaisesRegex(resolver.ResolutionError, "version differs"):
+            resolver.verify_manifest(invalid, self.root)
+        self.add_framework()
+        resolver.verify_manifest(self.manifest, self.root)
+        invalid = copy.deepcopy(self.manifest)
+        invalid["dependencies"][-1]["version"] = "git-" + A[:12]
+        with self.assertRaisesRegex(resolver.ResolutionError, "version differs"):
+            resolver.verify_manifest(invalid, self.root)
+        (self.root / "third_party/mbedtls/framework/source.txt").write_text("local dirty\n")
+        with self.assertRaisesRegex(resolver.ResolutionError, "tracked changes"):
+            resolver.verify_manifest(self.manifest, self.root)
+
+    def test_unpublished_commit_is_protected_even_with_local_tag(self):
+        source = self.root / "third_party/zlib"
+        (source / "source.txt").write_text("unpublished\n")
+        resolver.git("add", "source.txt", cwd=source)
+        resolver.git("-c", "user.name=Resolver Tests", "-c", "user.email=resolver@example.invalid", "commit", "-m", "unpublished", cwd=source)
+        current = resolver.git("rev-parse", "HEAD", cwd=source)
+        resolver.git("tag", "v100.0.0", cwd=source)
+        with patch.object(resolver, "initialize_checkout") as initialize, self.assertRaisesRegex(resolver.ResolutionError, "unrecorded local commit"):
+            resolver.apply_manifest(self.manifest, self.root)
+        initialize.assert_not_called()
+        self.assertEqual(current, resolver.git("rev-parse", "HEAD", cwd=source))
+
+    def test_interrupted_parent_child_update_can_resume(self):
+        child = self.add_framework()
+        resolver.apply_manifest(self.manifest, self.root)
+        old = resolver.git("rev-parse", "HEAD", cwd=child)
+        (child / "source.txt").write_text("new paired framework\n")
+        resolver.git("add", "source.txt", cwd=child)
+        resolver.git("-c", "user.name=Resolver Tests", "-c", "user.email=resolver@example.invalid", "commit", "-m", "new framework", cwd=child)
+        new = resolver.git("rev-parse", "HEAD", cwd=child)
+        resolver.git("checkout", "--detach", old, cwd=child)
+        parent = child.parent
+        resolver.git("update-index", "--cacheinfo", "160000," + new + ",framework", cwd=parent)
+        resolver.git("-c", "user.name=Resolver Tests", "-c", "user.email=resolver@example.invalid", "commit", "-m", "new parent pairing", cwd=parent)
+        self.rows[-2]["revision"] = resolver.git("rev-parse", "HEAD", cwd=parent)
+        self.rows[-1].update(revision=new, ref=new, version="git-" + new[:12])
+        original_initialize = resolver.initialize_checkout
+
+        def interrupt_child(root, row, rows):
+            if row.get("coupled_to"):
+                raise resolver.ResolutionError("fixture child fetch interrupted")
+            return original_initialize(root, row, rows)
+
+        with patch.object(resolver, "initialize_checkout", side_effect=interrupt_child):
+            with self.assertRaisesRegex(resolver.ResolutionError, "interrupted"):
+                resolver.apply_manifest(self.manifest, self.root)
+        resolver.apply_manifest(self.manifest, self.root)
+        resolver.verify_manifest(self.manifest, self.root)
+        self.assertEqual(new, resolver.git("rev-parse", "HEAD", cwd=child))
+
+    def test_fresh_init_bypasses_unfetchable_parent_gitlink(self):
+        source = self.root / "third_party/zlib"
+        mirror = self.root / "out/zlib-upstream.git"
+        resolver.git("clone", "--bare", str(source), str(mirror))
+        self.assertTrue(source.resolve().is_relative_to(self.root))
+        previous = self.root / "out/zlib-previous-checkout"
+        self.assertTrue(previous.resolve().is_relative_to(self.root))
+        source.rename(previous)
+        resolver.git("update-index", "--cacheinfo", "160000," + A + ",third_party/zlib", cwd=self.root)
+        resolver.git("-c", "user.name=Resolver Tests", "-c", "user.email=resolver@example.invalid", "commit", "-m", "unavailable old gitlink", cwd=self.root)
+        original_git = resolver.git
+        fetched = []
+
+        def local_upstream(*args, **kwargs):
+            if args[0] == "fetch":
+                fetched.append(args[-1])
+                args = tuple(str(mirror) if value == self.rows[1]["url"] else value for value in args)
+            return original_git(*args, **kwargs)
+
+        with patch.object(resolver, "git", side_effect=local_upstream):
+            resolver.apply_manifest(self.manifest, self.root)
+        self.assertEqual([self.rows[1]["revision"]], fetched)
+        self.assertTrue((source / ".git").is_file())
+        resolver.verify_manifest(self.manifest, self.root)
+
+    def test_invalid_manifest_shapes_and_timestamps_are_reported_without_traceback(self):
+        source = self.root / "invalid.json"
+        invalid_time = {**self.manifest, "resolved_at": "yesterday"}
+        invalid_bool = {**self.manifest, "schema_version": True}
+        for invalid in ([], None, invalid_time, invalid_bool):
+            source.write_text(json.dumps(invalid), encoding="utf-8")
+            diagnostics = io.StringIO()
+            with contextlib.redirect_stderr(diagnostics):
+                self.assertEqual(1, resolver.main(["--root", str(self.root), "--verify", "--replay-manifest", str(source)]))
+            self.assertIn("Dependency resolution failed:", diagnostics.getvalue())
+            self.assertNotIn("Traceback", diagnostics.getvalue())
+
+
+class FreshReplayTests(unittest.TestCase):
+    def test_entirely_fresh_three_nested_levels_replay_and_read_only_verify(self):
+        with tempfile.TemporaryDirectory(prefix="ananarchiver-fresh-nested-") as temporary:
+            base = Path(temporary).resolve()
+            root = base / "application"
+            rows, upstreams = [], {}
+            # Build upward from the leaf: Mbed TLS -> PSA -> framework -> vendor.
+            definitions = [
+                ("mbedtls/tf-psa-crypto/framework/vendor", "https://github.com/example/vendor.git", None),
+                ("mbedtls/tf-psa-crypto/framework", "https://github.com/Mbed-TLS/mbedtls-framework.git", "vendor"),
+                ("mbedtls/tf-psa-crypto", "https://github.com/Mbed-TLS/TF-PSA-Crypto.git", "framework"),
+                ("mbedtls", "https://github.com/Mbed-TLS/mbedtls.git", "tf-psa-crypto"),
+            ]
+            for name, url, child_path in definitions:
+                checkout = base / "upstreams" / name.replace("/", "-")
+                resolver.git("init", str(checkout))
+                (checkout / "payload.txt").write_text(name + "\n", encoding="utf-8")
+                resolver.git("add", "payload.txt", cwd=checkout)
+                if name == "mbedtls/tf-psa-crypto":
+                    header = checkout / "include/tf-psa-crypto/build_info.h"
+                    header.parent.mkdir(parents=True)
+                    header.write_text('#define TF_PSA_CRYPTO_VERSION_STRING "1.2.0"\n', encoding="utf-8")
+                    resolver.git("add", "include/tf-psa-crypto/build_info.h", cwd=checkout)
+                if child_path:
+                    child = rows[-1]
+                    (checkout / ".gitmodules").write_text(
+                        f'[submodule "{child_path}"]\npath={child_path}\nurl={child["url"]}\n', encoding="utf-8")
+                    resolver.git("add", ".gitmodules", cwd=checkout)
+                    resolver.git("update-index", "--add", "--cacheinfo", f"160000,{child['revision']},{child_path}", cwd=checkout)
+                resolver.git("-c", "user.name=Resolver Tests", "-c", "user.email=resolver@example.invalid", "commit", "-m", "matched source fixture", cwd=checkout)
+                revision = resolver.git("rev-parse", "HEAD", cwd=checkout)
+                row = {"name": name, "path": "third_party/" + name, "url": url,
+                       "version": "git-" + revision[:12], "ref": revision, "revision": revision,
+                       "selection": "coupled-gitlink", "metadata_source": "https://github.com/fixture/gitlink"}
+                if name == "mbedtls":
+                    row.update(version="4.2.0", ref="refs/tags/mbedtls-4.2.0", selection="release")
+                else:
+                    row["coupled_to"] = name.rsplit("/", 1)[0]
+                if name == "mbedtls/tf-psa-crypto":
+                    row["version"] = "1.2.0"
+                rows.append(row)
+                upstreams[url] = checkout
+            rows.reverse()
+            resolver.git("init", str(root))
+            (root / ".gitmodules").write_text(
+                '[submodule "mbedtls"]\npath=third_party/mbedtls\nurl=' + rows[0]["url"] + "\n", encoding="utf-8")
+            resolver.git("add", ".gitmodules", cwd=root)
+            # The application's historical gitlink is deliberately unavailable.
+            resolver.git("update-index", "--add", "--cacheinfo", f"160000,{A},third_party/mbedtls", cwd=root)
+            resolver.git("-c", "user.name=Resolver Tests", "-c", "user.email=resolver@example.invalid", "commit", "-m", "historical unavailable gitlink", cwd=root)
+            manifest = {"schema_version": 1, "resolved_at": NOW, "includes_qt": False, "dependencies": rows}
+            source, output = base / "input.json", root / "out/resolved.json"
+            resolver.atomic_write_manifest(source, manifest)
+            for row in rows:
+                self.assertFalse(resolver.repository_present(root / row["path"]))
+            self.assertFalse((root / "third_party/mbedtls/tf-psa-crypto").exists())
+            original_git, fetched = resolver.git, []
+
+            def local_upstreams(*args, **kwargs):
+                if args[0] == "fetch":
+                    fetched.append(args[-1])
+                    args = tuple(str(upstreams[value]) if value in upstreams else value for value in args)
+                return original_git(*args, **kwargs)
+
+            diagnostics = io.StringIO()
+            with patch.object(resolver, "CORE", ("mbedtls",)), \
+                    patch.object(resolver, "git", side_effect=local_upstreams), \
+                    patch.object(resolver.GitHub, "request", side_effect=AssertionError("API forbidden during replay")), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(diagnostics):
+                result = resolver.main(["--root", str(root), "--replay-manifest", str(source), "--manifest", str(output)])
+                self.assertEqual(0, result, diagnostics.getvalue())
+                original_record = output.read_bytes()
+                with patch.object(resolver, "atomic_write_manifest", side_effect=AssertionError("Verify must not write")):
+                    result = resolver.main(["--root", str(root), "--core-only", "--verify", "--replay-manifest", str(output)])
+                self.assertEqual(0, result, diagnostics.getvalue())
+                self.assertEqual(original_record, output.read_bytes())
+            self.assertEqual([row["revision"] for row in rows], fetched)
+            self.assertNotIn(A, fetched)
+            for row in rows:
+                self.assertEqual(row["revision"], resolver.git("rev-parse", "HEAD", cwd=root / row["path"]))
+                self.assertTrue((root / row["path"] / ".git").is_file())
 
 
 if __name__ == "__main__":

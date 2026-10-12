@@ -45,7 +45,8 @@ class ResolutionError(RuntimeError):
 
 def git(*args: str, cwd: Path | None = None, check: bool = True) -> str:
     result = subprocess.run(["git", *args], cwd=cwd, text=True, encoding="utf-8",
-                            errors="replace", capture_output=True)
+                            errors="replace", capture_output=True,
+                            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"})
     if check and result.returncode:
         raise ResolutionError(f"Git failed: {' '.join(args)}\n{result.stderr.strip()}")
     return result.stdout.strip() if result.returncode == 0 else ""
@@ -61,10 +62,21 @@ def stable_version(name: str, tag: str) -> tuple[int, ...] | None:
 
 
 def choose_release(name: str, releases: list[dict]) -> dict | None:
+    validate_release_rows(releases)
     candidates = [(stable_version(name, row.get("tag_name", "")), row)
-                  for row in releases if not row.get("draft") and not row.get("prerelease")]
+                  for row in releases if row.get("published_at") and not row.get("draft") and not row.get("prerelease")]
     candidates = [(version, row) for version, row in candidates if version is not None]
     return max(candidates, key=lambda item: item[0])[1] if candidates else None
+
+
+def validate_release_rows(rows) -> None:
+    if not isinstance(rows, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get("tag_name"), str)
+            or not isinstance(row.get("draft", False), bool)
+            or not isinstance(row.get("prerelease", False), bool)
+            or row.get("published_at") is not None and not isinstance(row["published_at"], str)
+            for row in rows):
+        raise ResolutionError("Invalid GitHub release response")
 
 
 def safe_relative_path(path: str) -> bool:
@@ -103,6 +115,8 @@ class GitHub:
         self.token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 
     def request(self, url: str, missing_ok: bool = False):
+        if not url.startswith("https://api.github.com/"):
+            raise ResolutionError("Unexpected GitHub metadata or pagination host")
         headers = {"User-Agent": "AnAnArchiver-dependency-resolver", "Accept": "application/vnd.github+json"}
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
@@ -110,6 +124,7 @@ class GitHub:
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as response:
                 return json.load(response), response.headers.get("Link", "")
         except urllib.error.HTTPError as error:
+            error.close()
             if missing_ok and error.code == 404:
                 return None, ""
             hint = " Set GITHUB_TOKEN or GH_TOKEN for authenticated metadata access." if error.code in (403, 429) else ""
@@ -124,13 +139,17 @@ class GitHub:
         return parsed.path.strip("/")
 
     def metadata(self, repo: str) -> dict:
-        return self.request(f"https://api.github.com/repos/{repo}")[0]
+        row = self.request(f"https://api.github.com/repos/{repo}")[0]
+        if not isinstance(row, dict) or not isinstance(row.get("fork"), bool) or not isinstance(row.get("default_branch"), str):
+            raise ResolutionError(f"Invalid GitHub repository metadata: {repo}")
+        return row
 
     def releases(self, repo: str) -> list[dict]:
         result = []
         url = f"https://api.github.com/repos/{repo}/releases?per_page=100"
         while url:
             rows, links = self.request(url)
+            validate_release_rows(rows)
             result.extend(rows)
             match = re.search(r'<([^>]+)>; rel="next"', links)
             url = match[1] if match else ""
@@ -140,18 +159,29 @@ class GitHub:
         row = self.request(f"https://api.github.com/repos/{repo}/contents/{path}?ref={revision}", missing_ok)[0]
         if row is None:
             return None
-        if row.get("encoding") != "base64":
+        if not isinstance(row, dict) or row.get("encoding") != "base64" or not isinstance(row.get("content"), str):
             raise ResolutionError(f"Expected textual source metadata: {repo}/{path}@{revision}")
-        return base64.b64decode(row["content"]).decode("utf-8")
+        try:
+            return base64.b64decode("".join(row["content"].split()), validate=True).decode("utf-8")
+        except ValueError as error:
+            raise ResolutionError(f"Invalid encoded source metadata: {repo}/{path}@{revision}") from error
 
     def gitlinks(self, repo: str, revision: str, modules: list[dict]) -> dict[str, str]:
         # Avoid downloading a recursive Qt source tree merely to locate four gitlinks.
         tree = self.request(f"https://api.github.com/repos/{repo}/git/trees/{revision}")[0]
+        if not isinstance(tree, dict) or not isinstance(tree.get("tree"), list) or tree.get("truncated"):
+            raise ResolutionError(f"Invalid or incomplete GitHub source tree: {repo}@{revision}")
+        if any(not isinstance(row, dict) or not isinstance(row.get("path"), str)
+               or not isinstance(row.get("mode"), str) or not isinstance(row.get("sha"), str)
+               or not SHA.fullmatch(row["sha"]) for row in tree["tree"]):
+            raise ResolutionError(f"Invalid GitHub source tree entries: {repo}@{revision}")
         links = {row["path"]: row["sha"] for row in tree["tree"] if row["mode"] == "160000"}
         for module in modules:
             path = module["path"]
             if path not in links and "/" in path:
                 row = self.request(f"https://api.github.com/repos/{repo}/contents/{path}?ref={revision}")[0]
+                if not isinstance(row, dict) or not isinstance(row.get("sha"), str) or not SHA.fullmatch(row["sha"]):
+                    raise ResolutionError(f"Invalid GitHub submodule metadata: {repo}/{path}@{revision}")
                 if row.get("submodule_git_url"):
                     links[path] = row["sha"]
             if path not in links:
@@ -167,14 +197,20 @@ def remote_refs(url: str) -> dict[str, str]:
 def select_source(name: str, url: str, api: GitHub) -> dict:
     repo = api.repo(url)
     metadata = api.metadata(repo)
-    release = choose_release(name, api.releases(repo))
+    releases = api.releases(repo)
+    release = choose_release(name, releases)
     refs = remote_refs(url)
     tag = None
     if release:
+        if not isinstance(release.get("html_url"), str) or not release["html_url"]:
+            raise ResolutionError(f"Invalid published release metadata: {repo}")
         tag, selection, metadata_source = release["tag_name"], "release", release["html_url"]
-    elif not metadata.get("fork"):
+    elif name != "libarchive" and not metadata.get("fork"):
+        preview_tags = {row["tag_name"] for row in releases
+                        if row.get("draft") or row.get("prerelease") or not row.get("published_at")}
         tags = [(stable_version(name, ref.removeprefix("refs/tags/")), ref.removeprefix("refs/tags/"))
-                for ref in refs if ref.startswith("refs/tags/") and not ref.endswith("^{}")]
+                for ref in refs if ref.startswith("refs/tags/") and not ref.endswith("^{}")
+                and ref.removeprefix("refs/tags/") not in preview_tags]
         tags = [(version, tag) for version, tag in tags if version is not None]
         if tags:
             _, tag = max(tags)
@@ -240,9 +276,16 @@ def resolve_coupled(parent: dict, api: GitHub, requested: tuple[str, ...] | None
 
 
 def validate_manifest(manifest: dict, root: Path, require_qt: bool = False) -> list[dict]:
-    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1 \
+    if not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int or manifest["schema_version"] != 1 \
             or not isinstance(manifest.get("includes_qt"), bool) or not isinstance(manifest.get("resolved_at"), str):
         raise ResolutionError("Unsupported dependency manifest schema")
+    try:
+        value = manifest["resolved_at"]
+        parsed = dt.datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+        if parsed.utcoffset() != dt.timedelta(0):
+            raise ValueError("UTC is required")
+    except ValueError as error:
+        raise ResolutionError("Manifest resolved_at must be a UTC ISO timestamp") from error
     if require_qt and not manifest["includes_qt"]:
         raise ResolutionError("Requested Qt sources are absent from replay manifest")
     rows = manifest.get("dependencies")
@@ -257,6 +300,12 @@ def validate_manifest(manifest: dict, root: Path, require_qt: bool = False) -> l
             raise ResolutionError("Invalid dependency source record")
         if not safe_relative_path(row["path"]) or not SHA.fullmatch(row["revision"]):
             raise ResolutionError(f"Invalid source path or commit: {row['name']}")
+        if row["selection"] not in {"release", "stable-tag", "default-branch", "coupled-gitlink"}:
+            raise ResolutionError(f"Invalid source selection: {row['name']}")
+        if (row["selection"] in {"release", "stable-tag"} and not row["ref"].startswith("refs/tags/")
+                or row["selection"] == "default-branch" and not row["ref"].startswith("refs/heads/")
+                or row["selection"] == "coupled-gitlink" and row["ref"] != row["revision"]):
+            raise ResolutionError(f"Invalid selected source ref: {row['name']}")
         if not (root / row["path"]).resolve().is_relative_to(root.resolve()):
             raise ResolutionError(f"Dependency path escapes workspace: {row['path']}")
         if row["name"] in names or row["path"] in paths:
@@ -292,7 +341,26 @@ def repository_present(path: Path) -> bool:
     return (path / ".git").exists()
 
 
-def preflight_checkout(path: Path, visited: set[Path]) -> None:
+def recorded_gitlink(parent: Path, relative: str) -> str:
+    # Replay checks the complete dependency graph before creating any checkout.
+    # A grandchild's parent can therefore be absent on a fresh clone.
+    if not repository_present(parent):
+        return ""
+    link = git("ls-tree", "HEAD", "--", relative, cwd=parent, check=False).split()
+    return link[2] if len(link) >= 3 and link[0] == "160000" else ""
+
+
+def protect_local_commit(path: Path, recorded: str, resolved: str = "") -> None:
+    current = git("rev-parse", "--verify", "HEAD", cwd=path, check=False)
+    if not current or current in (recorded, resolved):
+        return
+    # Only remote tracking refs prove a prior fetch/push; local tags can be unpublished.
+    if not git("for-each-ref", "--contains", current, "--format=%(refname)", "refs/remotes", cwd=path):
+        raise ResolutionError(f"Dependency has an unrecorded local commit; publish or preserve it before updating: {path} ({current})")
+
+
+def preflight_checkout(path: Path, visited: set[Path], accepted: dict[Path, str] | None = None,
+                       recorded: str = "") -> None:
     path = path.resolve()
     if path in visited:
         return
@@ -305,10 +373,12 @@ def preflight_checkout(path: Path, visited: set[Path]) -> None:
         raise ResolutionError(f"Dependency is not a separate checkout: {path}")
     if git("status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=all", cwd=path):
         raise ResolutionError(f"Dependency contains tracked changes or untracked files; preserve them before updating: {path}")
+    if accepted is not None:
+        protect_local_commit(path, recorded, accepted.get(path, ""))
     modules_file = path / ".gitmodules"
     if modules_file.exists():
         for module in parse_gitmodules(modules_file.read_text(encoding="utf-8")):
-            preflight_checkout(path / module["path"], visited)
+            preflight_checkout(path / module["path"], visited, accepted, recorded_gitlink(path, module["path"]))
 
 
 def commit_present(path: Path, revision: str) -> bool:
@@ -377,10 +447,17 @@ def apply_manifest(manifest: dict, root: Path, offline: bool = False, require_qt
     if core_only:
         rows = [row for row in rows if row["name"].split("/")[0] in CORE]
     visited: set[Path] = set()
+    accepted = {(root / row["path"]).resolve(): row["revision"] for row in rows}
     # Check every existing target and its OLD nested checkouts before changing
     # any source. A gitlink HEAD mismatch is allowed; modified files are not.
     for row in rows:
-        preflight_checkout(root / row["path"], visited)
+        if row.get("coupled_to"):
+            parent = next(item for item in rows if item["name"] == row["coupled_to"])
+            parent_dir = root / parent["path"]
+            relative = row["path"][len(parent["path"]) + 1:]
+        else:
+            parent_dir, relative = root, row["path"]
+        preflight_checkout(root / row["path"], visited, accepted, recorded_gitlink(parent_dir, relative))
         path = root / row["path"]
         if repository_present(path):
             origin = git("remote", "get-url", "origin", cwd=path, check=False)
@@ -399,6 +476,7 @@ def apply_manifest(manifest: dict, root: Path, offline: bool = False, require_qt
         fresh_checkout = not repository_present(root / row["path"])
         checkout = initialize_checkout(root, row, rows)
         if not commit_present(checkout, row["revision"]):
+            print(f"Fetching {row['name']}: {row['revision']}", flush=True)
             git("fetch", "--no-tags", "--depth", "1", row["url"], row["revision"], cwd=checkout)
         verify_coupled_set(row, rows, root)
         if fresh_checkout:
@@ -411,7 +489,50 @@ def apply_manifest(manifest: dict, root: Path, offline: bool = False, require_qt
         git("-c", "submodule.recurse=false", "checkout", "--detach", row["revision"], cwd=checkout)
         if git("rev-parse", "HEAD", cwd=checkout) != row["revision"]:
             raise ResolutionError(f"Source checkout revision differs from resolution: {row['name']}")
+        # A later fetch may fail before the manifest is written. Preserve proof of
+        # successful source retrieval so the next initialization can safely resume.
+        git("update-ref", "refs/remotes/origin/ananarchiver-resolved", row["revision"], cwd=checkout)
         print(f"{row['name']}: {row['version']} {row['revision']}", flush=True)
+
+
+def verify_source_version(row: dict, root: Path) -> None:
+    path = root / row["path"]
+    if row["name"] == "libarchive":
+        header = (path / "libarchive/archive.h").read_text(encoding="utf-8")
+        match = re.search(r'#define\s+ARCHIVE_VERSION_ONLY_STRING\s+"([^"]+)"', header)
+        version = match[1] if match else None
+    elif row["name"].endswith("/tf-psa-crypto"):
+        header = (path / "include/tf-psa-crypto/build_info.h").read_text(encoding="utf-8")
+        match = re.search(r'#define\s+TF_PSA_CRYPTO_VERSION_STRING\s+"([^"]+)"', header)
+        version = match[1] if match else None
+    elif row["selection"] == "coupled-gitlink" or row["selection"] == "default-branch":
+        version = "git-" + row["revision"][:12]
+    else:
+        ref = row["ref"]
+        components = stable_version(row["name"], ref.removeprefix("refs/tags/")) if ref.startswith("refs/tags/") else None
+        version = ".".join(map(str, components)) if components else None
+    if version is None or version != row["version"]:
+        raise ResolutionError(f"Recorded dependency version differs from selected source: {row['name']}")
+
+
+def verify_manifest(manifest: dict, root: Path, require_qt: bool = False, core_only: bool = False) -> None:
+    """Read-only verification: never contacts upstream or changes HEAD/index/files."""
+    rows = validate_manifest(manifest, root, require_qt)
+    if core_only:
+        rows = [row for row in rows if row["name"].split("/")[0] in CORE]
+    visited: set[Path] = set()
+    for row in rows:
+        path = root / row["path"]
+        if not repository_present(path) or git("rev-parse", "--verify", "HEAD", cwd=path, check=False) != row["revision"]:
+            raise ResolutionError(f"Source checkout revision differs from manifest: {row['name']}")
+        origin = git("remote", "get-url", "origin", cwd=path, check=False)
+        if canonical_url(origin) != canonical_url(row["url"]):
+            raise ResolutionError(f"Dependency origin differs from manifest: {row['name']}")
+        preflight_checkout(path, visited)
+        verify_coupled_set(row, rows, root)
+        if row.get("coupled_to"):
+            verify_coupling(row, rows, root)
+        verify_source_version(row, root)
 
 
 def atomic_write_manifest(path: Path, manifest: dict) -> None:
@@ -459,6 +580,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--replay-manifest", type=Path, help="Use an exact previously resolved source set")
     parser.add_argument("--offline", action="store_true", help="Replay locally available commits without network access")
     parser.add_argument("--resolve-only", action="store_true", help="Write resolution without changing dependency checkouts")
+    parser.add_argument("--verify", action="store_true", help="Verify replay sources without network, checkout, or writing manifests")
     args = parser.parse_args(argv)
     try:
         root = args.root.resolve()
@@ -470,13 +592,20 @@ def main(argv: list[str] | None = None) -> int:
             raise ResolutionError("--core-only requires --replay-manifest")
         if args.offline and not args.replay_manifest:
             raise ResolutionError("--offline requires --replay-manifest; latest selection requires network access")
+        if args.verify and (not args.replay_manifest or args.resolve_only):
+            raise ResolutionError("--verify requires --replay-manifest and cannot be combined with --resolve-only")
         if args.replay_manifest:
             manifest = json.loads(args.replay_manifest.read_text(encoding="utf-8"))
             validate_manifest(manifest, root, args.qt)
         else:
             manifest = resolve(root, args.qt, GitHub())
+        if args.verify:
+            verify_manifest(manifest, root, args.qt, args.core_only)
+            print(f"Verified dependency manifest: {args.replay_manifest.resolve()}")
+            return 0
         if not args.resolve_only:
             apply_manifest(manifest, root, args.offline, args.qt, args.core_only)
+            verify_manifest(manifest, root, args.qt, args.core_only)
         output = args.manifest or root / "out/dependencies/resolved-dependencies.json"
         atomic_write_manifest(output.resolve(), manifest)
         print(f"Dependency manifest: {output.resolve()}")

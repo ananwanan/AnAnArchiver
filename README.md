@@ -61,6 +61,10 @@ codec 版本。方案要求在依赖初始化或更新时解析最新版本，�
 版本、ref、实际 commit 和 UTC 解析时间。CMake 验证源码与清单一致，构建目录
 另存 `resolved-dependencies.json` 和 `dependency-provenance.json`，记录实际
 backend、Qt 和编译器信息；安装时复制到 `share/AnAnArchiver`。
+构建前再次纯本地验证源码，并将依赖源码、工具链、编译选项和构建适配器绑定到
+构建目录及安装 prefix。版本或构建参数变化时使用新的目录，防止旧库误标新版本；
+只有解析时间改变而源码与构建参数未改变时可以复用原目录。最终 provenance 在
+生产产物成功构建后记录，包含实际生成工具版本；配置/失败诊断与最终记录分开。
 
 要求 Python 3.10+、CMake 3.25+、Ninja 和支持 C++23 / `std::expected` 的编译器。
 Windows 推荐 MSVC x64；Linux 使用现代 GCC/Clang；macOS 使用现代 Clang。
@@ -86,12 +90,23 @@ cmake -P scripts/init-dependencies.cmake
 ```sh
 python scripts/resolve-dependencies.py --qt --resolve-only --manifest out/dependencies/selected.json
 python scripts/resolve-dependencies.py --qt --replay-manifest out/dependencies/selected.json
+python scripts/resolve-dependencies.py --qt --verify --replay-manifest out/dependencies/selected.json
 ```
 
 重放用于复现一次构建，不更改后续初始化选择最新版本的策略。已有所需 Git
 提交时可加 `--offline` 完全离线重放；缺少提交时失败。清单不是长期版本锁。
 GitHub API 限流时通过环境变量 `GITHUB_TOKEN` 提供只读凭据，不把 token 写入
 清单或日志。依赖源码有本地修改时，先保存这些修改再执行更新。
+`--verify` 只检查清单、配套源码、origin、版本和本地修改，不联网、不检出源码
+也不改写清单；CMake 入口可用 `ANANARCHIVER_DEPENDENCY_VERIFY=ON` 配合
+`ANANARCHIVER_DEPENDENCY_REPLAY_MANIFEST`。Core-only 验证增加 `--core-only`。
+
+Mbed TLS 4 公共 PSA API 与 ZIP 取消资源清理修复已通过
+[libarchive PR #1](https://github.com/ananwanan/libarchive/pull/1) 合入指定上游，
+应用直接构建解析到的上游源码，移除父项目中的兼容补丁副本。共享 PSA 并发保护、
+持久 AES operation 和 CryptoOnly 支持也已通过
+[libarchive PR #2](https://github.com/ananwanan/libarchive/pull/2) 合入上游，相关验证见
+[本次依赖验证记录](docs/validation/2026-10-11-dependency-resolution.md)。
 
 构建和测试不依赖 Qt 的 Core、Backend、Application：
 
@@ -133,6 +148,8 @@ ASan/UBSan 作业重放同一组依赖提交，防止并行作业之间发生版
 Windows 桌面作业使用 `desktop-release` 构建所选 Qt 的完整配套源码，执行
 Core、生产 QML 解压/创建/桌面交互/拖放回归、QML lint 和应用启动 smoke。
 解析清单、构建来源信息与 CTest 结果保存为 CI artifacts。
+Windows/Linux 另设独立离线依赖工具回归；各编译作业重放后再次纯本地验证，
+失败时也上传可用的 provenance、配置记录、CTest/JUnit 与依赖构建日志。
 
 Windows 源码构建完成后，在当前终端加入项目内 Qt 的运行时目录再启动应用：
 
