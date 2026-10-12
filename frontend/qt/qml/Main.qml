@@ -15,6 +15,7 @@ ApplicationWindow {
     property var desktopController: null
     property var taskController: null
     property var dragController: null
+    property var buildInfo: null
     width: 1180
     height: 740
     minimumWidth: 760
@@ -580,18 +581,80 @@ ApplicationWindow {
     }
     Dialog {
         id: aboutDialog
+        objectName: "aboutDialog"
         title: qsTr("About AnAnArchiver")
         modal: true
         anchors.centerIn: Overlay.overlay
-        width: Math.min(460, window.width - 48)
+        width: Math.min(520, window.width - 48)
         standardButtons: Dialog.Ok
         contentItem: ColumnLayout {
-            Label { textFormat: Text.PlainText; text: "AnAnArchiver"; font.pixelSize: 24; font.bold: true }
-            Label { textFormat: Text.PlainText; text: qsTr("Version %1").arg(Qt.application.version) }
+            spacing: 12
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 16
+                Image {
+                    objectName: "aboutAppIcon"
+                    source: window.buildInfo ? "qrc:/branding/ananarchiver.png" : ""
+                    Layout.preferredWidth: 64
+                    Layout.preferredHeight: 64
+                    fillMode: Image.PreserveAspectFit
+                    sourceSize.width: 128
+                    sourceSize.height: 128
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        Layout.fillWidth: true
+                        textFormat: Text.PlainText
+                        text: "AnAnArchiver"
+                        font.pixelSize: 24
+                        font.bold: true
+                        wrapMode: Text.WordWrap
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        textFormat: Text.PlainText
+                        text: qsTr("Version %1").arg(Qt.application.version)
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
             Label { textFormat: Text.PlainText;
                 Layout.fillWidth: true
                 text: qsTr("A modern archive browser. Open an archive to inspect its contents.")
                 wrapMode: Text.WordWrap
+            }
+            Label {
+                objectName: "aboutBuildTime"
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: qsTr("Build time: %1").arg(window.buildInfo ? window.buildInfo.buildTime : qsTr("Unknown"))
+                wrapMode: Text.WordWrap
+            }
+            Label {
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: qsTr("GitHub repository")
+                font.bold: true
+            }
+            Button {
+                id: repositoryLink
+                objectName: "aboutRepositoryLink"
+                Layout.fillWidth: true
+                flat: true
+                enabled: window.buildInfo !== null
+                text: window.buildInfo ? window.buildInfo.repositoryUrl.toString() : ""
+                Accessible.name: qsTr("Open GitHub repository")
+                Accessible.description: text
+                contentItem: Label {
+                    text: repositoryLink.text
+                    textFormat: Text.PlainText
+                    color: window.palette.highlight
+                    font.underline: true
+                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: Qt.openUrlExternally(window.buildInfo.repositoryUrl)
             }
         }
     }

@@ -5,17 +5,35 @@ permissions:
   contents: read
 
 jobs:
-  resolve:
-    runs-on: ubuntu-latest
+  dependency-tools:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: '>=3.10'
           check-latest: true
           allow-prereleases: false
-      - name: Test dependency resolution
-        run: python tests/dependencies/test_resolver.py
+      - name: Test dependency resolution and provenance without network access
+        run: python -m unittest discover -s tests/dependencies -p 'test_*.py' -v
+
+  resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '>=3.10'
+          check-latest: true
+          allow-prereleases: false
       # Resolve once; every build replays these commits even if an upstream
       # publishes another release while the matrix is still running.
       - name: Resolve the latest stable dependency set
@@ -30,6 +48,7 @@ jobs:
           manifest = json.loads(Path('out/dependencies/resolved-dependencies.json').read_text(encoding='utf-8'))
           print(json.dumps(manifest, indent=2))
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: resolved-dependencies
           path: out/dependencies/resolved-dependencies.json
@@ -52,6 +71,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: '>=3.10'
@@ -109,6 +130,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/resolve-dependencies.py --core-only --replay-manifest out/dependencies/resolved-dependencies.json
+      - name: Verify the replayed backend and codec sources offline
+        run: python scripts/resolve-dependencies.py --core-only --verify --replay-manifest out/dependencies/resolved-dependencies.json
       - name: Configure Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -134,14 +157,19 @@ jobs:
             out/dependencies/resolved-dependencies.json
             out/build/core-release/**/resolved-dependencies.json
             out/build/core-release/**/dependency-provenance.json
+            out/build/core-release/**/dependency-build.json
+            out/build/core-release/**/build-trace-config.json
             out/build/core-release/application/ctest-results.xml
-            out/build/core-release/application/Testing/Temporary/LastTest.log
+            out/build/core-release/**/Testing/Temporary/*.log
+            out/build/core-release/*-prefix/src/*-stamp/*.log
 
   sanitizers:
     needs: resolve
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: '>=3.10'
@@ -168,6 +196,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/resolve-dependencies.py --core-only --replay-manifest out/dependencies/resolved-dependencies.json
+      - name: Verify the replayed sources offline
+        run: python scripts/resolve-dependencies.py --core-only --verify --replay-manifest out/dependencies/resolved-dependencies.json
       - run: cmake --preset core-sanitizers
       - run: cmake --build --preset core-sanitizers
       - run: ctest --test-dir out/build/core-sanitizers/application --output-on-failure --output-junit ctest-results.xml
@@ -180,8 +210,11 @@ jobs:
             out/dependencies/resolved-dependencies.json
             out/build/core-sanitizers/**/resolved-dependencies.json
             out/build/core-sanitizers/**/dependency-provenance.json
+            out/build/core-sanitizers/**/dependency-build.json
+            out/build/core-sanitizers/**/build-trace-config.json
             out/build/core-sanitizers/application/ctest-results.xml
-            out/build/core-sanitizers/application/Testing/Temporary/LastTest.log
+            out/build/core-sanitizers/**/Testing/Temporary/*.log
+            out/build/core-sanitizers/*-prefix/src/*-stamp/*.log
 
   desktop:
     needs: resolve
@@ -189,6 +222,8 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: '>=3.10'
@@ -219,6 +254,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/resolve-dependencies.py --qt --replay-manifest out/dependencies/resolved-dependencies.json
+      - name: Verify the replayed desktop source set offline
+        run: python scripts/resolve-dependencies.py --qt --verify --replay-manifest out/dependencies/resolved-dependencies.json
       - name: Configure and build the desktop
         shell: pwsh
         run: |
@@ -246,5 +283,8 @@ jobs:
             out/dependencies/resolved-dependencies.json
             out/build/desktop-release/**/resolved-dependencies.json
             out/build/desktop-release/**/dependency-provenance.json
+            out/build/desktop-release/**/dependency-build.json
+            out/build/desktop-release/**/build-trace-config.json
             out/build/desktop-release/application/ctest-results.xml
-            out/build/desktop-release/application/Testing/Temporary/LastTest.log
+            out/build/desktop-release/**/Testing/Temporary/*.log
+            out/build/desktop-release/*-prefix/src/*-stamp/*.log

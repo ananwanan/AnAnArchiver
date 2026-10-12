@@ -10,6 +10,7 @@ set(ANANARCHIVER_DEPENDENCY_JOBS 4 CACHE STRING "Parallel jobs per dependency bu
 set(dependency_build_root "${CMAKE_BINARY_DIR}/dependencies/build")
 set(ANANARCHIVER_QT_BUILD_DIRECTORY "${CMAKE_BINARY_DIR}/qt" CACHE PATH
     "Short Qt source build directory, to avoid generated MSVC object path limits")
+ananarchiver_configure_dependency_provenance()
 set(dependency_arguments
     "-DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}"
     "-DCMAKE_INSTALL_PREFIX:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
@@ -22,6 +23,14 @@ set(dependency_arguments
     "-DBUILD_SHARED_LIBS:BOOL=OFF"
     "-DBUILD_TESTING:BOOL=OFF"
     "-DCMAKE_POLICY_VERSION_MINIMUM:STRING=3.5")
+foreach(variable IN ITEMS CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE
+        CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG
+        CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_RELWITHDEBINFO
+        CMAKE_C_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_MSVC_RUNTIME_LIBRARY)
+    if(DEFINED ${variable})
+        list(APPEND dependency_arguments "-D${variable}:STRING=${${variable}}")
+    endif()
+endforeach()
 if(CMAKE_TOOLCHAIN_FILE)
     list(APPEND dependency_arguments "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}")
 endif()
@@ -51,8 +60,6 @@ function(ananarchiver_dependency name source)
     set(dependency_binary_directory "${dependency_build_root}/${name}")
     if(name STREQUAL "qt")
         set(dependency_binary_directory "${ANANARCHIVER_QT_BUILD_DIRECTORY}")
-    elseif(name STREQUAL "libarchive")
-        set(dependency_binary_directory "${dependency_build_root}/libarchive-${ANANARCHIVER_LIBARCHIVE_BUILD_ID}")
     endif()
     ExternalProject_Add(dependency_${name}
         SOURCE_DIR "${source}"
@@ -63,30 +70,16 @@ function(ananarchiver_dependency name source)
         BUILD_ALWAYS ON
         LIST_SEPARATOR "|"
         CMAKE_ARGS ${dependency_arguments} ${dependency_UNPARSED_ARGUMENTS}
-        DEPENDS ${dependency_DEPENDS}
+        DEPENDS ananarchiver_verify_dependencies ${dependency_DEPENDS}
         BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --parallel "${ANANARCHIVER_DEPENDENCY_JOBS}"
         INSTALL_COMMAND "${CMAKE_COMMAND}" --install <BINARY_DIR>
         LOG_CONFIGURE ON LOG_BUILD ON LOG_INSTALL ON
         LOG_OUTPUT_ON_FAILURE ON)
-    ExternalProject_Add_Step(dependency_${name} resolved_sources
-        DEPENDEES update DEPENDERS configure
-        DEPENDS "${ANANARCHIVER_BUILD_SOURCE_MANIFEST}")
+    add_dependencies(dependency_${name} ananarchiver_verify_dependencies)
 endfunction()
 
 set(archive_dependencies "")
 if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
-    find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
-    execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import jinja2, jsonschema"
-        RESULT_VARIABLE generator_modules_result ERROR_QUIET)
-    if(NOT generator_modules_result EQUAL 0)
-        message(FATAL_ERROR "Mbed TLS source generation requires Python jinja2 and jsonschema. Install the latest stable packages with: python -m pip install --upgrade jinja2 jsonschema")
-    endif()
-    if(WIN32)
-        get_filename_component(git_command_directory "${GIT_EXECUTABLE}" DIRECTORY)
-        find_program(PERL_EXECUTABLE NAMES perl perl.exe
-            HINTS "${git_command_directory}/../usr/bin")
-    endif()
-    find_package(Perl REQUIRED)
     foreach(dependency IN ITEMS zlib bzip2 xz zstd lz4 expat mbedtls libarchive)
         ananarchiver_require_source(${dependency} .git)
     endforeach()
@@ -106,31 +99,29 @@ if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
         -DEXPAT_BUILD_TOOLS=OFF -DEXPAT_BUILD_EXAMPLES=OFF -DEXPAT_BUILD_TESTS=OFF
         -DEXPAT_BUILD_DOCS=OFF -DEXPAT_SHARED_LIBS=OFF)
     ananarchiver_require_source(mbedtls framework/CMakeLists.txt)
+    execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import jinja2, jsonschema"
+        RESULT_VARIABLE mbedtls_python_status ERROR_VARIABLE mbedtls_python_error)
+    if(NOT mbedtls_python_status EQUAL 0)
+        message(FATAL_ERROR "Mbed TLS source generation requires Jinja2 and jsonschema in ${Python3_EXECUTABLE}. Run python -m pip install --upgrade jinja2 jsonschema. ${mbedtls_python_error}")
+    endif()
+    find_package(Git REQUIRED)
+    get_filename_component(git_binary_directory "${GIT_EXECUTABLE}" DIRECTORY)
+    find_program(ANANARCHIVER_PERL_EXECUTABLE NAMES perl
+        HINTS "${git_binary_directory}/../usr/bin" "${git_binary_directory}/../../usr/bin" REQUIRED)
+    set(mbedtls_pthread OFF)
+    if(NOT WIN32)
+        set(mbedtls_pthread ON)
+    endif()
     ananarchiver_dependency(mbedtls "${PROJECT_SOURCE_DIR}/third_party/mbedtls"
         -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DGEN_FILES=ON -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
+        "-DLINK_WITH_PTHREAD:BOOL=${mbedtls_pthread}"
         "-DPython3_EXECUTABLE:FILEPATH=${Python3_EXECUTABLE}"
-        "-DPERL_EXECUTABLE:FILEPATH=${PERL_EXECUTABLE}"
-        -DMBEDTLS_FATAL_WARNINGS=OFF)
+        "-DPERL_EXECUTABLE:FILEPATH=${ANANARCHIVER_PERL_EXECUTABLE}"
+        "-DTF_PSA_CRYPTO_USER_CONFIG_FILE:FILEPATH=${PROJECT_SOURCE_DIR}/cmake/vendor/mbedtls/crypto_config.h")
     set(codec_dependencies dependency_zlib dependency_bzip2 dependency_xz dependency_zstd
         dependency_lz4 dependency_expat dependency_mbedtls)
     # Searches inside this build's prefix only; no optional codec can come from the host.
-    include("${CMAKE_CURRENT_LIST_DIR}/PrepareLibarchive.cmake")
-    ananarchiver_prepare_libarchive(libarchive_build_source)
-    option(ANANARCHIVER_LIBARCHIVE_USE_CNG "Use native Windows crypto (disable to validate Mbed TLS PSA)" ON)
-    if(EXISTS "${PROJECT_SOURCE_DIR}/third_party/mbedtls/tf-psa-crypto/CMakeLists.txt")
-        set(archive_crypto_library_name tfpsacrypto)
-    else()
-        set(archive_crypto_library_name mbedcrypto)
-    endif()
-    if(WIN32)
-        set(archive_crypto_library "${ANANARCHIVER_DEPENDENCY_PREFIX}/lib/${archive_crypto_library_name}.lib")
-        if(MINGW)
-            set(archive_crypto_library "${ANANARCHIVER_DEPENDENCY_PREFIX}/lib/lib${archive_crypto_library_name}.a")
-        endif()
-    else()
-        set(archive_crypto_library "${ANANARCHIVER_DEPENDENCY_PREFIX}/lib/lib${archive_crypto_library_name}.a")
-    endif()
-    ananarchiver_dependency(libarchive "${libarchive_build_source}"
+    ananarchiver_dependency(libarchive "${PROJECT_SOURCE_DIR}/third_party/libarchive"
         "-DCMAKE_PREFIX_PATH:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
         "-DCMAKE_FIND_ROOT_PATH:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
         -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
@@ -138,9 +129,7 @@ if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
         -DENABLE_TEST=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_UNZIP=OFF
         -DENABLE_WERROR=OFF -DENABLE_INSTALL=ON -DENABLE_LIBXML2=OFF -DENABLE_BSDXML=OFF
         -DENABLE_EXPAT=ON -DENABLE_WIN32_XMLLITE=OFF -DENABLE_OPENSSL=OFF -DENABLE_NETTLE=OFF
-        -DENABLE_MBEDTLS=ON "-DENABLE_CNG:BOOL=${ANANARCHIVER_LIBARCHIVE_USE_CNG}"
-        "-DMBEDCRYPTO_LIBRARY:FILEPATH=${archive_crypto_library}"
-        -DENABLE_LIBB2=OFF -DENABLE_LZO=OFF
+        -DENABLE_MBEDTLS=ON "-DENABLE_CNG:BOOL=${ANANARCHIVER_LIBARCHIVE_USE_CNG}" -DENABLE_LIBB2=OFF -DENABLE_LZO=OFF
         -DENABLE_PCREPOSIX=OFF -DENABLE_PCRE2POSIX=OFF -DENABLE_ACL=OFF
         -DENABLE_XATTR=OFF -DENABLE_ICONV=ON -DZLIB_USE_STATIC_LIBS=ON
         -DEXPAT_USE_STATIC_LIBS=ON "-DCMAKE_C_FLAGS:STRING=${CMAKE_C_FLAGS} -DXML_STATIC"
@@ -152,44 +141,29 @@ set(qt_dependencies "")
 if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT)
     ananarchiver_require_source(vulkan-headers include/vulkan/vulkan.h)
     set(Vulkan_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/third_party/vulkan-headers/include" CACHE PATH
-        "Vulkan API headers used to compile Qt (resolved project submodule)")
+        "Vulkan API headers used to compile Qt (default: resolved project submodule)")
     foreach(module IN ITEMS qtbase qtshadertools qtdeclarative qtsvg)
         ananarchiver_require_source(qt "${module}/CMakeLists.txt")
     endforeach()
     ananarchiver_dependency(qt "${PROJECT_SOURCE_DIR}/third_party/qt"
         "-DCMAKE_INSTALL_PREFIX:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}/qt"
-        "-DQT_BUILD_SUBMODULES:STRING=qtbase|qtshadertools|qtdeclarative|qtsvg"
         "-DVulkan_INCLUDE_DIR:PATH=${Vulkan_INCLUDE_DIR}"
-        -DBUILD_SHARED_LIBS=ON -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF
-        -DQT_BUILD_BENCHMARKS=OFF -DQT_BUILD_TESTS_BY_DEFAULT=OFF -DFEATURE_openssl=OFF
-        -DFEATURE_system_zlib=OFF -DFEATURE_system_pcre2=OFF -DFEATURE_system_freetype=OFF
-        -DFEATURE_system_harfbuzz=OFF -DFEATURE_system_libb2=OFF -DFEATURE_system_doubleconversion=OFF
-        -DFEATURE_system_png=OFF -DFEATURE_system_jpeg=OFF
-        -DFEATURE_icu=OFF -DFEATURE_dbus=OFF -DFEATURE_cups=OFF
-        -DFEATURE_quickcontrols2_basic=ON -DFEATURE_quickcontrols2_fusion=OFF
-        -DFEATURE_quickcontrols2_imagine=OFF -DFEATURE_quickcontrols2_material=OFF
-        -DFEATURE_quickcontrols2_universal=OFF -DFEATURE_quickcontrols2_fluentwinui3=OFF
-        -DFEATURE_quickcontrols2_windows=OFF -DFEATURE_quickcontrols2_macos=OFF
-        -DFEATURE_quickcontrols2_ios=OFF)
+        ${ANANARCHIVER_QT_SOURCE_OPTIONS})
     list(APPEND qt_dependencies dependency_qt)
 endif()
 
-add_custom_target(dependency_provenance
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${ANANARCHIVER_DEPENDENCY_PREFIX}/share/AnAnArchiver"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${ANANARCHIVER_BUILD_SOURCE_MANIFEST}"
-        "${ANANARCHIVER_DEPENDENCY_PREFIX}/share/AnAnArchiver/resolved-dependencies.json"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_BINARY_DIR}/build-patches.json"
-        "${ANANARCHIVER_DEPENDENCY_PREFIX}/share/AnAnArchiver/build-patches.json"
-    DEPENDS ${archive_dependencies} ${qt_dependencies})
-file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/build-patches.json"
-    CONTENT "{\"libarchive_mbedtls4_sha256\":\"${ANANARCHIVER_LIBARCHIVE_PATCH_SHA256}\",\"libarchive_patch_commit\":\"${ANANARCHIVER_LIBARCHIVE_PATCH_COMMIT}\",\"libarchive_base_revision\":\"${ANANARCHIVER_LIBARCHIVE_REVISION}\"}\n" @ONLY)
-add_custom_target(dependencies DEPENDS dependency_provenance)
+add_custom_target(ananarchiver_record_dependencies
+    COMMAND ${ANANARCHIVER_TRACE_COMMAND} --operation record-prefix
+    DEPENDS ${archive_dependencies} ${qt_dependencies} VERBATIM)
+add_custom_target(dependencies DEPENDS ananarchiver_record_dependencies)
+add_dependencies(ananarchiver_build_info ananarchiver_record_dependencies)
 set(application_arguments ${dependency_arguments}
     -DANANARCHIVER_SUPERBUILD=OFF
     "-DANANARCHIVER_BUILD_QT:BOOL=${ANANARCHIVER_BUILD_QT}"
     "-DANANARCHIVER_USE_SYSTEM_QT:BOOL=${ANANARCHIVER_USE_SYSTEM_QT}"
     "-DANANARCHIVER_USE_SYSTEM_LIBARCHIVE:BOOL=${ANANARCHIVER_USE_SYSTEM_LIBARCHIVE}"
     "-DANANARCHIVER_ENABLE_SANITIZERS:BOOL=${ANANARCHIVER_ENABLE_SANITIZERS}"
+    "-DANANARCHIVER_LIBARCHIVE_USE_CNG:BOOL=${ANANARCHIVER_LIBARCHIVE_USE_CNG}"
     "-DANANARCHIVER_DEPENDENCY_PREFIX:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
     "-DANANARCHIVER_DEPENDENCY_MANIFEST:FILEPATH=${ANANARCHIVER_DEPENDENCY_MANIFEST}"
     "-DBUILD_TESTING:BOOL=${BUILD_TESTING}")
@@ -208,10 +182,8 @@ ExternalProject_Add(ananarchiver
     CMAKE_ARGS ${application_arguments}
     BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --parallel "${ANANARCHIVER_DEPENDENCY_JOBS}"
     BUILD_ALWAYS ON INSTALL_COMMAND ""
-    DEPENDS dependency_provenance)
-ExternalProject_Add_Step(ananarchiver resolved_sources
-    DEPENDEES update DEPENDERS configure
-    DEPENDS "${ANANARCHIVER_BUILD_SOURCE_MANIFEST}")
+    DEPENDS ananarchiver_record_dependencies)
+add_dependencies(ananarchiver_build_info ananarchiver)
 if(BUILD_TESTING)
     add_test(NAME application_suite COMMAND "${CMAKE_CTEST_COMMAND}"
         --test-dir "${CMAKE_BINARY_DIR}/application" --output-on-failure)

@@ -35,6 +35,7 @@ bool App::initialize(const QString& file)
 {
     engine_ = std::make_unique<QQmlApplicationEngine>();
     engine_->setInitialProperties({
+        {QStringLiteral("buildInfo"), QVariant::fromValue(&buildInfo_)},
         {QStringLiteral("archiveController"), QVariant::fromValue(&archives_)},
         {QStringLiteral("compressionController"), QVariant::fromValue(&compression_)},
         {QStringLiteral("directoryModel"), QVariant::fromValue(&directories_)},

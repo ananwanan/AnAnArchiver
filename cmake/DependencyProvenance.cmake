@@ -1,184 +1,126 @@
 include_guard(GLOBAL)
-
-set(ANANARCHIVER_DEPENDENCY_MANIFEST
-    "${PROJECT_SOURCE_DIR}/out/dependencies/resolved-dependencies.json" CACHE FILEPATH
-    "Source resolution manifest generated before this build")
-
-function(ananarchiver_json_string output value)
-    string(REPLACE "\\" "\\\\" escaped "${value}")
-    string(REPLACE "\"" "\\\"" escaped "${escaped}")
-    string(REPLACE "\n" "\\n" escaped "${escaped}")
-    string(REPLACE "\r" "\\r" escaped "${escaped}")
-    string(REPLACE "\t" "\\t" escaped "${escaped}")
-    set(${output} "\"${escaped}\"" PARENT_SCOPE)
-endfunction()
-
-function(ananarchiver_uses_source output path)
-    set(used FALSE)
-    if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE AND
-            path MATCHES "^third_party/(libarchive|zlib|bzip2|xz|zstd|lz4|expat|mbedtls)(/|$)")
-        set(used TRUE)
-    endif()
-    if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT AND
-            path MATCHES "^third_party/(qt|vulkan-headers)(/|$)")
-        set(used TRUE)
-    endif()
-    set(${output} ${used} PARENT_SCOPE)
-endfunction()
-
-function(ananarchiver_load_dependency_provenance)
-    if(ANANARCHIVER_USE_SYSTEM_LIBARCHIVE AND
-            (NOT ANANARCHIVER_BUILD_QT OR ANANARCHIVER_USE_SYSTEM_QT))
-        return()
-    endif()
-    if(NOT EXISTS "${ANANARCHIVER_DEPENDENCY_MANIFEST}")
-        message(FATAL_ERROR "Dependency resolution manifest is missing. Run cmake -P scripts/init-dependencies.cmake first (add -DANANARCHIVER_INIT_QT=ON for bundled Qt).")
-    endif()
-    find_package(Git REQUIRED)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ANANARCHIVER_DEPENDENCY_MANIFEST}")
-    file(READ "${ANANARCHIVER_DEPENDENCY_MANIFEST}" manifest)
-    string(JSON schema GET "${manifest}" schema_version)
-    if(NOT schema EQUAL 1)
-        message(FATAL_ERROR "Unsupported dependency manifest schema: ${schema}")
-    endif()
-    string(JSON count LENGTH "${manifest}" dependencies)
-    set(selected "[]")
-    set(selected_count 0)
-    set(found_names "")
-    if(count LESS 1)
-        message(FATAL_ERROR "Dependency manifest contains no sources")
-    endif()
-    math(EXPR last "${count} - 1")
-    foreach(index RANGE ${last})
-        string(JSON entry GET "${manifest}" dependencies ${index})
-        string(JSON name GET "${entry}" name)
-        string(JSON path GET "${entry}" path)
-        string(JSON revision GET "${entry}" revision)
-        string(JSON version GET "${entry}" version)
-        # A manifest is build data, never an instruction to access arbitrary paths.
-        if(NOT path MATCHES "^third_party/[a-zA-Z0-9_./-]+$" OR
-                path MATCHES "(^|/)\\.\\.(/|$)")
-            message(FATAL_ERROR "Unsafe dependency path in manifest: ${path}")
-        endif()
-        if(name STREQUAL "qt")
-            set(ANANARCHIVER_RESOLVED_QT_VERSION "${version}" PARENT_SCOPE)
-        endif()
-        ananarchiver_uses_source(used "${path}")
-        if(NOT used)
-            continue()
-        endif()
-        if(NOT EXISTS "${PROJECT_SOURCE_DIR}/${path}/.git")
-            message(FATAL_ERROR "Resolved source ${path} is not initialized. Replay the dependency manifest before configuring.")
-        endif()
-        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${PROJECT_SOURCE_DIR}/${path}" rev-parse HEAD
-            OUTPUT_VARIABLE actual OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-        if(NOT actual STREQUAL revision)
-            message(FATAL_ERROR "${path} is at ${actual}, but the manifest records ${revision}. Replay the manifest or resolve dependencies again before building.")
-        endif()
-        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${PROJECT_SOURCE_DIR}/${path}"
-            status --porcelain=v1 --untracked-files=all --ignore-submodules=all
-            OUTPUT_VARIABLE changes OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-        if(changes)
-            message(FATAL_ERROR "${path} contains local source changes; preserve them and resolve clean dependencies before building.")
-        endif()
-        string(JSON selected SET "${selected}" ${selected_count} "${entry}")
-        math(EXPR selected_count "${selected_count} + 1")
-        list(APPEND found_names "${name}")
-        if(name STREQUAL "libarchive")
-            set(ANANARCHIVER_LIBARCHIVE_REVISION "${revision}" PARENT_SCOPE)
-            set(ANANARCHIVER_LIBARCHIVE_VERSION "${version}" PARENT_SCOPE)
-        endif()
-    endforeach()
-    if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
-        foreach(required IN ITEMS libarchive zlib bzip2 xz zstd lz4 expat mbedtls)
-            if(NOT required IN_LIST found_names)
-                message(FATAL_ERROR "Dependency manifest is missing ${required}")
+find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+set(ANANARCHIVER_DEPENDENCY_MANIFEST "${PROJECT_SOURCE_DIR}/out/dependencies/resolved-dependencies.json"
+    CACHE FILEPATH "Resolved dependency snapshot produced by init-dependencies.cmake")
+set(ANANARCHIVER_QT_SOURCE_OPTIONS
+    -DBUILD_SHARED_LIBS=ON
+    "-DQT_BUILD_SUBMODULES:STRING=qtbase|qtshadertools|qtdeclarative|qtsvg"
+    -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF -DQT_BUILD_BENCHMARKS=OFF
+    -DQT_BUILD_TESTS_BY_DEFAULT=OFF -DFEATURE_openssl=OFF
+    -DFEATURE_system_zlib=OFF -DFEATURE_system_pcre2=OFF -DFEATURE_system_freetype=OFF
+    -DFEATURE_system_harfbuzz=OFF -DFEATURE_system_libb2=OFF -DFEATURE_system_doubleconversion=OFF
+    -DFEATURE_system_png=OFF -DFEATURE_system_jpeg=OFF
+    -DFEATURE_icu=OFF -DFEATURE_dbus=OFF -DFEATURE_cups=OFF
+    -DFEATURE_quickcontrols2_basic=ON -DFEATURE_quickcontrols2_fusion=OFF
+    -DFEATURE_quickcontrols2_imagine=OFF -DFEATURE_quickcontrols2_material=OFF
+    -DFEATURE_quickcontrols2_universal=OFF -DFEATURE_quickcontrols2_fluentwinui3=OFF
+    -DFEATURE_quickcontrols2_windows=OFF -DFEATURE_quickcontrols2_macos=OFF
+    -DFEATURE_quickcontrols2_ios=OFF)
+if(EXISTS "${ANANARCHIVER_DEPENDENCY_MANIFEST}")
+    file(READ "${ANANARCHIVER_DEPENDENCY_MANIFEST}" ananarchiver_resolution)
+    string(JSON ananarchiver_source_count ERROR_VARIABLE ananarchiver_resolution_error
+        LENGTH "${ananarchiver_resolution}" dependencies)
+    if(NOT ananarchiver_resolution_error AND ananarchiver_source_count GREATER 0)
+        math(EXPR ananarchiver_last_source "${ananarchiver_source_count} - 1")
+        foreach(index RANGE ${ananarchiver_last_source})
+            string(JSON source_name GET "${ananarchiver_resolution}" dependencies ${index} name)
+            if(source_name STREQUAL "qt")
+                string(JSON ANANARCHIVER_RESOLVED_QT_VERSION GET "${ananarchiver_resolution}" dependencies ${index} version)
             endif()
         endforeach()
     endif()
-    if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT)
-        foreach(required IN ITEMS qt vulkan-headers)
-            if(NOT required IN_LIST found_names)
-                message(FATAL_ERROR "Dependency manifest is missing ${required}; resolve with --qt")
-            endif()
-        endforeach()
-    endif()
-    string(JSON used_manifest SET "${manifest}" dependencies "${selected}")
-    if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT)
-        string(JSON used_manifest SET "${used_manifest}" includes_qt true)
-    else()
-        string(JSON used_manifest SET "${used_manifest}" includes_qt false)
-    endif()
-    file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/resolved-dependencies.json" CONTENT "${used_manifest}\n" @ONLY)
-    set(ANANARCHIVER_BUILD_SOURCE_MANIFEST "${CMAKE_BINARY_DIR}/resolved-dependencies.json" PARENT_SCOPE)
+endif()
+
+function(ananarchiver_json_quote output value)
+    string(REPLACE "\\" "\\\\" value "${value}")
+    string(REPLACE "\"" "\\\"" value "${value}")
+    string(REPLACE "\n" "\\n" value "${value}")
+    string(REPLACE "\r" "\\r" value "${value}")
+    string(REPLACE "\t" "\\t" value "${value}")
+    set(${output} "\"${value}\"" PARENT_SCOPE)
 endfunction()
 
-function(ananarchiver_check_installed_provenance)
+function(ananarchiver_configure_dependency_provenance)
+    set(libarchive_cng false)
+    if(ANANARCHIVER_LIBARCHIVE_USE_CNG)
+        set(libarchive_cng true)
+    endif()
+    set(source_qt false)
+    if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT)
+        set(source_qt true)
+    endif()
+    set(system_backend false)
     if(ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
-        return()
+        set(system_backend true)
     endif()
-    set(record "${ANANARCHIVER_DEPENDENCY_PREFIX}/share/AnAnArchiver/resolved-dependencies.json")
-    if(NOT EXISTS "${record}")
-        message(FATAL_ERROR "Bundled dependencies have no build provenance. Build the dependency superbuild first.")
+    set(superbuild false)
+    if(ANANARCHIVER_SUPERBUILD)
+        set(superbuild true)
     endif()
-    file(READ "${record}" installed)
-    file(READ "${ANANARCHIVER_BUILD_SOURCE_MANIFEST}" requested)
-    string(JSON installed_sources GET "${installed}" dependencies)
-    string(JSON requested_sources GET "${requested}" dependencies)
-    if(NOT installed_sources STREQUAL requested_sources)
-        message(FATAL_ERROR "The installed dependency prefix belongs to another source resolution. Rebuild dependencies in this build directory before configuring the application.")
-    endif()
-    file(SHA256 "${PROJECT_SOURCE_DIR}/cmake/patches/libarchive-mbedtls4.patch" patch_hash)
-    set(patch_record "${ANANARCHIVER_DEPENDENCY_PREFIX}/share/AnAnArchiver/build-patches.json")
-    if(NOT EXISTS "${patch_record}")
-        message(FATAL_ERROR "Bundled dependency prefix is missing backend patch provenance")
-    endif()
-    file(READ "${patch_record}" patches)
-    string(JSON installed_patch GET "${patches}" libarchive_mbedtls4_sha256)
-    if(NOT installed_patch STREQUAL patch_hash)
-        message(FATAL_ERROR "Bundled backend was built with another compatibility patch; rebuild dependencies")
-    endif()
-    set(ANANARCHIVER_LIBARCHIVE_PATCH_SHA256 "${patch_hash}" PARENT_SCOPE)
-    string(JSON patch_commit ERROR_VARIABLE patch_commit_error GET "${patches}" libarchive_patch_commit)
-    if(NOT patch_commit_error)
-        set(ANANARCHIVER_LIBARCHIVE_PATCH_COMMIT "${patch_commit}" PARENT_SCOPE)
-    endif()
-endfunction()
-
-function(ananarchiver_write_build_provenance)
-    set(record "{\"schema_version\":1}")
-    foreach(field IN ITEMS project_version compiler_id compiler_version cmake_version libarchive_version libarchive_revision libarchive_patch_sha256 libarchive_patch_commit qt_version qt_source)
-        if(field STREQUAL "project_version")
-            set(value "${PROJECT_VERSION}")
-        elseif(field STREQUAL "compiler_id")
-            set(value "${CMAKE_CXX_COMPILER_ID}")
-        elseif(field STREQUAL "compiler_version")
-            set(value "${CMAKE_CXX_COMPILER_VERSION}")
-        elseif(field STREQUAL "cmake_version")
-            set(value "${CMAKE_VERSION}")
-        elseif(field STREQUAL "libarchive_version")
-            set(value "${ANANARCHIVER_LIBARCHIVE_VERSION}")
-        elseif(field STREQUAL "libarchive_revision")
-            set(value "${ANANARCHIVER_LIBARCHIVE_REVISION}")
-        elseif(field STREQUAL "libarchive_patch_sha256")
-            set(value "${ANANARCHIVER_LIBARCHIVE_PATCH_SHA256}")
-        elseif(field STREQUAL "libarchive_patch_commit")
-            set(value "${ANANARCHIVER_LIBARCHIVE_PATCH_COMMIT}")
-        elseif(field STREQUAL "qt_version")
-            set(value "${Qt6_VERSION}")
-        elseif(NOT ANANARCHIVER_BUILD_QT)
-            set(value "disabled")
-        elseif(ANANARCHIVER_USE_SYSTEM_QT)
-            set(value "explicit-developer-kit")
-        else()
-            set(value "bundled-source")
-        endif()
-        ananarchiver_json_string(quoted "${value}")
-        string(JSON record SET "${record}" ${field} "${quoted}")
+    foreach(variable IN ITEMS PROJECT_SOURCE_DIR CMAKE_BINARY_DIR ANANARCHIVER_DEPENDENCY_PREFIX
+            ANANARCHIVER_DEPENDENCY_MANIFEST PROJECT_VERSION CMAKE_VERSION CMAKE_GENERATOR
+            CMAKE_C_COMPILER_ID CMAKE_C_COMPILER_VERSION CMAKE_CXX_COMPILER_ID CMAKE_CXX_COMPILER_VERSION
+            CMAKE_SYSTEM_NAME CMAKE_SYSTEM_PROCESSOR CMAKE_OSX_ARCHITECTURES ANDROID_ABI
+            CMAKE_BUILD_TYPE CMAKE_C_FLAGS CMAKE_CXX_FLAGS ANANARCHIVER_QT_BUILD_DIRECTORY
+            CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG
+            CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_RELWITHDEBINFO
+            CMAKE_C_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_MSVC_RUNTIME_LIBRARY)
+        ananarchiver_json_quote(json_${variable} "${${variable}}")
     endforeach()
-    file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/dependency-provenance.json" CONTENT "${record}\n" @ONLY)
+    set(external_libraries "[]")
+    set(qt_options "[]")
+    foreach(option IN LISTS ANANARCHIVER_QT_SOURCE_OPTIONS)
+        ananarchiver_json_quote(quoted_option "${option}")
+        string(JSON option_count LENGTH "${qt_options}")
+        string(JSON qt_options SET "${qt_options}" ${option_count} "${quoted_option}")
+    endforeach()
+    if(ANANARCHIVER_USE_SYSTEM_LIBARCHIVE AND NOT ANANARCHIVER_SUPERBUILD)
+        ananarchiver_json_quote(version "${LibArchive_VERSION}")
+        ananarchiver_json_quote(location "${LibArchive_LIBRARIES}")
+        string(JSON external_libraries SET "${external_libraries}" 0
+            "{\"name\":\"libarchive\",\"selection\":\"system\",\"version\":${version},\"location\":${location},\"revision\":null}")
+    endif()
+    if(ANANARCHIVER_BUILD_QT AND ANANARCHIVER_USE_SYSTEM_QT AND NOT ANANARCHIVER_SUPERBUILD)
+        ananarchiver_json_quote(version "${Qt6_VERSION}")
+        ananarchiver_json_quote(location "${Qt6_DIR}")
+        string(JSON length LENGTH "${external_libraries}")
+        string(JSON external_libraries SET "${external_libraries}" ${length}
+            "{\"name\":\"Qt\",\"selection\":\"developer-kit\",\"version\":${version},\"location\":${location},\"revision\":null}")
+    endif()
+    set(trace_config "${CMAKE_BINARY_DIR}/build-trace-config.json")
+    file(WRITE "${trace_config}" "{
+  \"root\":${json_PROJECT_SOURCE_DIR}, \"binary\":${json_CMAKE_BINARY_DIR},
+  \"prefix\":${json_ANANARCHIVER_DEPENDENCY_PREFIX}, \"manifest\":${json_ANANARCHIVER_DEPENDENCY_MANIFEST},
+  \"qt_build_binary\":${json_ANANARCHIVER_QT_BUILD_DIRECTORY},
+  \"qt_options\":${qt_options},
+  \"superbuild\":${superbuild}, \"source_qt\":${source_qt}, \"system_backend\":${system_backend},
+  \"libarchive_cng\":${libarchive_cng},
+  \"application_version\":${json_PROJECT_VERSION}, \"cmake_version\":${json_CMAKE_VERSION},
+  \"generator\":${json_CMAKE_GENERATOR}, \"external_libraries\":${external_libraries},
+  \"toolchain\":{
+    \"c_compiler\":{\"id\":${json_CMAKE_C_COMPILER_ID},\"version\":${json_CMAKE_C_COMPILER_VERSION}},
+    \"cxx_compiler\":{\"id\":${json_CMAKE_CXX_COMPILER_ID},\"version\":${json_CMAKE_CXX_COMPILER_VERSION}},
+    \"system\":${json_CMAKE_SYSTEM_NAME}, \"processor\":${json_CMAKE_SYSTEM_PROCESSOR},
+    \"osx_architectures\":${json_CMAKE_OSX_ARCHITECTURES}, \"android_abi\":${json_ANDROID_ABI},
+    \"build_type\":${json_CMAKE_BUILD_TYPE}, \"c_flags\":${json_CMAKE_C_FLAGS}, \"cxx_flags\":${json_CMAKE_CXX_FLAGS},
+    \"c_flags_release\":${json_CMAKE_C_FLAGS_RELEASE}, \"cxx_flags_release\":${json_CMAKE_CXX_FLAGS_RELEASE},
+    \"c_flags_debug\":${json_CMAKE_C_FLAGS_DEBUG}, \"cxx_flags_debug\":${json_CMAKE_CXX_FLAGS_DEBUG},
+    \"c_flags_relwithdebinfo\":${json_CMAKE_C_FLAGS_RELWITHDEBINFO}, \"cxx_flags_relwithdebinfo\":${json_CMAKE_CXX_FLAGS_RELWITHDEBINFO},
+    \"c_flags_minsizerel\":${json_CMAKE_C_FLAGS_MINSIZEREL}, \"cxx_flags_minsizerel\":${json_CMAKE_CXX_FLAGS_MINSIZEREL},
+    \"msvc_runtime\":${json_CMAKE_MSVC_RUNTIME_LIBRARY}
+  }
+}\n")
+    set(trace_command "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/build_traceability.py"
+        --config "${trace_config}")
+    execute_process(COMMAND ${trace_command} --operation prepare COMMAND_ERROR_IS_FATAL ANY)
+    add_custom_target(ananarchiver_verify_dependencies
+        COMMAND ${trace_command} --operation verify VERBATIM)
+    add_custom_target(ananarchiver_build_info ALL
+        COMMAND ${trace_command} --operation record
+        DEPENDS ananarchiver_verify_dependencies VERBATIM)
+    set(ANANARCHIVER_TRACE_COMMAND "${trace_command}" PARENT_SCOPE)
     install(FILES "${CMAKE_BINARY_DIR}/dependency-provenance.json" DESTINATION share/AnAnArchiver)
-    if(ANANARCHIVER_BUILD_SOURCE_MANIFEST)
-        install(FILES "${ANANARCHIVER_BUILD_SOURCE_MANIFEST}" DESTINATION share/AnAnArchiver)
+    if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE OR source_qt)
+        install(FILES "${CMAKE_BINARY_DIR}/resolved-dependencies.json" DESTINATION share/AnAnArchiver)
     endif()
 endfunction()

@@ -9,13 +9,8 @@ endfunction()
 
 if(ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
     find_package(LibArchive REQUIRED)
-    set(ANANARCHIVER_LIBARCHIVE_VERSION "${LibArchive_VERSION}")
-    set(ANANARCHIVER_LIBARCHIVE_REVISION "system-package")
-    set(ANANARCHIVER_LIBARCHIVE_PATCH_SHA256 "")
-    set(ANANARCHIVER_LIBARCHIVE_PATCH_COMMIT "")
     add_library(AnAnArchiver::Archive ALIAS LibArchive::LibArchive)
 else()
-    ananarchiver_check_installed_provenance()
     if(NOT EXISTS "${ANANARCHIVER_DEPENDENCY_PREFIX}/include/archive.h")
         message(FATAL_ERROR "Bundled dependencies are missing. Configure with ANANARCHIVER_SUPERBUILD=ON first.")
     endif()
@@ -29,20 +24,20 @@ else()
     find_package(MbedTLS CONFIG REQUIRED
         PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}"
         NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
-    if(TARGET MbedTLS::mbedcrypto)
-        set(archive_crypto_target MbedTLS::mbedcrypto)
+    if(TARGET MbedTLS::tfpsacrypto)
+        set(ananarchiver_crypto_library MbedTLS::tfpsacrypto)
+    elseif(TARGET MbedTLS::mbedcrypto)
+        # Restoring a previously resolved pre-4.x snapshot remains supported.
+        set(ananarchiver_crypto_library MbedTLS::mbedcrypto)
     else()
-        find_package(TF-PSA-Crypto CONFIG REQUIRED
-            PATHS "${ANANARCHIVER_DEPENDENCY_PREFIX}"
-            NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
-        set(archive_crypto_target TF-PSA-Crypto::tfpsacrypto)
+        message(FATAL_ERROR "The selected Mbed TLS package exports no supported crypto target")
     endif()
     add_library(AnAnArchiver::Archive STATIC IMPORTED GLOBAL)
     set_target_properties(AnAnArchiver::Archive PROPERTIES
         IMPORTED_LOCATION "${archive_library}"
         INTERFACE_INCLUDE_DIRECTORIES "${ANANARCHIVER_DEPENDENCY_PREFIX}/include"
         INTERFACE_COMPILE_DEFINITIONS "LIBARCHIVE_STATIC"
-        INTERFACE_LINK_LIBRARIES "${zlib_library};${bzip2_library};${lzma_library};${zstd_library};${lz4_library};${expat_library};${archive_crypto_target};Threads::Threads")
+        INTERFACE_LINK_LIBRARIES "${zlib_library};${bzip2_library};${lzma_library};${zstd_library};${lz4_library};${expat_library};${ananarchiver_crypto_library};Threads::Threads")
     if(WIN32)
         set_property(TARGET AnAnArchiver::Archive APPEND PROPERTY INTERFACE_LINK_LIBRARIES bcrypt)
     endif()
