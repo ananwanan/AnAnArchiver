@@ -10,6 +10,14 @@ set(ANANARCHIVER_DEPENDENCY_JOBS 4 CACHE STRING "Parallel jobs per dependency bu
 set(dependency_build_root "${CMAKE_BINARY_DIR}/dependencies/build")
 set(ANANARCHIVER_QT_BUILD_DIRECTORY "${CMAKE_BINARY_DIR}/qt" CACHE PATH
     "Short Qt source build directory, to avoid generated MSVC object path limits")
+if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT AND WIN32)
+    include("${PROJECT_SOURCE_DIR}/cmake/PrepareQt.cmake")
+    ananarchiver_prepare_qt(ananarchiver_qt_source_directory)
+    if(ANANARCHIVER_QT_PATCH_SHA256)
+        list(APPEND ANANARCHIVER_QT_SOURCE_OPTIONS
+            "-DANANARCHIVER_QT_PATCH_SHA256:STRING=${ANANARCHIVER_QT_PATCH_SHA256}")
+    endif()
+endif()
 ananarchiver_configure_dependency_provenance()
 set(dependency_arguments
     "-DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}"
@@ -145,7 +153,12 @@ if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT)
     foreach(module IN ITEMS qtbase qtshadertools qtdeclarative qtsvg)
         ananarchiver_require_source(qt "${module}/CMakeLists.txt")
     endforeach()
-    ananarchiver_dependency(qt "${PROJECT_SOURCE_DIR}/third_party/qt"
+    if(ananarchiver_qt_source_directory)
+        set(qt_source_directory "${ananarchiver_qt_source_directory}")
+    else()
+        set(qt_source_directory "${PROJECT_SOURCE_DIR}/third_party/qt")
+    endif()
+    ananarchiver_dependency(qt "${qt_source_directory}"
         "-DCMAKE_INSTALL_PREFIX:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}/qt"
         "-DVulkan_INCLUDE_DIR:PATH=${Vulkan_INCLUDE_DIR}"
         ${ANANARCHIVER_QT_SOURCE_OPTIONS})
@@ -166,6 +179,8 @@ set(application_arguments ${dependency_arguments}
     "-DANANARCHIVER_LIBARCHIVE_USE_CNG:BOOL=${ANANARCHIVER_LIBARCHIVE_USE_CNG}"
     "-DANANARCHIVER_DEPENDENCY_PREFIX:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
     "-DANANARCHIVER_DEPENDENCY_MANIFEST:FILEPATH=${ANANARCHIVER_DEPENDENCY_MANIFEST}"
+    "-DANANARCHIVER_QT_PATCH_SHA256:STRING=${ANANARCHIVER_QT_PATCH_SHA256}"
+    "-DANANARCHIVER_QTBASE_REVISION:STRING=${ANANARCHIVER_QTBASE_REVISION}"
     "-DBUILD_TESTING:BOOL=${BUILD_TESTING}")
 if(CMAKE_PREFIX_PATH)
     string(REPLACE ";" "|" developer_prefix_path "${CMAKE_PREFIX_PATH}")

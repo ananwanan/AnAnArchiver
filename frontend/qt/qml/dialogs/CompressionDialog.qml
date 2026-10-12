@@ -12,6 +12,7 @@ Dialog {
     required property var hostWindow
     readonly property var format: formatChoice.currentIndex >= 0 ? controller.formats[formatChoice.currentIndex] : null
     readonly property var method: format && methodChoice.currentIndex >= 0 ? format.methods[methodChoice.currentIndex] : null
+    function suggestDestination(path) { destination.text = path }
     title: qsTr("Create archive")
     modal: true
     anchors.centerIn: Overlay.overlay

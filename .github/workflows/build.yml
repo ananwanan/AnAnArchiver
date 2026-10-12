@@ -274,6 +274,17 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: software
         run: ./scripts/Start-Desktop.ps1 out/build/desktop-release --smoke-test 500
+      - name: Package portable ZIP and current-user installer
+        shell: pwsh
+        run: ./scripts/Package-Windows.ps1 -BuildDirectory out/build/desktop-release -SkipBuild -BootstrapInstaller
+      - name: Build previous-version installer fixture and verify the release package
+        shell: pwsh
+        run: |
+          $taskPackage = Get-ChildItem out/artifacts/windows -Directory -Filter 'AnAnArchiver-*-windows-x64' | Select-Object -First 1
+          $taskArtifacts = (Resolve-Path out/artifacts/windows).Path
+          ./scripts/New-WindowsUpgradeFixture.ps1 -PortableDirectory $taskPackage.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/Test-Package.ps1 -BuildDirectory out/build/desktop-release -PortableArchive ($taskPackage.FullName + '.zip') -InstallerPath (Join-Path $taskArtifacts 'AnAnArchiver-0.9.0-windows-x64-upgrade-fixture-setup.exe') -UpgradeInstallerPath ($taskPackage.FullName + '-setup.exe') -TemporaryRoot $env:RUNNER_TEMP
       - name: Preserve desktop revisions and test diagnostics
         if: always()
         uses: actions/upload-artifact@v7
@@ -288,3 +299,7 @@ jobs:
             out/build/desktop-release/application/ctest-results.xml
             out/build/desktop-release/**/Testing/Temporary/*.log
             out/build/desktop-release/*-prefix/src/*-stamp/*.log
+            out/artifacts/windows/*.zip
+            out/artifacts/windows/AnAnArchiver-*-windows-x64-setup.exe
+            out/artifacts/windows/*-artifacts.json
+            out/artifacts/windows/package-validation/**

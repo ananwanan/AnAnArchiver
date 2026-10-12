@@ -164,6 +164,9 @@ def build_record(config: dict, manifest: dict | None, dependencies: list[dict]) 
                    "libarchive_revision": (backend or {}).get("revision"),
                    "qt_version": (qt or external_qt or {}).get("version"),
                    "qt_source": "bundled-source" if qt else "explicit-developer-kit" if external_qt else "disabled"})
+    if config.get("qt_windows_patch_sha256"):
+        record["qt_windows_longpaths_sha256"] = config["qt_windows_patch_sha256"]
+        record["qtbase_revision"] = config["qtbase_revision"]
     for package in ("jinja2", "jsonschema"):
         try:
             record["source_generation_tools"][package] = importlib.metadata.version(package)

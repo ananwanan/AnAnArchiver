@@ -1,0 +1,63 @@
+diff --git a/src/corelib/plugin/qlibrary_win.cpp b/src/corelib/plugin/qlibrary_win.cpp
+--- a/src/corelib/plugin/qlibrary_win.cpp
++++ b/src/corelib/plugin/qlibrary_win.cpp
+@@ -8,6 +8,7 @@
+ #include "qdir.h"
+ #include "qfile.h"
+ #include "qfileinfo.h"
++#include "qvarlengtharray.h"
+ #include <private/qfilesystementry_p.h>
+ 
+ #include <qt_windows.h>
+@@ -56,7 +57,12 @@
+     locker.unlock();
+     Handle hnd = nullptr;
+     for (const QString &attempt : std::as_const(attempts)) {
+-        hnd = LoadLibrary(reinterpret_cast<const wchar_t*>(QDir::toNativeSeparators(attempt).utf16()));
++        // File engine paths carry Windows extended-length prefixes for absolute
++        // local and UNC paths. Relative names retain the native loader search.
++        const QFileSystemEntry attemptEntry(attempt);
++        const QString nativeAttempt = attemptEntry.isAbsolute()
++                ? attemptEntry.nativeFilePath() : QDir::toNativeSeparators(attempt);
++        hnd = LoadLibraryW(reinterpret_cast<const wchar_t *>(nativeAttempt.utf16()));
+ 
+         // If we have a handle or the last error is something other than "unable
+         // to find the module", then bail out
+@@ -73,10 +79,18 @@
+         // Query the actual name of the library that was loaded
+         errorString.clear();
+ 
+-        wchar_t buffer[MAX_PATH];
+-        ::GetModuleFileName(hnd, buffer, MAX_PATH);
++        // GetModuleFileNameW returns the buffer size when truncating, including
++        // cases where its last-error value is unreliable. Mirror qAppFileName.
++        QVarLengthArray<wchar_t, MAX_PATH + 1> buffer;
++        DWORD length;
++        int size = 1;
++        do {
++            size += MAX_PATH;
++            buffer.resize(size);
++            length = ::GetModuleFileNameW(hnd, buffer.data(), DWORD(buffer.size()));
++        } while (Q_UNLIKELY(length >= DWORD(size)));
+ 
+-        QString moduleFileName = QString::fromWCharArray(buffer);
++        QString moduleFileName = QString::fromWCharArray(buffer.data(), length);
+         moduleFileName.remove(0, 1 + moduleFileName.lastIndexOf(u'\\'));
+         const QDir dir(fsEntry.path());
+         if (dir.path() == "."_L1)
+diff --git a/src/plugins/platforms/windows/qwindowswindow.cpp b/src/plugins/platforms/windows/qwindowswindow.cpp
+--- a/src/plugins/platforms/windows/qwindowswindow.cpp
++++ b/src/plugins/platforms/windows/qwindowswindow.cpp
+@@ -676,10 +676,10 @@
+ {
+     const QPoint orgPos(context->frameX - invMargins.left(), context->frameY - invMargins.top());
+ 
+-    if (!w || w->type() != Qt::Window)
++    if (!w || w->type() != Qt::Window || w->surfaceType() != QSurface::OpenGLSurface)
+         return orgPos;
+ 
+-    // Workaround for QTBUG-50371
++    // Workaround for QTBUG-50371. Raster windows must not probe D3D/GL hardware.
+     const QScreen *screenForGL = QWindowsWindow::forcedScreenForGLWindow(w);
+     if (!screenForGL)
+         return orgPos;

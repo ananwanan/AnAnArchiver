@@ -16,6 +16,21 @@ ApplicationWindow {
     property var taskController: null
     property var dragController: null
     property var buildInfo: null
+    function showShellCompression(destination) {
+        compressionDialog.suggestDestination(destination)
+        compressionDialog.open()
+    }
+    function showShellExtractionPassword(destination) {
+        errorDialog.close()
+        window.archiveController.dismissError()
+        destinationField.text = destination
+        allEntries.checked = true
+        overwritePolicy.currentIndex = 0
+        linkPolicy.currentIndex = 0
+        extractionPassword.clear()
+        extractionDialog.open()
+        Qt.callLater(function() { extractionPassword.forceActiveFocus() })
+    }
     width: 1180
     height: 740
     minimumWidth: 760

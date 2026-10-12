@@ -62,10 +62,12 @@ void ArchiveController::requestOpen(const QString& path)
 {
     if (path.isEmpty())
         return;
+    emit archiveOpening(path);
     retireActive();
     indexed_ = false;
     extracting_ = false;
     passwordRequested_ = false;
+    extractionNeedsPassword_ = false;
     conflictId_ = 0;
     conflictPath_.clear();
     processedBytes_ = 0;
@@ -142,6 +144,7 @@ Result<ExtractionRequest> ArchiveController::selectedExtractionRequest(
 
 void ArchiveController::close()
 {
+    emit archiveClosed();
     retireActive();
     pendingFile_.clear();
     entries_.clear();
@@ -213,6 +216,7 @@ QString displayDestination(const std::filesystem::path& path)
 void ArchiveController::extract(const QString& destination, bool onlySelected, QString password,
                                 int overwrite, int links)
 {
+    extractionNeedsPassword_ = false;
     if (!canExtract() || destination.trimmed().isEmpty() ||
         (onlySelected && selectionCount() == 0) || overwrite < 0 || overwrite > 4 ||
         links < 0 || links > 2) {
@@ -306,6 +310,7 @@ void ArchiveController::retryOpenPassword(QString password)
 void ArchiveController::dismissPassword()
 {
     passwordRequested_ = false;
+    emit passwordDismissed();
     emit changed();
 }
 
@@ -435,6 +440,9 @@ void ArchiveController::pollTasks()
     emit taskObserved(observed, currentFile_);
     if (released) {
         active_.reset();
+        extractionNeedsPassword_ = extracting_ && snapshot->error &&
+            (snapshot->error->code == ArchiveErrorCode::PasswordRequired ||
+             snapshot->error->code == ArchiveErrorCode::WrongPassword);
         conflictId_ = 0;
         conflictPath_.clear();
         if (!extracting_)

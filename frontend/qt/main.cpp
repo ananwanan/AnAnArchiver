@@ -1,20 +1,48 @@
 #include "app/app.h"
 #include "platform/frontend_translator.h"
+#include "platform/packaged_runtime.h"
 
 #include <QCommandLineParser>
 #include <QGuiApplication>
+#include <QFileOpenEvent>
+#include <QFileInfo>
+#include <QSettings>
+#include <QPointer>
 #include <QIcon>
 #include <QLocale>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTimer>
 #include <iostream>
+#include <functional>
+
+namespace {
+class DesktopApplication final : public QGuiApplication {
+public:
+    using QGuiApplication::QGuiApplication;
+    std::function<void(const QString&)> openFile;
+    QStringList pendingFiles;
+protected:
+    bool event(QEvent* event) override {
+        if (event->type() == QEvent::FileOpen) {
+            const auto* request = static_cast<QFileOpenEvent*>(event);
+            if (!request->url().isLocalFile()) return false;
+            const auto file = request->url().toLocalFile();
+            if (openFile) openFile(file);
+            else pendingFiles.append(file);
+            return true;
+        }
+        return QGuiApplication::event(event);
+    }
+};
+}
 
 int main(int argc, char* argv[])
 {
-    QGuiApplication app(argc, argv);
+    if (!ananarchiver::qt::configurePackagedRuntime()) return 6;
+    DesktopApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("AnAnArchiver"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("1.0.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral(ANANARCHIVER_PROJECT_VERSION));
     QCoreApplication::setOrganizationName(QStringLiteral("AnAnArchiver"));
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/branding/ananarchiver.png")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
@@ -40,7 +68,34 @@ int main(int argc, char* argv[])
     parser.addOption(screenshotOption);
     parser.addOption(aboutOption);
     parser.addOption(languageOption);
+    parser.addOption({QStringLiteral("extract-here"), QStringLiteral("Extract the archive into its containing folder")});
+    parser.addOption({QStringLiteral("extract-to-folder"), QStringLiteral("Extract into a folder named after the archive")});
+    parser.addOption({QStringLiteral("compress"), QStringLiteral("Add the input files or folders to the creation dialog")});
+    parser.addOption({QStringLiteral("smoke-shell"), QStringLiteral("Exit after shell extraction or creation-dialog verification")});
     parser.process(app);
+
+    QString shellAction;
+    for (const auto& action : {QStringLiteral("extract-here"), QStringLiteral("extract-to-folder"), QStringLiteral("compress")}) {
+        if (!parser.isSet(action)) continue;
+        if (!shellAction.isEmpty()) { std::cerr << "Choose one shell action\n"; return 2; }
+        shellAction = action;
+    }
+    const auto positional = parser.positionalArguments();
+    if ((shellAction.isEmpty() && positional.size() > 1) ||
+        (!shellAction.isEmpty() && positional.isEmpty()) ||
+        (shellAction != QStringLiteral("compress") && positional.size() > 1) ||
+        (parser.isSet(QStringLiteral("smoke-shell")) && shellAction.isEmpty()) ||
+        (parser.isSet(smokeArchiveOption) && (!shellAction.isEmpty() || positional.isEmpty()))) {
+        std::cerr << "Invalid archive or shell action arguments\n"; return 2;
+    }
+    // Package checks must never add test archives to the user's real recent
+    // history. Only explicit smoke runs may redirect settings into test storage.
+    const auto settingsFile = qEnvironmentVariable("ANANARCHIVER_SETTINGS_FILE");
+    if (!settingsFile.isEmpty() && (parser.isSet(smokeOption) || parser.isSet(smokeArchiveOption) ||
+                                  parser.isSet(QStringLiteral("smoke-shell")))) {
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QFileInfo(settingsFile).absolutePath());
+    }
 
     ananarchiver::qt::FrontendTranslator translator;
     const auto language = parser.value(languageOption);
@@ -62,11 +117,41 @@ int main(int argc, char* argv[])
         return false;
     };
 
-    const auto positional = parser.positionalArguments();
     const auto file = positional.isEmpty() ? QString() : positional.first();
     ananarchiver::qt::App application;
-    if (!application.initialize(file))
+    if (!application.initialize(shellAction.isEmpty() ? file : QString()))
         return 1;
+    app.openFile = [host = QPointer<ananarchiver::qt::App>(&application)](const QString& path) {
+        if (host) host->openArchive(path);
+    };
+    for (const auto& pending : app.pendingFiles) application.openArchive(pending);
+    app.pendingFiles.clear();
+    if (parser.isSet(QStringLiteral("smoke-shell"))) {
+        const auto finished = [&app, &capture](bool success) {
+            QTimer::singleShot(250, &app, [&app, &capture, success] {
+                app.exit(capture() ? (success ? 0 : 1) : 4);
+            });
+        };
+        QObject::connect(&application, &ananarchiver::qt::App::shellActionFinished, &app, finished);
+        QObject::connect(&application, &ananarchiver::qt::App::shellCompressionReady, &app, [&app, finished] {
+            bool ready = false;
+            for (auto* window : app.allWindows()) {
+                auto* dialog = window->findChild<QObject*>(QStringLiteral("compressionDialog"));
+                auto* output = window->findChild<QObject*>(QStringLiteral("compressionDestination"));
+                if (dialog && output) {
+                    ready = dialog->property("visible").toBool() && !output->property("text").toString().isEmpty();
+                    break;
+                }
+            }
+            finished(ready);
+        });
+        QTimer::singleShot(30000, &app, [&app] { std::cerr << "Shell smoke test timed out\n"; app.exit(3); });
+    }
+    if (!shellAction.isEmpty()) {
+        QTimer::singleShot(0, &application, [&app, &application, shellAction, positional] {
+            if (!application.handleShellAction(shellAction, positional)) app.exit(2);
+        });
+    }
     if (parser.isSet(aboutOption)) {
         bool opened = false;
         for (auto* window : app.allWindows()) {

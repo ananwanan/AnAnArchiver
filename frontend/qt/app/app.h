@@ -21,16 +21,29 @@ class App final : public QObject
 public:
     explicit App(QObject* parent = nullptr);
     ~App() override;
-    bool initialize(const QString& file);
+    bool initialize(const QString& file, const QUrl& mainQml = {});
     ArchiveController& archiveController() { return archives_; }
+    bool handleShellAction(const QString& action, const QStringList& paths);
+    void openArchive(const QString& file);
+
+signals:
+    void shellActionFinished(bool succeeded);
+    void shellCompressionReady();
 
 private:
+    void tryShellExtraction();
     BuildInfo buildInfo_;
     ArchiveController archives_;
     CompressionController compression_;
     FileTreeModel directories_;
     DesktopController desktop_;
     TaskController taskCenter_;
+    QString shellArchive_;
+    QString shellDestination_;
+    QString shellRetryDestination_;
+    bool shellExtracting_{};
+    bool shellIndexReady_{};
+    bool shellStartQueued_{};
     std::unique_ptr<DragController> drag_;
     // Destroy QML before its controller/model dependencies.
     std::unique_ptr<QQmlApplicationEngine> engine_;

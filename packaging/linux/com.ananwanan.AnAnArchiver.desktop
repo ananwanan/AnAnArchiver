@@ -1,0 +1,15 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AnAnArchiver
+GenericName=Archive Manager
+GenericName[zh_CN]=归档管理器
+Comment=Browse, extract and create archives
+Comment[zh_CN]=浏览、解压和创建压缩包
+Exec=AnAnArchiver %f
+TryExec=AnAnArchiver
+Icon=com.ananwanan.AnAnArchiver
+Terminal=false
+Categories=Utility;Archiving;Compression;
+StartupNotify=true
+MimeType=application/zip;application/x-7z-compressed;application/vnd.rar;application/x-rar;application/x-tar;application/gzip;application/x-bzip2;application/x-xz;application/zstd;application/x-lz4;application/vnd.ms-cab-compressed;application/x-cpio;application/x-archive;application/x-cd-image;application/x-lha;application/x-xar;application/x-compressed-tar;application/x-bzip-compressed-tar;application/x-xz-compressed-tar;application/x-zstd-compressed-tar;

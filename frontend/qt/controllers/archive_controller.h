@@ -55,6 +55,7 @@ public:
     bool awaitingConflict() const { return conflictId_ != 0; }
     QString conflictPath() const { return conflictPath_; }
     bool passwordRequested() const { return passwordRequested_; }
+    bool extractionNeedsPassword() const { return extractionNeedsPassword_; }
     Q_INVOKABLE void openFile(const QString& path);
     Q_INVOKABLE void openUrl(const QUrl& url);
     Q_INVOKABLE void cancel();
@@ -76,6 +77,9 @@ signals:
     void changed();
     void operationFinished(bool succeeded);
     void archiveIndexed(const QString& path);
+    void archiveOpening(const QString& path);
+    void archiveClosed();
+    void passwordDismissed();
     void taskObserved(const application::TaskSnapshot& snapshot, const QString& path);
 
 private:
@@ -104,6 +108,7 @@ private:
     bool indexed_{};
     bool extracting_{};
     bool passwordRequested_{};
+    bool extractionNeedsPassword_{};
     double processedBytes_{};
     double totalBytes_{-1};
     double bytesPerSecond_{};

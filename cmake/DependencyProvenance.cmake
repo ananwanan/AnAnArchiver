@@ -87,12 +87,16 @@ function(ananarchiver_configure_dependency_provenance)
         string(JSON external_libraries SET "${external_libraries}" ${length}
             "{\"name\":\"Qt\",\"selection\":\"developer-kit\",\"version\":${version},\"location\":${location},\"revision\":null}")
     endif()
+    ananarchiver_json_quote(json_qt_windows_patch_sha256 "${ANANARCHIVER_QT_PATCH_SHA256}")
+    ananarchiver_json_quote(json_qtbase_revision "${ANANARCHIVER_QTBASE_REVISION}")
     set(trace_config "${CMAKE_BINARY_DIR}/build-trace-config.json")
     file(WRITE "${trace_config}" "{
   \"root\":${json_PROJECT_SOURCE_DIR}, \"binary\":${json_CMAKE_BINARY_DIR},
   \"prefix\":${json_ANANARCHIVER_DEPENDENCY_PREFIX}, \"manifest\":${json_ANANARCHIVER_DEPENDENCY_MANIFEST},
   \"qt_build_binary\":${json_ANANARCHIVER_QT_BUILD_DIRECTORY},
   \"qt_options\":${qt_options},
+  \"qt_windows_patch_sha256\":${json_qt_windows_patch_sha256},
+  \"qtbase_revision\":${json_qtbase_revision},
   \"superbuild\":${superbuild}, \"source_qt\":${source_qt}, \"system_backend\":${system_backend},
   \"libarchive_cng\":${libarchive_cng},
   \"application_version\":${json_PROJECT_VERSION}, \"cmake_version\":${json_CMAKE_VERSION},
