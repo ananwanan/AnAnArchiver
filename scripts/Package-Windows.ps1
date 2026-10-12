@@ -31,6 +31,19 @@ function Invoke-Checked([string] $Program, [string[]] $Arguments) {
 function Write-Json([string] $Path, $Value) {
     [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 20) + "`n", [Text.UTF8Encoding]::new($false))
 }
+function Read-PackageBuildRecord([string] $Path) {
+    try {
+        $json = Get-Content -Raw -LiteralPath $Path
+        $record = $json | ConvertFrom-Json
+    } catch {
+        throw "Invalid build record '$Path': expected readable JSON from a completed build. Configure and fully build a new build directory; do not create or copy records to label old binaries. See packaging/windows/README.md."
+    }
+    # ConvertFrom-Json can unwrap a single-element array in older PowerShell.
+    if ($null -eq $record -or $record -isnot [pscustomobject] -or $json -notmatch '^\s*\{') {
+        throw "Invalid build record '$Path': expected a JSON object from a completed build. Configure and fully build a new build directory; do not create or copy records to label old binaries. See packaging/windows/README.md."
+    }
+    return $record
+}
 function Assert-X64Executable([string] $Path) {
     $stream = [IO.File]::OpenRead($Path)
     $reader = [IO.BinaryReader]::new($stream)
@@ -277,6 +290,21 @@ if (-not (Test-Path -LiteralPath (Join-Path $taskApplication 'AnAnArchiver.exe')
 }
 $taskExecutable = Join-Path $taskApplication 'AnAnArchiver.exe'
 if (-not (Test-Path -LiteralPath $taskExecutable)) { throw "Missing release executable: $taskExecutable" }
+# Both records belong to the application build, even when a superbuild directory
+# was supplied. Validate them before staging cleanup, deployment or tool downloads.
+$taskProvenancePath = Join-Path $taskApplication 'dependency-provenance.json'
+$taskManifestPath = Join-Path $taskApplication 'resolved-dependencies.json'
+$taskMissingRecords = @($taskProvenancePath, $taskManifestPath | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+if ($taskMissingRecords.Count -gt 0) {
+    throw @"
+Cannot package this build: required build records are missing:
+$($taskMissingRecords -join "`n")
+-SkipBuild only packages a Release build completed by the current dependency-traceable build workflow. An existing executable without these records has no verified dependency provenance.
+Configure and fully build a new build directory (see packaging/windows/README.md for MSVC source-Qt commands). Do not create or copy records to label old binaries or dependencies.
+"@
+}
+$taskProvenance = Read-PackageBuildRecord $taskProvenancePath
+$taskSources = Read-PackageBuildRecord $taskManifestPath
 Assert-X64Executable $taskExecutable
 $taskCache = Read-Cache (Join-Path $taskApplication 'CMakeCache.txt')
 if ($taskCache['CMAKE_BUILD_TYPE'] -ne 'Release') { throw 'Portable packages require a Release application build.' }
@@ -285,8 +313,6 @@ $taskQtPrefix = [IO.Path]::GetFullPath((Join-Path $taskCache['Qt6Core_DIR'] '../
 $taskQtBin = Join-Path $taskQtPrefix 'bin'
 $taskDeploy = Join-Path $taskQtBin 'windeployqt.exe'
 if (-not (Test-Path -LiteralPath $taskDeploy)) { throw "The selected Qt kit has no windeployqt: $taskDeploy" }
-$taskProvenancePath = Join-Path $taskApplication 'dependency-provenance.json'
-$taskProvenance = Get-Content -Raw -LiteralPath $taskProvenancePath | ConvertFrom-Json
 if ($taskProvenance.compiler_id -ne 'MSVC') { throw 'This Windows release packager requires the MSVC x64 kit.' }
 if ($taskCache['CMAKE_SIZEOF_VOID_P'] -and $taskCache['CMAKE_SIZEOF_VOID_P'] -ne '8') {
     throw 'This release packager produces Windows x64 artifacts only.'
@@ -345,8 +371,6 @@ foreach ($record in @('dependency-provenance.json', 'resolved-dependencies.json'
     Copy-Item -LiteralPath (Join-Path $taskApplication $record) -Destination (Join-Path $taskStage 'share/AnAnArchiver')
 }
 
-$taskManifestPath = Join-Path $taskApplication 'resolved-dependencies.json'
-$taskSources = Get-Content -Raw -LiteralPath $taskManifestPath | ConvertFrom-Json
 if (-not $DependencySourceDirectory) {
     $taskManifestCachePath = $taskCache['ANANARCHIVER_DEPENDENCY_MANIFEST']
     if ($taskManifestCachePath -and (Test-Path -LiteralPath $taskManifestCachePath)) {

@@ -26,9 +26,31 @@ Long installation paths use Qt Quick's raster software renderer. The package
 does not add a separate Mesa/LLVM OpenGL runtime; raster windows avoid the GPU
 selection probe through the matched Qt Windows platform patch.
 For a separate dependency source checkout, pass `-DependencySourceDirectory`.
-`-SkipBuild` packages an already built Release executable; `-SkipInstaller`
-produces only the portable distribution. No `PATH` or Qt installation is required
-on the target Windows 10/11 x64 computer. Extract the entire ZIP before launching.
+`-SkipBuild` packages a Release build completed by the current dependency-traceable
+build workflow. Its application build directory must contain both
+`dependency-provenance.json` and `resolved-dependencies.json`. For a superbuild,
+these records are under `application/`; for a direct application build, they are
+at the build directory root. The packager checks and reads both records before
+changing artifact directories, deploying runtimes or downloading installer tools.
+`-SkipInstaller` produces only the portable distribution. No `PATH` or Qt
+installation is required on the target Windows 10/11 x64 computer. Extract the
+entire ZIP before launching.
+
+If an older build has an EXE but lacks either record, configure and fully compile
+in a new, unused directory. Reconfiguring the old directory or writing/copying
+records cannot establish which dependency sources produced its existing binaries.
+The following example uses the default MSVC x64 source-Qt workflow; choose another
+new directory name if `out/build/desktop-release-traced` already exists:
+
+```powershell
+cmake -DANANARCHIVER_INIT_QT=ON -P scripts/init-dependencies.cmake
+./scripts/Invoke-Msvc.ps1 cmake --preset desktop-release -B out/build/desktop-release-traced
+./scripts/Invoke-Msvc.ps1 cmake --build out/build/desktop-release-traced --parallel 4
+./scripts/Package-Windows.ps1 -BuildDirectory out/build/desktop-release-traced -SkipBuild -BootstrapInstaller
+```
+
+This rebuilds the coupled Qt sources, archive dependencies and application. The
+first full source build takes considerably longer than packaging an existing build.
 
 Inno Setup is resolved from its official stable download page. Install the newest
 stable x64 compiler manually and pass `-InstallerCompiler`, or use

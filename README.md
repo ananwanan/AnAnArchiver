@@ -177,6 +177,22 @@ Windows Release MSVC x64 构建完成后：
 ./scripts/Package-Windows.ps1 -BuildDirectory out/build/desktop-release -SkipBuild -BootstrapInstaller
 ```
 
+`-SkipBuild` 仅适用于已用当前依赖追踪流程完整构建的 Release 目录；应用构建目录
+必须同时包含 `dependency-provenance.json` 和 `resolved-dependencies.json`。
+superbuild 的记录位于其 `application/` 子目录，直接应用构建的记录位于构建目录根。
+若旧目录缺少这些记录，应使用尚未使用的新目录重新配置并完整编译，不能为已有
+EXE 或依赖补写、复制记录。以下示例中的 `desktop-release-traced` 必须是新目录：
+
+```powershell
+cmake -DANANARCHIVER_INIT_QT=ON -P scripts/init-dependencies.cmake
+./scripts/Invoke-Msvc.ps1 cmake --preset desktop-release -B out/build/desktop-release-traced
+./scripts/Invoke-Msvc.ps1 cmake --build out/build/desktop-release-traced --parallel 4
+./scripts/Package-Windows.ps1 -BuildDirectory out/build/desktop-release-traced -SkipBuild -BootstrapInstaller
+```
+
+这会在新目录重新构建配套 Qt 源码、归档依赖和应用，首次编译耗时较长。打包脚本
+会在修改产物目录、部署运行时或下载安装器工具之前检查并读取上述两个记录。
+
 脚本使用 CMake 所选的同一 Qt kit 部署 DLL、QML、平台与 SVG 插件，并加入
 MSVC app-local runtime、依赖来源、许可证和逐文件 SHA-256 清单。
 `out/artifacts/windows` 生成完整 portable ZIP 和当前用户安装器。
