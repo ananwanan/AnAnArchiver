@@ -1,0 +1,1339 @@
+# AnAnArchiver compatibility fixes for official libarchive v3.8.10.
+# Base: https://github.com/libarchive/libarchive/commit/0c48412be2d94afe1859a807ea7896a18d8900bd
+# Retains the previously validated Mbed TLS 4 / TF-PSA public API adapter,
+# serialized PSA access, streaming AES-CTR, crypto-only discovery, and ZIP
+# compressor/crypto cleanup on cancelled or failed writes, plus regression tests.
+# These changes are applied only to a generated export of the official source.
+# Review and retire the corresponding hunks when upstream incorporates fixes;
+# failed or reverse application is an error, never an unrecorded fallback.
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7ff01a2..f51b380 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -864,7 +864,7 @@ IF(ENABLE_MBEDTLS)
+   FIND_PACKAGE(MbedTLS)
+   IF(MBEDTLS_FOUND)
+     SET(HAVE_LIBMBEDCRYPTO 1)
+-    LIST(APPEND ADDITIONAL_LIBS ${MBEDCRYPTO_LIBRARY})
++    LIST(APPEND ADDITIONAL_LIBS ${MBEDCRYPTO_LIBRARIES})
+     INCLUDE_DIRECTORIES(${MBEDTLS_INCLUDE_DIRS})
+ 
+     CMAKE_PUSH_CHECK_STATE()
+@@ -873,6 +873,18 @@ IF(ENABLE_MBEDTLS)
+     LA_CHECK_INCLUDE_FILE("mbedtls/md.h" HAVE_MBEDTLS_MD_H)
+     LA_CHECK_INCLUDE_FILE("mbedtls/pkcs5.h" HAVE_MBEDTLS_PKCS5_H)
+     LA_CHECK_INCLUDE_FILE("mbedtls/version.h" HAVE_MBEDTLS_VERSION_H)
++    LA_CHECK_INCLUDE_FILE("psa/crypto.h" HAVE_MBEDTLS_PSA_CRYPTO_H)
++    LA_CHECK_INCLUDE_FILE("tf-psa-crypto/version.h" HAVE_TF_PSA_CRYPTO_VERSION_H)
++    # Mbed TLS 4 / TF-PSA-Crypto removed the legacy public AES and digest
++    # headers. Use only the supported PSA API, never private driver headers.
++    IF(HAVE_MBEDTLS_PSA_CRYPTO_H AND HAVE_TF_PSA_CRYPTO_VERSION_H)
++      SET(ARCHIVE_CRYPTO_MBEDTLS_PSA 1)
++      IF(NOT WIN32)
++        FIND_PACKAGE(Threads REQUIRED)
++        LIST(APPEND ADDITIONAL_LIBS Threads::Threads)
++        LIST(APPEND MBEDCRYPTO_LIBRARIES ${CMAKE_THREAD_LIBS_INIT})
++      ENDIF()
++    ENDIF()
+     CMAKE_POP_CHECK_STATE()
+ 
+   ENDIF(MBEDTLS_FOUND)
+@@ -989,7 +1001,7 @@ MACRO(CHECK_CRYPTO ALGORITHMS IMPLEMENTATION)
+ 	    SET(TRY_CRYPTO_REQUIRED_INCLUDES
+ 	      "${TRY_CRYPTO_REQUIRED_INCLUDES};${MBEDTLS_INCLUDE_DIRS}")
+ 	    SET(TRY_CRYPTO_REQUIRED_LIBS
+-	      "-DLINK_LIBRARIES:STRING=${MBEDCRYPTO_LIBRARY}")
++	      "-DLINK_LIBRARIES:STRING=${MBEDCRYPTO_LIBRARIES}")
+ 	ELSEIF("${IMPLEMENTATION}" MATCHES "^NETTLE$" AND NETTLE_FOUND)
+ 	    SET(TRY_CRYPTO_REQUIRED_INCLUDES
+ 	      "${TRY_CRYPTO_REQUIRED_INCLUDES};${NETTLE_INCLUDE_DIR}")
+@@ -1012,6 +1024,9 @@ MACRO(CHECK_CRYPTO ALGORITHMS IMPLEMENTATION)
+ #define ARCHIVE_${algorithm}_COMPILE_TEST
+ #define ARCHIVE_CRYPTO_${algorithm}_${IMPLEMENTATION}
+ #define PLATFORM_CONFIG_H \"check_crypto_md.h\"
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++#include \"archive_mbedtls.c\"
++#endif
+ 
+ ${ARCHIVE_CRYPTO_C}
+ 
+diff --git a/build/cmake/FindMbedTLS.cmake b/build/cmake/FindMbedTLS.cmake
+index aa40485..e87a484 100644
+--- a/build/cmake/FindMbedTLS.cmake
++++ b/build/cmake/FindMbedTLS.cmake
+@@ -1,13 +1,26 @@
+-find_path(MBEDTLS_INCLUDE_DIRS mbedtls/ssl.h)
++find_path(MBEDTLS_INCLUDE_DIRS NAMES mbedtls/md.h mbedtls/ssl.h)
+ 
+ find_library(MBEDTLS_LIBRARY mbedtls)
+ find_library(MBEDX509_LIBRARY mbedx509)
+-find_library(MBEDCRYPTO_LIBRARY mbedcrypto)
++find_library(MBEDCRYPTO_LIBRARY NAMES tfpsacrypto mbedcrypto)
+ 
+-set(MBEDTLS_LIBRARIES "${MBEDTLS_LIBRARY}" "${MBEDX509_LIBRARY}" "${MBEDCRYPTO_LIBRARY}")
++set(MBEDCRYPTO_LIBRARIES "${MBEDCRYPTO_LIBRARY}")
++if(WIN32 AND NOT CYGWIN)
++  # TF-PSA-Crypto uses the Windows system entropy and socket APIs even when
++  # libarchive's separate CNG implementation is disabled.
++  list(APPEND MBEDCRYPTO_LIBRARIES bcrypt ws2_32)
++endif()
++
++set(MBEDTLS_LIBRARIES)
++foreach(optional_library IN ITEMS MBEDTLS_LIBRARY MBEDX509_LIBRARY)
++  if(${optional_library})
++    list(APPEND MBEDTLS_LIBRARIES "${${optional_library}}")
++  endif()
++endforeach()
++list(APPEND MBEDTLS_LIBRARIES ${MBEDCRYPTO_LIBRARIES})
+ 
+ include(FindPackageHandleStandardArgs)
+ find_package_handle_standard_args(MbedTLS DEFAULT_MSG
+-    MBEDTLS_INCLUDE_DIRS MBEDTLS_LIBRARY MBEDX509_LIBRARY MBEDCRYPTO_LIBRARY)
++    MBEDTLS_INCLUDE_DIRS MBEDCRYPTO_LIBRARY)
+ 
+ mark_as_advanced(MBEDTLS_INCLUDE_DIRS MBEDTLS_LIBRARY MBEDX509_LIBRARY MBEDCRYPTO_LIBRARY)
+diff --git a/build/cmake/config.h.in b/build/cmake/config.h.in
+index 00482d1..e5cdcf6 100644
+--- a/build/cmake/config.h.in
++++ b/build/cmake/config.h.in
+@@ -904,6 +904,11 @@ typedef uint64_t uintmax_t;
+ /* Define to 1 if you have the <mbedtls/aes.h> header file. */
+ #cmakedefine HAVE_MBEDTLS_AES_H 1
+ 
++/* Public PSA Crypto API (Mbed TLS 4 / TF-PSA-Crypto). */
++#cmakedefine HAVE_MBEDTLS_PSA_CRYPTO_H 1
++#cmakedefine HAVE_TF_PSA_CRYPTO_VERSION_H 1
++#cmakedefine ARCHIVE_CRYPTO_MBEDTLS_PSA 1
++
+ /* Define to 1 if you have the <mbedtls/md.h> header file. */
+ #cmakedefine HAVE_MBEDTLS_MD_H 1
+ 
+diff --git a/libarchive/CMakeLists.txt b/libarchive/CMakeLists.txt
+index ac039c1..dd37cd7 100644
+--- a/libarchive/CMakeLists.txt
++++ b/libarchive/CMakeLists.txt
+@@ -41,6 +41,8 @@ SET(libarchive_SOURCES
+   archive_hmac.c
+   archive_hmac_private.h
+   archive_integer.h
++  archive_mbedtls.c
++  archive_mbedtls_private.h
+   archive_match.c
+   archive_openssl_evp_private.h
+   archive_openssl_hmac_private.h
+diff --git a/libarchive/archive_cryptor.c b/libarchive/archive_cryptor.c
+index bece2b4..701fe4c 100644
+--- a/libarchive/archive_cryptor.c
++++ b/libarchive/archive_cryptor.c
+@@ -72,6 +72,34 @@ pbkdf2_sha1(const char *pw, size_t pw_len, const uint8_t *salt,
+ 	return (BCRYPT_SUCCESS(status)) ? 0: -1;
+ }
+ 
++#elif defined(HAVE_LIBMBEDCRYPTO) && defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++
++static int
++pbkdf2_sha1(const char *pw, size_t pw_len, const uint8_t *salt,
++    size_t salt_len, unsigned rounds, uint8_t *derived_key,
++    size_t derived_key_len)
++{
++    psa_key_derivation_operation_t op = PSA_KEY_DERIVATION_OPERATION_INIT;
++    psa_status_t status;
++    if (__archive_psa_begin() != PSA_SUCCESS)
++        return -1;
++    status = psa_key_derivation_setup(&op, PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_1));
++    if (status == PSA_SUCCESS)
++        status = psa_key_derivation_input_integer(&op,
++            PSA_KEY_DERIVATION_INPUT_COST, rounds);
++    if (status == PSA_SUCCESS)
++        status = psa_key_derivation_input_bytes(&op,
++            PSA_KEY_DERIVATION_INPUT_SALT, salt, salt_len);
++    if (status == PSA_SUCCESS)
++        status = psa_key_derivation_input_bytes(&op,
++            PSA_KEY_DERIVATION_INPUT_PASSWORD, (const uint8_t *)pw, pw_len);
++    if (status == PSA_SUCCESS)
++        status = psa_key_derivation_output_bytes(&op, derived_key, derived_key_len);
++    if (psa_key_derivation_abort(&op) != PSA_SUCCESS)
++        status = PSA_ERROR_BAD_STATE;
++    __archive_psa_end();
++    return status == PSA_SUCCESS ? 0 : -1;
++}
+ #elif defined(HAVE_LIBMBEDCRYPTO) && defined(HAVE_MBEDTLS_PKCS5_H)
+ 
+ static int
+@@ -285,6 +313,67 @@ aes_ctr_release(archive_crypto_ctx *ctx)
+ 	return 0;
+ }
+ 
++#elif defined(HAVE_LIBMBEDCRYPTO) && defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++
++static int
++aes_ctr_init(archive_crypto_ctx *ctx, const uint8_t *key, size_t key_len)
++{
++    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
++    psa_cipher_operation_t cipher = PSA_CIPHER_OPERATION_INIT;
++    psa_status_t status;
++    memset(ctx, 0, sizeof(*ctx));
++    ctx->cipher = cipher;
++    if (key_len != 16 && key_len != 24 && key_len != 32)
++        return -1;
++    if (__archive_psa_begin() != PSA_SUCCESS)
++        return -1;
++    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_ENCRYPT);
++    psa_set_key_algorithm(&attributes, PSA_ALG_ECB_NO_PADDING);
++    psa_set_key_type(&attributes, PSA_KEY_TYPE_AES);
++    psa_set_key_bits(&attributes, key_len * 8);
++    status = psa_import_key(&attributes, key, key_len, &ctx->key);
++    psa_reset_key_attributes(&attributes);
++    if (status == PSA_SUCCESS)
++        status = psa_cipher_encrypt_setup(&ctx->cipher, ctx->key,
++            PSA_ALG_ECB_NO_PADDING);
++    if (status != PSA_SUCCESS) {
++        psa_cipher_abort(&ctx->cipher);
++        psa_destroy_key(ctx->key);
++        memset(&ctx->key, 0, sizeof(ctx->key));
++    }
++    __archive_psa_end();
++    ctx->encr_pos = AES_BLOCK_SIZE;
++    return status == PSA_SUCCESS ? 0 : -1;
++}
++
++static int
++aes_ctr_encrypt_counter(archive_crypto_ctx *ctx)
++{
++    size_t output_len = 0;
++    psa_status_t status;
++    if (__archive_psa_begin() != PSA_SUCCESS)
++        return -1;
++    /* ZIP AES uses a little-endian counter, unlike PSA CTR mode. Preserve
++     * libarchive's existing counter logic and encrypt each block with ECB. */
++    status = psa_cipher_update(&ctx->cipher,
++        ctx->nonce, AES_BLOCK_SIZE, ctx->encr_buf, AES_BLOCK_SIZE, &output_len);
++    __archive_psa_end();
++    return status == PSA_SUCCESS && output_len == AES_BLOCK_SIZE ? 0 : -1;
++}
++
++static int
++aes_ctr_release(archive_crypto_ctx *ctx)
++{
++    psa_status_t status;
++    if (__archive_psa_begin() != PSA_SUCCESS)
++        return -1;
++    status = psa_cipher_abort(&ctx->cipher);
++    if (psa_destroy_key(ctx->key) != PSA_SUCCESS)
++        status = PSA_ERROR_BAD_STATE;
++    __archive_psa_end();
++    memset(ctx, 0, sizeof(*ctx));
++    return status == PSA_SUCCESS ? 0 : -1;
++}
+ #elif defined(HAVE_LIBMBEDCRYPTO) && defined(HAVE_MBEDTLS_AES_H)
+ 
+ static int
+diff --git a/libarchive/archive_cryptor_private.h b/libarchive/archive_cryptor_private.h
+index 8a01394..debb30d 100644
+--- a/libarchive/archive_cryptor_private.h
++++ b/libarchive/archive_cryptor_private.h
+@@ -73,6 +73,19 @@ typedef struct {
+ 	unsigned	encr_pos;
+ } archive_crypto_ctx;
+ 
++#elif defined(HAVE_LIBMBEDCRYPTO) && defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++#include "archive_mbedtls_private.h"
++#define ARCHIVE_CRYPTOR_USE_MBED 1
++#define AES_MAX_KEY_SIZE 32
++#define AES_BLOCK_SIZE 16
++typedef struct {
++    mbedtls_svc_key_id_t key;
++    psa_cipher_operation_t cipher;
++    uint8_t nonce[AES_BLOCK_SIZE];
++    uint8_t encr_buf[AES_BLOCK_SIZE];
++    unsigned encr_pos;
++} archive_crypto_ctx;
++
+ #elif defined(HAVE_LIBMBEDCRYPTO) && defined(HAVE_MBEDTLS_AES_H)
+ #include <mbedtls/aes.h>
+ #include <mbedtls/md.h>
+diff --git a/libarchive/archive_digest.c b/libarchive/archive_digest.c
+index 6282563..6a48588 100644
+--- a/libarchive/archive_digest.c
++++ b/libarchive/archive_digest.c
+@@ -100,6 +100,50 @@ win_crypto_Final(unsigned char *buf, size_t bufsize, Digest_CTX *ctx)
+ #endif /* defined(ARCHIVE_CRYPTO_WIN) */
+ 
+ 
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++static int
++psa_digest_init(psa_hash_operation_t *ctx, psa_algorithm_t algorithm)
++{
++    psa_hash_operation_t initial = PSA_HASH_OPERATION_INIT;
++    psa_status_t status;
++    *ctx = initial;
++    if (__archive_psa_begin() != PSA_SUCCESS)
++        return ARCHIVE_FAILED;
++    status = psa_hash_setup(ctx, algorithm);
++    if (status != PSA_SUCCESS)
++        psa_hash_abort(ctx);
++    __archive_psa_end();
++    return status == PSA_SUCCESS ? ARCHIVE_OK : ARCHIVE_FAILED;
++}
++
++static int
++psa_digest_update(psa_hash_operation_t *ctx, const void *data, size_t length)
++{
++    psa_status_t status;
++    if (__archive_psa_begin() != PSA_SUCCESS)
++        return ARCHIVE_FAILED;
++    status = psa_hash_update(ctx, data, length);
++    if (status != PSA_SUCCESS)
++        psa_hash_abort(ctx);
++    __archive_psa_end();
++    return status == PSA_SUCCESS ? ARCHIVE_OK : ARCHIVE_FAILED;
++}
++
++static int
++psa_digest_final(psa_hash_operation_t *ctx, void *digest, size_t length)
++{
++    size_t written = 0;
++    psa_status_t status;
++    if (__archive_psa_begin() != PSA_SUCCESS)
++        return ARCHIVE_FAILED;
++    status = psa_hash_finish(ctx, digest, length, &written);
++    if (psa_hash_abort(ctx) != PSA_SUCCESS)
++        status = PSA_ERROR_BAD_STATE;
++    __archive_psa_end();
++    return status == PSA_SUCCESS && written == length ? ARCHIVE_OK : ARCHIVE_FAILED;
++}
++#endif
++
+ /* MD5 implementations */
+ #if defined(ARCHIVE_CRYPTO_MD5_LIBC)
+ 
+@@ -207,6 +251,24 @@ __archive_md5final(archive_md5_ctx *ctx, void *md)
+ 
+ #elif defined(ARCHIVE_CRYPTO_MD5_MBEDTLS)
+ 
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++static int
++__archive_md5init(archive_md5_ctx *ctx)
++{
++    return psa_digest_init(ctx, PSA_ALG_MD5);
++}
++static int
++__archive_md5update(archive_md5_ctx *ctx, const void *data, size_t length)
++{
++    return psa_digest_update(ctx, data, length);
++}
++static int
++__archive_md5final(archive_md5_ctx *ctx, void *digest)
++{
++    return psa_digest_final(ctx, digest, 16);
++}
++#else
++
+ static int
+ __archive_md5init(archive_md5_ctx *ctx)
+ {
+@@ -251,6 +313,8 @@ __archive_md5final(archive_md5_ctx *ctx, void *md)
+   }
+ }
+ 
++#endif /* ARCHIVE_CRYPTO_MBEDTLS_PSA */
++
+ #elif defined(ARCHIVE_CRYPTO_MD5_NETTLE)
+ 
+ static int
+@@ -394,6 +458,24 @@ __archive_ripemd160final(archive_rmd160_ctx *ctx, void *md)
+ 
+ #elif defined(ARCHIVE_CRYPTO_RMD160_MBEDTLS)
+ 
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++static int
++__archive_ripemd160init(archive_rmd160_ctx *ctx)
++{
++    return psa_digest_init(ctx, PSA_ALG_RIPEMD160);
++}
++static int
++__archive_ripemd160update(archive_rmd160_ctx *ctx, const void *data, size_t length)
++{
++    return psa_digest_update(ctx, data, length);
++}
++static int
++__archive_ripemd160final(archive_rmd160_ctx *ctx, void *digest)
++{
++    return psa_digest_final(ctx, digest, 20);
++}
++#else
++
+ static int
+ __archive_ripemd160init(archive_rmd160_ctx *ctx)
+ {
+@@ -438,6 +520,8 @@ __archive_ripemd160final(archive_rmd160_ctx *ctx, void *md)
+   }
+ }
+ 
++#endif /* ARCHIVE_CRYPTO_MBEDTLS_PSA */
++
+ #elif defined(ARCHIVE_CRYPTO_RMD160_NETTLE)
+ 
+ static int
+@@ -622,6 +706,24 @@ __archive_sha1final(archive_sha1_ctx *ctx, void *md)
+ 
+ #elif defined(ARCHIVE_CRYPTO_SHA1_MBEDTLS)
+ 
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++static int
++__archive_sha1init(archive_sha1_ctx *ctx)
++{
++    return psa_digest_init(ctx, PSA_ALG_SHA_1);
++}
++static int
++__archive_sha1update(archive_sha1_ctx *ctx, const void *data, size_t length)
++{
++    return psa_digest_update(ctx, data, length);
++}
++static int
++__archive_sha1final(archive_sha1_ctx *ctx, void *digest)
++{
++    return psa_digest_final(ctx, digest, 20);
++}
++#else
++
+ static int
+ __archive_sha1init(archive_sha1_ctx *ctx)
+ {
+@@ -666,6 +768,8 @@ __archive_sha1final(archive_sha1_ctx *ctx, void *md)
+   }
+ }
+ 
++#endif /* ARCHIVE_CRYPTO_MBEDTLS_PSA */
++
+ #elif defined(ARCHIVE_CRYPTO_SHA1_NETTLE)
+ 
+ static int
+@@ -902,6 +1006,24 @@ __archive_sha256final(archive_sha256_ctx *ctx, void *md)
+ 
+ #elif defined(ARCHIVE_CRYPTO_SHA256_MBEDTLS)
+ 
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++static int
++__archive_sha256init(archive_sha256_ctx *ctx)
++{
++    return psa_digest_init(ctx, PSA_ALG_SHA_256);
++}
++static int
++__archive_sha256update(archive_sha256_ctx *ctx, const void *data, size_t length)
++{
++    return psa_digest_update(ctx, data, length);
++}
++static int
++__archive_sha256final(archive_sha256_ctx *ctx, void *digest)
++{
++    return psa_digest_final(ctx, digest, 32);
++}
++#else
++
+ static int
+ __archive_sha256init(archive_sha256_ctx *ctx)
+ {
+@@ -946,6 +1068,8 @@ __archive_sha256final(archive_sha256_ctx *ctx, void *md)
+   }
+ }
+ 
++#endif /* ARCHIVE_CRYPTO_MBEDTLS_PSA */
++
+ #elif defined(ARCHIVE_CRYPTO_SHA256_NETTLE)
+ 
+ static int
+@@ -1154,6 +1278,24 @@ __archive_sha384final(archive_sha384_ctx *ctx, void *md)
+ 
+ #elif defined(ARCHIVE_CRYPTO_SHA384_MBEDTLS)
+ 
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++static int
++__archive_sha384init(archive_sha384_ctx *ctx)
++{
++    return psa_digest_init(ctx, PSA_ALG_SHA_384);
++}
++static int
++__archive_sha384update(archive_sha384_ctx *ctx, const void *data, size_t length)
++{
++    return psa_digest_update(ctx, data, length);
++}
++static int
++__archive_sha384final(archive_sha384_ctx *ctx, void *digest)
++{
++    return psa_digest_final(ctx, digest, 48);
++}
++#else
++
+ static int
+ __archive_sha384init(archive_sha384_ctx *ctx)
+ {
+@@ -1198,6 +1340,8 @@ __archive_sha384final(archive_sha384_ctx *ctx, void *md)
+   }
+ }
+ 
++#endif /* ARCHIVE_CRYPTO_MBEDTLS_PSA */
++
+ #elif defined(ARCHIVE_CRYPTO_SHA384_NETTLE)
+ 
+ static int
+@@ -1430,6 +1574,24 @@ __archive_sha512final(archive_sha512_ctx *ctx, void *md)
+ 
+ #elif defined(ARCHIVE_CRYPTO_SHA512_MBEDTLS)
+ 
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++static int
++__archive_sha512init(archive_sha512_ctx *ctx)
++{
++    return psa_digest_init(ctx, PSA_ALG_SHA_512);
++}
++static int
++__archive_sha512update(archive_sha512_ctx *ctx, const void *data, size_t length)
++{
++    return psa_digest_update(ctx, data, length);
++}
++static int
++__archive_sha512final(archive_sha512_ctx *ctx, void *digest)
++{
++    return psa_digest_final(ctx, digest, 64);
++}
++#else
++
+ static int
+ __archive_sha512init(archive_sha512_ctx *ctx)
+ {
+@@ -1474,6 +1636,8 @@ __archive_sha512final(archive_sha512_ctx *ctx, void *md)
+   }
+ }
+ 
++#endif /* ARCHIVE_CRYPTO_MBEDTLS_PSA */
++
+ #elif defined(ARCHIVE_CRYPTO_SHA512_NETTLE)
+ 
+ static int
+diff --git a/libarchive/archive_digest_private.h b/libarchive/archive_digest_private.h
+index 032bd8c..22ea4b3 100644
+--- a/libarchive/archive_digest_private.h
++++ b/libarchive/archive_digest_private.h
+@@ -117,6 +117,9 @@
+ #endif
+ 
+ /* mbed TLS crypto headers */
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++#include "archive_mbedtls_private.h"
++#else
+ #if defined(ARCHIVE_CRYPTO_MD5_MBEDTLS)
+ #include <mbedtls/md5.h>
+ #endif
+@@ -134,6 +137,8 @@
+ #include <mbedtls/sha512.h>
+ #endif
+ 
++#endif /* ARCHIVE_CRYPTO_MBEDTLS_PSA */
++
+ /* Nettle crypto headers */
+ #if defined(HAVE_NETTLE_VERSION_H)
+ #include <nettle/version.h>
+@@ -199,7 +204,11 @@ typedef CC_MD5_CTX archive_md5_ctx;
+ typedef Digest_CTX archive_md5_ctx;
+ #elif defined(ARCHIVE_CRYPTO_MD5_MBEDTLS)
+ #define	ARCHIVE_CRYPTO_MBED 1
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++typedef psa_hash_operation_t archive_md5_ctx;
++#else
+ typedef mbedtls_md5_context archive_md5_ctx;
++#endif
+ #elif defined(ARCHIVE_CRYPTO_MD5_NETTLE)
+ #define	ARCHIVE_CRYPTO_NETTLE 1
+ typedef struct md5_ctx archive_md5_ctx;
+@@ -215,7 +224,11 @@ typedef RMD160_CTX archive_rmd160_ctx;
+ typedef RIPEMD160_CTX archive_rmd160_ctx;
+ #elif defined(ARCHIVE_CRYPTO_RMD160_MBEDTLS)
+ #define	ARCHIVE_CRYPTO_MBED 1
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++typedef psa_hash_operation_t archive_rmd160_ctx;
++#else
+ typedef mbedtls_ripemd160_context archive_rmd160_ctx;
++#endif
+ #elif defined(ARCHIVE_CRYPTO_RMD160_NETTLE)
+ #define	ARCHIVE_CRYPTO_NETTLE 1
+ typedef struct ripemd160_ctx archive_rmd160_ctx;
+@@ -235,7 +248,11 @@ typedef CC_SHA1_CTX archive_sha1_ctx;
+ typedef Digest_CTX archive_sha1_ctx;
+ #elif defined(ARCHIVE_CRYPTO_SHA1_MBEDTLS)
+ #define	ARCHIVE_CRYPTO_MBED 1
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++typedef psa_hash_operation_t archive_sha1_ctx;
++#else
+ typedef mbedtls_sha1_context archive_sha1_ctx;
++#endif
+ #elif defined(ARCHIVE_CRYPTO_SHA1_NETTLE)
+ #define	ARCHIVE_CRYPTO_NETTLE 1
+ typedef struct sha1_ctx archive_sha1_ctx;
+@@ -259,7 +276,11 @@ typedef CC_SHA256_CTX archive_sha256_ctx;
+ typedef Digest_CTX archive_sha256_ctx;
+ #elif defined(ARCHIVE_CRYPTO_SHA256_MBEDTLS)
+ #define	ARCHIVE_CRYPTO_MBED 1
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++typedef psa_hash_operation_t archive_sha256_ctx;
++#else
+ typedef mbedtls_sha256_context archive_sha256_ctx;
++#endif
+ #elif defined(ARCHIVE_CRYPTO_SHA256_NETTLE)
+ #define	ARCHIVE_CRYPTO_NETTLE 1
+ typedef struct sha256_ctx archive_sha256_ctx;
+@@ -281,7 +302,11 @@ typedef CC_SHA512_CTX archive_sha384_ctx;
+ typedef Digest_CTX archive_sha384_ctx;
+ #elif defined(ARCHIVE_CRYPTO_SHA384_MBEDTLS)
+ #define	ARCHIVE_CRYPTO_MBED 1
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++typedef psa_hash_operation_t archive_sha384_ctx;
++#else
+ typedef mbedtls_sha512_context archive_sha384_ctx;
++#endif
+ #elif defined(ARCHIVE_CRYPTO_SHA384_NETTLE)
+ #define	ARCHIVE_CRYPTO_NETTLE 1
+ typedef struct sha384_ctx archive_sha384_ctx;
+@@ -305,7 +330,11 @@ typedef CC_SHA512_CTX archive_sha512_ctx;
+ typedef Digest_CTX archive_sha512_ctx;
+ #elif defined(ARCHIVE_CRYPTO_SHA512_MBEDTLS)
+ #define	ARCHIVE_CRYPTO_MBED 1
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++typedef psa_hash_operation_t archive_sha512_ctx;
++#else
+ typedef mbedtls_sha512_context archive_sha512_ctx;
++#endif
+ #elif defined(ARCHIVE_CRYPTO_SHA512_NETTLE)
+ #define	ARCHIVE_CRYPTO_NETTLE 1
+ typedef struct sha512_ctx archive_sha512_ctx;
+diff --git a/libarchive/archive_hmac.c b/libarchive/archive_hmac.c
+index 9b38465..21387d2 100644
+--- a/libarchive/archive_hmac.c
++++ b/libarchive/archive_hmac.c
+@@ -136,6 +136,79 @@ __hmac_sha1_cleanup(archive_hmac_sha1_ctx *ctx)
+ 	}
+ }
+ 
++#elif defined(HAVE_LIBMBEDCRYPTO) && defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++
++static int
++__hmac_sha1_init(archive_hmac_sha1_ctx *ctx, const uint8_t *key, size_t key_len)
++{
++    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
++    psa_mac_operation_t op = PSA_MAC_OPERATION_INIT;
++    static const uint8_t empty_key = 0;
++    memset(ctx, 0, sizeof(*ctx));
++    ctx->op = op;
++    /* Preserve HMAC's defined empty-key behavior when PSA rejects zero bits. */
++    if (key_len == 0) {
++        key = &empty_key;
++        key_len = 1;
++    }
++    ctx->status = __archive_psa_begin();
++    if (ctx->status != PSA_SUCCESS)
++        return -1;
++    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_MESSAGE);
++    psa_set_key_algorithm(&attributes, PSA_ALG_HMAC(PSA_ALG_SHA_1));
++    psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
++    ctx->status = psa_import_key(&attributes, key, key_len, &ctx->key);
++    psa_reset_key_attributes(&attributes);
++    if (ctx->status == PSA_SUCCESS)
++        ctx->status = psa_mac_sign_setup(&ctx->op, ctx->key,
++            PSA_ALG_HMAC(PSA_ALG_SHA_1));
++    if (ctx->status != PSA_SUCCESS) {
++        psa_mac_abort(&ctx->op);
++        psa_destroy_key(ctx->key);
++        memset(&ctx->key, 0, sizeof(ctx->key));
++    }
++    __archive_psa_end();
++    return ctx->status == PSA_SUCCESS ? 0 : -1;
++}
++
++static void
++__hmac_sha1_update(archive_hmac_sha1_ctx *ctx, const uint8_t *data, size_t len)
++{
++    if (ctx->status != PSA_SUCCESS)
++        return;
++    ctx->status = __archive_psa_begin();
++    if (ctx->status != PSA_SUCCESS)
++        return;
++    ctx->status = psa_mac_update(&ctx->op, data, len);
++    __archive_psa_end();
++}
++
++static void
++__hmac_sha1_final(archive_hmac_sha1_ctx *ctx, uint8_t *out, size_t *out_len)
++{
++    size_t written = 0;
++    if (ctx->status == PSA_SUCCESS) {
++        ctx->status = __archive_psa_begin();
++        if (ctx->status == PSA_SUCCESS) {
++            ctx->status = psa_mac_sign_finish(&ctx->op, out, *out_len, &written);
++            __archive_psa_end();
++        }
++    }
++    /* The legacy interface cannot return an update/final error. A zero
++     * result length makes callers reject the authentication value. */
++    *out_len = ctx->status == PSA_SUCCESS ? written : 0;
++}
++
++static void
++__hmac_sha1_cleanup(archive_hmac_sha1_ctx *ctx)
++{
++    if (__archive_psa_begin() == PSA_SUCCESS) {
++        psa_mac_abort(&ctx->op);
++        psa_destroy_key(ctx->key);
++        __archive_psa_end();
++    }
++    memset(ctx, 0, sizeof(*ctx));
++}
+ #elif defined(HAVE_LIBMBEDCRYPTO) && defined(HAVE_MBEDTLS_MD_H)
+ 
+ static int
+diff --git a/libarchive/archive_hmac_private.h b/libarchive/archive_hmac_private.h
+index e8f5e52..ede676b 100644
+--- a/libarchive/archive_hmac_private.h
++++ b/libarchive/archive_hmac_private.h
+@@ -53,6 +53,14 @@ typedef struct {
+ 
+ } archive_hmac_sha1_ctx;
+ 
++#elif defined(HAVE_LIBMBEDCRYPTO) && defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++#include "archive_mbedtls_private.h"
++typedef struct {
++    psa_mac_operation_t op;
++    mbedtls_svc_key_id_t key;
++    psa_status_t status;
++} archive_hmac_sha1_ctx;
++
+ #elif defined(HAVE_LIBMBEDCRYPTO) && defined(HAVE_MBEDTLS_MD_H)
+ #include <mbedtls/md.h>
+ 
+diff --git a/libarchive/archive_mbedtls.c b/libarchive/archive_mbedtls.c
+new file mode 100644
+index 0000000..84a5407
+--- /dev/null
++++ b/libarchive/archive_mbedtls.c
+@@ -0,0 +1,37 @@
++/* Public PSA adapter for Mbed TLS 4 / TF-PSA-Crypto. */
++#include "archive_platform.h"
++#if defined(HAVE_LIBMBEDCRYPTO) && defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++#include "archive_mbedtls_private.h"
++#if defined(_WIN32) && !defined(__CYGWIN__)
++static SRWLOCK psa_mutex = SRWLOCK_INIT;
++#define PSA_LOCK() AcquireSRWLockExclusive(&psa_mutex)
++#define PSA_UNLOCK() ReleaseSRWLockExclusive(&psa_mutex)
++#else
++#include <pthread.h>
++static pthread_mutex_t psa_mutex = PTHREAD_MUTEX_INITIALIZER;
++#define PSA_LOCK() pthread_mutex_lock(&psa_mutex)
++#define PSA_UNLOCK() pthread_mutex_unlock(&psa_mutex)
++#endif
++
++psa_status_t
++__archive_psa_begin(void)
++{
++    static int initialized;
++    psa_status_t status = PSA_SUCCESS;
++    PSA_LOCK();
++    if (!initialized) {
++        status = psa_crypto_init();
++        if (status == PSA_SUCCESS)
++            initialized = 1;
++    }
++    if (status != PSA_SUCCESS)
++        PSA_UNLOCK();
++    return status;
++}
++
++void
++__archive_psa_end(void)
++{
++    PSA_UNLOCK();
++}
++#endif
+diff --git a/libarchive/archive_mbedtls_private.h b/libarchive/archive_mbedtls_private.h
+new file mode 100644
+index 0000000..bf3d92c
+--- /dev/null
++++ b/libarchive/archive_mbedtls_private.h
+@@ -0,0 +1,13 @@
++/* Public PSA adapter shared by the Mbed TLS 4 crypto implementations. */
++#ifndef ARCHIVE_MBEDTLS_PRIVATE_H_INCLUDED
++#define ARCHIVE_MBEDTLS_PRIVATE_H_INCLUDED
++#ifndef __LIBARCHIVE_BUILD
++#error This header is only to be used internally to libarchive.
++#endif
++#include <psa/crypto.h>
++/* Serialize global PSA initialization and calls, including for crypto kits
++ * built without MBEDTLS_THREADING_C. Independent operations own their contexts.
++ * No library-wide cleanup is performed while another archive can use PSA. */
++psa_status_t __archive_psa_begin(void);
++void __archive_psa_end(void);
++#endif
+diff --git a/libarchive/archive_version_details.c b/libarchive/archive_version_details.c
+index a0c2ae5..f955f2e 100644
+--- a/libarchive/archive_version_details.c
++++ b/libarchive/archive_version_details.c
+@@ -61,6 +61,9 @@
+ #if HAVE_MBEDTLS_VERSION_H
+ #include <mbedtls/version.h>
+ #endif
++#if HAVE_TF_PSA_CRYPTO_VERSION_H
++#include <tf-psa-crypto/version.h>
++#endif
+ #if HAVE_NETTLE_VERSION_H
+ #include <nettle/version.h>
+ #include <stdio.h>
+@@ -365,9 +368,18 @@ const char *
+ archive_mbedtls_version(void)
+ {
+ #if defined(ARCHIVE_CRYPTOR_USE_MBED) || defined(ARCHIVE_CRYPTO_MBED)
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA)
++	/* The crypto library no longer exports TLS's version functions. */
++#if defined(MBEDTLS_VERSION_STRING)
++	return MBEDTLS_VERSION_STRING "/TF-PSA-Crypto-" TF_PSA_CRYPTO_VERSION_STRING;
++#else
++	return TF_PSA_CRYPTO_VERSION_STRING_FULL;
++#endif
++#else
+ 	static char mbed_version[9];
+ 	mbedtls_version_get_string(mbed_version);
+ 	return mbed_version;
++#endif
+ #else
+ 	return NULL;
+ #endif
+diff --git a/libarchive/archive_write_set_format_zip.c b/libarchive/archive_write_set_format_zip.c
+index b588e91..44eb6c0 100644
+--- a/libarchive/archive_write_set_format_zip.c
++++ b/libarchive/archive_write_set_format_zip.c
+@@ -151,6 +151,7 @@ struct zip {
+ 	struct archive_entry *entry;
+ 	uint32_t entry_crc32;
+ 	enum compression entry_compression;
++	int compressor_initialized;
+ 	enum encryption  entry_encryption;
+ 	int entry_flags;
+ 	struct trad_enc_ctx tctx;
+@@ -228,6 +229,7 @@ static ssize_t archive_write_zip_data(struct archive_write *,
+ 		   const void *buff, size_t s);
+ static int archive_write_zip_close(struct archive_write *);
+ static int archive_write_zip_free(struct archive_write *);
++static void archive_write_zip_end_compressor(struct zip *);
+ static int archive_write_zip_finish_entry(struct archive_write *);
+ static int archive_write_zip_header(struct archive_write *,
+ 	      struct archive_entry *);
+@@ -826,6 +828,10 @@ archive_write_zip_header(struct archive_write *a, struct archive_entry *entry)
+ 	if (type != AE_IFREG)
+ 		archive_entry_set_size(entry, 0);
+ 
++	/* A recoverable finish error can leave a compressor active even after
++	 * the public writer returns to HEADER state. End it before changing the
++	 * entry type or reusing the codec union. */
++	archive_write_zip_end_compressor(zip);
+ 	/* Reset information from last entry. */
+ 	zip->entry_offset = zip->written_bytes;
+ 	zip->entry_uncompressed_limit = INT64_MAX;
+@@ -1368,6 +1374,7 @@ archive_write_zip_header(struct archive_write *a, struct archive_entry *entry)
+ 			    "Can't init deflate compressor");
+ 			return (ARCHIVE_FATAL);
+ 		}
++		zip->compressor_initialized = 1;
+ 		break;
+ #endif
+ #ifdef HAVE_BZLIB_H
+@@ -1380,6 +1387,7 @@ archive_write_zip_header(struct archive_write *a, struct archive_entry *entry)
+ 			    "Can't init bzip2 compressor");
+ 			return (ARCHIVE_FATAL);
+ 		}
++		zip->compressor_initialized = 1;
+ 		break;
+ #endif
+ #if defined(HAVE_ZSTD_H) && HAVE_ZSTD_compressStream
+@@ -1392,6 +1400,12 @@ archive_write_zip_header(struct archive_write *a, struct archive_entry *entry)
+ 			? ZSTD_minCLevel() // ZSTD_minCLevel is negative !
+ 			: (zip->compression_level - 1) * ZSTD_maxCLevel() / 8;
+ 		zip->stream.zstd.context = ZSTD_createCStream();
++		if (zip->stream.zstd.context == NULL) {
++			archive_set_error(&a->archive, ENOMEM,
++			    "Can't allocate zstd compressor");
++			return (ARCHIVE_FATAL);
++		}
++		zip->compressor_initialized = 1;
+ 		size_t zret = ZSTD_initCStream(zip->stream.zstd.context, zstd_compression_level);
+ 		if (ZSTD_isError(zret)) {
+ 			archive_set_error(&a->archive, ENOMEM,
+@@ -1424,6 +1438,7 @@ archive_write_zip_header(struct archive_write *a, struct archive_entry *entry)
+ 			}
+ 		};
+ 		memset(&zip->stream.lzma.context, 0, sizeof(lzma_stream));
++		zip->compressor_initialized = 1;
+ 		lzma_lzma_preset(&zip->stream.lzma.options, lzma_compression_level);
+ 		zip->stream.lzma.headers_to_write = 1;
+ 		/* We'll be writing the headers ourselves, so using the raw
+@@ -1448,6 +1463,7 @@ archive_write_zip_header(struct archive_write *a, struct archive_entry *entry)
+ 		zip->threads = 1;
+ #endif
+ 		memset(&zip->stream.lzma.context, 0, sizeof(lzma_stream));
++		zip->compressor_initialized = 1;
+ 		/* The XZ check will be arbitrarily set to none: ZIP already has
+ 		 * a CRC-32 check of its own */
+ 		if (zip->threads == 1) {
+@@ -1528,7 +1544,6 @@ archive_write_zip_data(struct archive_write *a, const void *buff, size_t s)
+ 				ret = init_winzip_aes_encryption(a);
+ 				if (ret != ARCHIVE_OK)
+ 					return (ret);
+-				zip->cctx_valid = zip->hctx_valid = 1;
+ 			}
+ 			break;
+ 		case ENCRYPTION_NONE:
+@@ -1883,7 +1898,7 @@ archive_write_zip_finish_entry(struct archive_write *a)
+ 			ret = __archive_write_output(a, zip->buf, remainder);
+ 			if (ret != ARCHIVE_OK)
+ 			{
+-				deflateEnd(&zip->stream.deflate);
++				archive_write_zip_end_compressor(zip);
+ 				return (ret);
+ 			}
+ 			zip->entry_compressed_written += remainder;
+@@ -1893,7 +1908,7 @@ archive_write_zip_finish_entry(struct archive_write *a)
+ 				break;
+ 			zip->stream.deflate.avail_out = (uInt)zip->len_buf;
+ 		}
+-		deflateEnd(&zip->stream.deflate);
++		archive_write_zip_end_compressor(zip);
+ 		break;
+ #endif
+ #ifdef HAVE_BZLIB_H
+@@ -1928,7 +1943,7 @@ archive_write_zip_finish_entry(struct archive_write *a)
+ 			ret = __archive_write_output(a, zip->buf, remainder);
+ 			if (ret != ARCHIVE_OK)
+ 			{
+-				BZ2_bzCompressEnd(&zip->stream.bzip2);
++				archive_write_zip_end_compressor(zip);
+ 				return (ret);
+ 			}
+ 			zip->entry_compressed_written += remainder;
+@@ -1938,7 +1953,7 @@ archive_write_zip_finish_entry(struct archive_write *a)
+ 				finishing = 0;
+ 			zip->stream.bzip2.avail_out = (unsigned int)zip->len_buf;
+ 		} while (finishing);
+-		BZ2_bzCompressEnd(&zip->stream.bzip2);
++		archive_write_zip_end_compressor(zip);
+ 		break;
+ #endif
+ #if defined(HAVE_ZSTD_H) && HAVE_ZSTD_compressStream
+@@ -1973,7 +1988,7 @@ archive_write_zip_finish_entry(struct archive_write *a)
+ 			ret = __archive_write_output(a, zip->buf, remainder);
+ 			if (ret != ARCHIVE_OK)
+ 			{
+-				ZSTD_freeCStream(zip->stream.zstd.context);
++				archive_write_zip_end_compressor(zip);
+ 				return (ret);
+ 			}
+ 			zip->entry_compressed_written += remainder;
+@@ -1984,7 +1999,7 @@ archive_write_zip_finish_entry(struct archive_write *a)
+ 			zip->stream.zstd.out.size = zip->len_buf;
+ 			zip->stream.zstd.out.pos = 0;
+ 		} while (finishing);
+-		ZSTD_freeCStream(zip->stream.zstd.context);
++		archive_write_zip_end_compressor(zip);
+ 		break;
+ #endif
+ #ifdef HAVE_LZMA_H
+@@ -2021,7 +2036,7 @@ archive_write_zip_finish_entry(struct archive_write *a)
+ 			ret = __archive_write_output(a, zip->buf, remainder);
+ 			if (ret != ARCHIVE_OK)
+ 			{
+-				lzma_end(&zip->stream.lzma.context);
++				archive_write_zip_end_compressor(zip);
+ 				return (ret);
+ 			}
+ 			zip->entry_compressed_written += remainder;
+@@ -2031,7 +2046,7 @@ archive_write_zip_finish_entry(struct archive_write *a)
+ 				finishing = 0;
+ 			zip->stream.lzma.context.avail_out = (unsigned int)zip->len_buf;
+ 		} while (finishing);
+-		lzma_end(&zip->stream.lzma.context);
++		archive_write_zip_end_compressor(zip);
+ 		break;
+ #endif
+ 	default:
+@@ -2042,6 +2057,11 @@ archive_write_zip_finish_entry(struct archive_write *a)
+ 		size_t hmac_len = 20;
+ 
+ 		archive_hmac_sha1_final(&zip->hctx, hmac, &hmac_len);
++		if (hmac_len != sizeof(hmac)) {
++			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
++			    "Failed to compute ZIP authentication code");
++			return (ARCHIVE_FATAL);
++		}
+ 		ret = __archive_write_output(a, hmac, AUTH_CODE_SIZE);
+ 		if (ret != ARCHIVE_OK)
+ 			return (ret);
+@@ -2240,12 +2260,51 @@ archive_write_zip_close(struct archive_write *a)
+ 	return (ARCHIVE_OK);
+ }
+ 
++/* Aborting the writer skips finish_entry. Release an active compressor here
++ * too, without flushing data or finalizing the archive. Normal completion and
++ * output errors use the same helper so freeing never ends a stream twice. */
++static void
++archive_write_zip_end_compressor(struct zip *zip)
++{
++	if (!zip->compressor_initialized)
++		return;
++	switch (zip->entry_compression) {
++#ifdef HAVE_ZLIB_H
++	case COMPRESSION_DEFLATE:
++		deflateEnd(&zip->stream.deflate);
++		break;
++#endif
++#ifdef HAVE_BZLIB_H
++	case COMPRESSION_BZIP2:
++		BZ2_bzCompressEnd(&zip->stream.bzip2);
++		break;
++#endif
++#if defined(HAVE_ZSTD_H) && HAVE_ZSTD_compressStream
++	case COMPRESSION_ZSTD:
++		ZSTD_freeCStream(zip->stream.zstd.context);
++		zip->stream.zstd.context = NULL;
++		break;
++#endif
++#ifdef HAVE_LZMA_H
++	case COMPRESSION_LZMA:
++	case COMPRESSION_XZ:
++		lzma_end(&zip->stream.lzma.context);
++		break;
++#endif
++	default:
++		break;
++	}
++	zip->compressor_initialized = 0;
++}
++
+ static int
+ archive_write_zip_free(struct archive_write *a)
+ {
+ 	struct zip *zip = a->format_data;
+ 	struct cd_segment *segment;
+ 
++	archive_write_zip_end_compressor(zip);
++
+ 	while (zip->central_directory != NULL) {
+ 		segment = zip->central_directory;
+ 		zip->central_directory = segment->next;
+@@ -2479,6 +2538,8 @@ init_winzip_aes_encryption(struct archive_write *a)
+         }
+ 
+ 	/* Set a password verification value after the 'salt'. */
++	/* Both contexts now own resources even if writing the salt fails. */
++	zip->cctx_valid = zip->hctx_valid = 1;
+ 	salt[salt_len] = derived_key[key_len * 2];
+ 	salt[salt_len + 1] = derived_key[key_len * 2 + 1];
+ 
+diff --git a/libarchive/test/test_archive_digest.c b/libarchive/test/test_archive_digest.c
+index a8654ae..1c47bec 100644
+--- a/libarchive/test/test_archive_digest.c
++++ b/libarchive/test/test_archive_digest.c
+@@ -29,6 +29,97 @@
+ 
+ #define __LIBARCHIVE_BUILD 1
+ #include "archive_digest_private.h"
++#include "archive_cryptor_private.h"
++#include "archive_hmac_private.h"
++
++/* RFC 6070 PBKDF2-HMAC-SHA1 and RFC 2202 HMAC-SHA1 vectors also exercise
++ * the public PSA implementation in Mbed TLS 4 / TF-PSA-Crypto builds. */
++DEFINE_TEST(test_archive_pbkdf2_sha1)
++{
++	int ret;
++	unsigned char output[20];
++	const unsigned char expected[] = "\xea\x6c\x01\x4d\xc7\x2d\x6f\x8c"
++	    "\xcd\x1e\xd9\x2a\xce\x1d\x41\xf0\xd8\xde\x89\x57";
++	ret = archive_pbkdf2_sha1("password", 8, (const uint8_t *)"salt", 4,
++	    2, output, sizeof(output));
++	if (ret != 0) {
++#ifdef ARCHIVE_CRYPTO_MBEDTLS_PSA
++		assertEqualInt(0, ret);
++#else
++		skipping("This platform does not support PBKDF2-SHA1");
++#endif
++		return;
++	}
++	assertEqualMem(output, expected, sizeof(output));
++}
++
++DEFINE_TEST(test_archive_hmac_sha1)
++{
++	int ret;
++	archive_hmac_sha1_ctx ctx;
++	unsigned char key[20];
++	unsigned char output[20];
++	size_t length = sizeof(output);
++	const unsigned char expected[] = "\xb6\x17\x31\x86\x55\x05\x72\x64"
++	    "\xe2\x8b\xc0\xb6\xfb\x37\x8c\x8e\xf1\x46\xbe\x00";
++	memset(key, 0x0b, sizeof(key));
++	ret = archive_hmac_sha1_init(&ctx, key, sizeof(key));
++	if (ret != 0) {
++#ifdef ARCHIVE_CRYPTO_MBEDTLS_PSA
++		assertEqualInt(0, ret);
++#else
++		skipping("This platform does not support HMAC-SHA1");
++#endif
++		return;
++	}
++	archive_hmac_sha1_update(&ctx, (const uint8_t *)"Hi ", 3);
++	archive_hmac_sha1_update(&ctx, (const uint8_t *)"There", 5);
++	archive_hmac_sha1_final(&ctx, output, &length);
++	assertEqualInt(sizeof(output), length);
++	assertEqualMem(output, expected, sizeof(output));
++	archive_hmac_sha1_cleanup(&ctx);
++	/* Cleanup must also release an unfinished operation and its imported key. */
++	assertEqualInt(0, archive_hmac_sha1_init(&ctx, key, sizeof(key)));
++	archive_hmac_sha1_cleanup(&ctx);
++#if defined(ARCHIVE_CRYPTO_MBEDTLS_PSA) && defined(ARCHIVE_CRYPTOR_USE_MBED)
++	/* A real API failure must retain zero output length through cleanup. */
++	assertEqualInt(0, archive_hmac_sha1_init(&ctx, key, sizeof(key)));
++	archive_hmac_sha1_update(&ctx, (const uint8_t *)"Hi There", 8);
++	length = 1;
++	archive_hmac_sha1_final(&ctx, output, &length);
++	assertEqualInt(0, length);
++	archive_hmac_sha1_cleanup(&ctx);
++#endif
++}
++
++DEFINE_TEST(test_archive_aes_ctr)
++{
++	int ret;
++	archive_crypto_ctx ctx;
++	unsigned char key[16] = {0};
++	unsigned char input[16] = {0};
++	unsigned char output[16];
++	size_t length = 5;
++	const unsigned char expected[] = "\x47\x71\x18\x16\xe9\x1d\x6f\xf0"
++	    "\x59\xbb\xbf\x2b\xf5\x8e\x0f\xd3";
++	ret = archive_encrypto_aes_ctr_init(&ctx, key, sizeof(key));
++	if (ret != 0) {
++#ifdef ARCHIVE_CRYPTO_MBEDTLS_PSA
++		assertEqualInt(0, ret);
++#else
++		skipping("This platform does not support AES-CTR");
++#endif
++		return;
++	}
++	assertEqualInt(0, archive_encrypto_aes_ctr_update(&ctx, input, 5, output, &length));
++	assertEqualInt(5, length);
++	length = 11;
++	assertEqualInt(0, archive_encrypto_aes_ctr_update(&ctx, input + 5, 11,
++	    output + 5, &length));
++	assertEqualInt(11, length);
++	assertEqualMem(output, expected, sizeof(output));
++	assertEqualInt(0, archive_encrypto_aes_ctr_release(&ctx));
++}
+ 
+ DEFINE_TEST(test_archive_md5)
+ {
+diff --git a/libarchive/test/test_write_format_zip.c b/libarchive/test/test_write_format_zip.c
+index 857d0f3..7c699c9 100644
+--- a/libarchive/test/test_write_format_zip.c
++++ b/libarchive/test/test_write_format_zip.c
+@@ -31,6 +31,64 @@
+ 
+ #include "test.h"
+ 
++/* Run under LeakSanitizer to verify fail/free releases entry compressors
++ * without finishing the entry, including partial writes, completed entries,
++ * and reuse of the shared codec union for a following entry. */
++DEFINE_TEST(test_write_format_zip_abort)
++{
++	static const char *methods[] = {"deflate", "bzip2", "lzma", "xz", "zstd"};
++	size_t method, phase;
++	for (method = 0; method < sizeof(methods) / sizeof(methods[0]); ++method) {
++		for (phase = 0; phase < 5; ++phase) {
++			struct archive *a = archive_write_new();
++			struct archive_entry *entry;
++			char buffer[65536];
++			size_t used = 0;
++			assert(a != NULL);
++			assertEqualIntA(a, ARCHIVE_OK, archive_write_set_format_zip(a));
++			if (archive_write_set_format_option(a, "zip", "compression",
++			    methods[method]) != ARCHIVE_OK) {
++				skipping("ZIP %s compressor unavailable", methods[method]);
++				assertEqualInt(ARCHIVE_OK, archive_write_free(a));
++				break;
++			}
++			assertEqualIntA(a, ARCHIVE_OK, archive_write_open_memory(a,
++			    buffer, sizeof(buffer), &used));
++			entry = archive_entry_new();
++			assert(entry != NULL);
++			archive_entry_set_pathname(entry, "partial.txt");
++			archive_entry_set_mode(entry, AE_IFREG | 0644);
++			archive_entry_set_size(entry, 8);
++			assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, entry));
++			if (phase > 0)
++				assertEqualIntA(a, 4, archive_write_data(a, "abcd", 4));
++			if (phase >= 2)
++				assertEqualIntA(a, ARCHIVE_OK, archive_write_finish_entry(a));
++			if (phase >= 3) {
++				int selected;
++				if (phase == 3) {
++					selected = archive_write_zip_set_compression_store(a);
++					assertEqualIntA(a, ARCHIVE_OK, selected);
++				} else
++					selected = archive_write_zip_set_compression_deflate(a);
++				if (selected != ARCHIVE_OK) {
++					skipping("Following ZIP deflate compressor unavailable");
++					archive_entry_free(entry);
++					archive_write_fail(a);
++					assertEqualInt(ARCHIVE_OK, archive_write_free(a));
++					continue;
++				}
++				archive_entry_set_pathname(entry, "following.txt");
++				assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, entry));
++				assertEqualIntA(a, 4, archive_write_data(a, "efgh", 4));
++			}
++			archive_entry_free(entry);
++			archive_write_fail(a);
++			assertEqualInt(ARCHIVE_OK, archive_write_free(a));
++		}
++	}
++}
++
+ /*
+  * This test doesn't actually check that the zip writer is
+  * correct, just that our zip reader can read the output of
+@@ -844,6 +902,116 @@ DEFINE_TEST(test_write_format_zip_winzip_aes128_encryption)
+ 	free(buff);
+ }
+ 
++static la_ssize_t
++fail_aes_salt_write(struct archive *a, void *data, const void *buffer, size_t size)
++{
++	int *fail = data;
++	(void)buffer;
++	if (*fail) {
++		archive_set_error(a, EIO, "Injected encrypted salt output failure");
++		return -1;
++	}
++	return (la_ssize_t)size;
++}
++
++DEFINE_TEST(test_write_format_zip_aes_salt_output_failure)
++{
++	struct archive *a;
++	struct archive_entry *entry;
++	int fail, i, ret;
++	/* Repeated failure must not exhaust PSA's finite imported-key slots. */
++	for (i = 0; i < 128; ++i) {
++		fail = 0;
++		a = archive_write_new();
++		assert(a != NULL);
++		assertEqualIntA(a, ARCHIVE_OK, archive_write_set_format_zip(a));
++		ret = archive_write_set_options(a, "zip:encryption=aes256,zip:compression=store");
++		if (ret != ARCHIVE_OK) {
++#ifdef ARCHIVE_CRYPTO_MBEDTLS_PSA
++			assertEqualIntA(a, ARCHIVE_OK, ret);
++#else
++			skipping("This system does not have a cryptographic library");
++#endif
++			archive_write_free(a);
++			return;
++		}
++		assertEqualIntA(a, ARCHIVE_OK, archive_write_set_passphrase(a, "password"));
++		assertEqualIntA(a, ARCHIVE_OK, archive_write_set_bytes_per_block(a, 0));
++		assertEqualIntA(a, ARCHIVE_OK, archive_write_open(a, &fail,
++		    NULL, fail_aes_salt_write, NULL));
++		entry = archive_entry_new();
++		archive_entry_set_pathname(entry, "file");
++		archive_entry_set_filetype(entry, AE_IFREG);
++		archive_entry_set_perm(entry, 0600);
++		archive_entry_set_size(entry, 1);
++		assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, entry));
++		fail = 1;
++		assertEqualIntA(a, ARCHIVE_FATAL, archive_write_data(a, "x", 1));
++		archive_write_fail(a);
++		assertEqualIntA(a, ARCHIVE_OK, archive_write_free(a));
++		archive_entry_free(entry);
++	}
++}
++
++DEFINE_TEST(test_write_format_zip_aes_authentication_corruption)
++{
++	struct archive *a;
++	struct archive_entry *entry;
++	unsigned char buffer[4096];
++	char output[32];
++	const char contents[] = "authenticated";
++	size_t used = 0, auth_offset;
++	la_ssize_t ret;
++	int mode;
++	a = archive_write_new();
++	assert(a != NULL);
++	assertEqualIntA(a, ARCHIVE_OK, archive_write_set_format_zip(a));
++	ret = archive_write_set_options(a, "zip:encryption=aes256,zip:compression=store");
++	if (ret != ARCHIVE_OK) {
++#ifdef ARCHIVE_CRYPTO_MBEDTLS_PSA
++		assertEqualIntA(a, ARCHIVE_OK, ret);
++#else
++		skipping("This system does not have a cryptographic library");
++#endif
++		archive_write_free(a);
++		return;
++	}
++	assertEqualIntA(a, ARCHIVE_OK, archive_write_set_passphrase(a, "password"));
++	assertEqualIntA(a, ARCHIVE_OK, archive_write_open_memory(a, buffer, sizeof(buffer), &used));
++	entry = archive_entry_new();
++	archive_entry_set_pathname(entry, "file");
++	archive_entry_set_mode(entry, AE_IFREG | 0600);
++	archive_entry_set_size(entry, sizeof(contents));
++	assertEqualIntA(a, ARCHIVE_OK, archive_write_header(a, entry));
++	assertEqualIntA(a, sizeof(contents), archive_write_data(a, contents, sizeof(contents)));
++	assertEqualIntA(a, ARCHIVE_OK, archive_write_close(a));
++	assertEqualInt(ARCHIVE_OK, archive_write_free(a));
++	archive_entry_free(entry);
++	/* AES-256 STORE: local header, name/extra, 16-byte salt, 2-byte password
++	 * verification, content, then the 10-byte authentication code. */
++	auth_offset = 30 + (buffer[26] | ((size_t)buffer[27] << 8)) +
++	    (buffer[28] | ((size_t)buffer[29] << 8)) + 18 + sizeof(contents);
++	assert(auth_offset + 10 <= used);
++	if (auth_offset + 10 > used)
++		return;
++	buffer[auth_offset] ^= 1;
++	for (mode = 0; mode < 2; ++mode) {
++		a = archive_read_new();
++		assert(a != NULL);
++		assertEqualIntA(a, ARCHIVE_OK, archive_read_support_format_zip(a));
++		assertEqualIntA(a, ARCHIVE_OK, archive_read_add_passphrase(a, "password"));
++		assertEqualIntA(a, ARCHIVE_OK, mode == 0 ? archive_read_open_memory(a, buffer, used) :
++		    read_open_memory(a, buffer, used, 7));
++		assertEqualIntA(a, ARCHIVE_OK, archive_read_next_header(a, &entry));
++		do {
++			ret = archive_read_data(a, output, sizeof(output));
++		} while (ret > 0);
++		assertEqualIntA(a, ARCHIVE_WARN, ret);
++		assertEqualString("ZIP bad Authentication code", archive_error_string(a));
++		assertEqualInt(ARCHIVE_OK, archive_read_free(a));
++	}
++}
++
+ DEFINE_TEST(test_write_format_zip_winzip_aes256_encryption)
+ {
+ 	struct archive *a;
+diff --git a/libarchive/archive_read_support_format_zip.c b/libarchive/archive_read_support_format_zip.c
+index 546c90b..f39f0dc 100644
+--- a/libarchive/archive_read_support_format_zip.c
++++ b/libarchive/archive_read_support_format_zip.c
+@@ -1646,6 +1647,11 @@ check_authentication_code(struct archive_read *a, const void *_p)
+ 		int cmp;
+ 
+ 		archive_hmac_sha1_final(&zip->hctx, hmac, &hmac_len);
++		if (hmac_len != sizeof(hmac)) {
++			archive_set_error(&a->archive, ARCHIVE_ERRNO_MISC,
++			    "Failed to compute ZIP authentication code");
++			return (ARCHIVE_FATAL);
++		}
+ 		if (_p == NULL) {
+ 			/* Read authentication code. */
+ 			p = __archive_read_ahead(a, AUTH_CODE_SIZE, NULL);

@@ -7,7 +7,7 @@
 仓库：
 
 - Application: `https://github.com/ananwanan/AnAnArchiver`
-- Archive backend: `https://github.com/ananwanan/libarchive`
+- Archive backend: `https://github.com/libarchive/libarchive`
 
 AnAnArchiver 是一个面向 Windows、Linux、macOS 的现代跨平台压缩/解压缩桌面软件。
 
@@ -90,7 +90,7 @@ GUI 不得直接调用 libarchive C API。
 └─────────────────────┬────────────────────────┘
                       │
                       ▼
-              ananwanan/libarchive
+              libarchive/libarchive
 ```
 
 禁止：
@@ -434,7 +434,7 @@ AnAnArchiver/
 AnAnArchiver 必须优先使用：
 
 ```text
-https://github.com/ananwanan/libarchive
+https://github.com/libarchive/libarchive
 ```
 
 而不是默认使用操作系统中的随机版本。
@@ -502,7 +502,7 @@ TAR parser
 格式解析应由：
 
 ```text
-ananwanan/libarchive
+libarchive/libarchive
 ```
 
 负责。
@@ -511,7 +511,7 @@ ananwanan/libarchive
 
 1. 确认是否是 AnAnArchiver adapter 问题。
 2. 添加最小复现。
-3. 如果确实属于 libarchive，则修复 `ananwanan/libarchive`。
+3. 如果确实属于 libarchive，则修复 `libarchive/libarchive`。
 4. 不要在 GUI 中增加奇怪 workaround。
 5. 如果必须 workaround，要明确注释原因和对应 issue/commit。
 
@@ -660,7 +660,7 @@ UI 根据 capabilities 动态显示/禁用选项。
 格式支持能力以当前：
 
 ```text
-ananwanan/libarchive
+libarchive/libarchive
 ```
 
 实际功能为准。
@@ -2023,7 +2023,7 @@ Qt 模块及其内嵌依赖应使用最新 Qt 正式发布版配套的源码，M
 Archive codec/backend 优先由：
 
 ```text
-ananwanan/libarchive
+libarchive/libarchive
 ```
 
 统一管理。
@@ -3196,7 +3196,7 @@ Phase A
 建立 ananarchiver_core
 
 Phase B
-集成最新版本 ananwanan/libarchive
+集成最新版本 libarchive/libarchive
 
 Phase C
 实现 LibArchiveReader
@@ -3262,7 +3262,7 @@ ArchiveReader
         ↓
 LibArchiveReader
         ↓
-ananwanan/libarchive
+libarchive/libarchive
         ↓
 ArchiveEntry metadata
         ↓

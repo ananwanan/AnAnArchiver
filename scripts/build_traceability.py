@@ -12,9 +12,13 @@ import importlib.metadata
 import hashlib
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import shutil
+import stat
 import subprocess
 import sys
+import tarfile
+import tempfile
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -59,6 +63,12 @@ def identity(config: dict, dependencies: list[dict]) -> dict:
     fields = ("name", "path", "url", "version", "ref", "revision", "coupled_to")
     root = Path(config["root"])
     recipe_paths = [root / "cmake/Superbuild.cmake", root / "cmake/Dependencies.cmake"]
+    if not config["system_backend"]:
+        patch_path = root / "cmake/patches/libarchive-compatibility.patch"
+        patch_hash = hashlib.sha256(patch_path.read_bytes()).hexdigest()
+        if config.get("libarchive_patch_sha256") != patch_hash:
+            raise ValueError("Missing or mismatched libarchive compatibility patch hash; reconfigure and rebuild the dependency prefix.")
+        recipe_paths.extend([root / "cmake/PrepareLibarchive.cmake", patch_path])
     recipe_paths.extend(sorted((root / "cmake/vendor").rglob("*")))
     recipe = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in recipe_paths if path.is_file()}
@@ -66,7 +76,8 @@ def identity(config: dict, dependencies: list[dict]) -> dict:
         "dependencies": sorted(({key: entry.get(key) for key in fields} for entry in dependencies), key=lambda entry: entry["path"]),
         "toolchain": config["toolchain"],
         "build_recipe": recipe,
-        "build_options": {"libarchive_cng": None if config["system_backend"] else config.get("libarchive_cng", True)},
+        "build_options": {"libarchive_cng": None if config["system_backend"] else config.get("libarchive_cng", True),
+                          "libarchive_patch_sha256": None if config["system_backend"] else config["libarchive_patch_sha256"]},
     }
 
 
@@ -123,6 +134,104 @@ def validate_qt_cache(config: dict, previous: dict, current: dict, cache_directo
             raise ValueError(f"Qt cache migration cannot prove option {key}; select a new Qt build directory.")
 
 
+def generated_source_files(root: Path) -> dict:
+    """Hash every input without following links or trusting preparation metadata."""
+    def is_reparse(path: Path) -> bool:
+        return bool(getattr(path.lstat(), "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+    if not root.is_dir() or root.is_symlink() or is_reparse(root):
+        raise ValueError(f"Generated libarchive source is missing or is a link: {root}. Reconfigure first.")
+    files = {}
+
+    def scan(directory: Path) -> None:
+        for path in sorted(directory.iterdir()):
+            relative = path.relative_to(root).as_posix()
+            if directory == root and path.name in {".git", ".prepared", ".patched-files"}:
+                continue
+            if path.is_symlink():
+                files[relative] = {"kind": "symlink", "target": os.readlink(path)}
+            elif is_reparse(path):
+                raise ValueError(f"Unexpected junction in generated libarchive source: {relative}. Reconfigure first.")
+            elif path.is_dir():
+                files[relative] = {"kind": "directory"}
+                scan(path)
+            elif path.is_file():
+                with path.open("rb") as stream:
+                    digest = hashlib.sha256()
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                    files[relative] = {"kind": "file", "sha256": digest.hexdigest()}
+            else:
+                raise ValueError(f"Unexpected entry in generated libarchive source: {relative}. Reconfigure first.")
+
+    scan(root)
+    return files
+
+
+def validate_generated_libarchive(config: dict, dependencies: list[dict], operation: str) -> None:
+    if not config["superbuild"] or config["system_backend"]:
+        return
+    backends = [entry for entry in dependencies if entry["name"] == "libarchive"]
+    if len(backends) != 1 or backends[0]["path"] != "third_party/libarchive":
+        raise ValueError("Generated libarchive source requires one resolved backend. Reconfigure first.")
+    revision, patch_hash = backends[0]["revision"], config["libarchive_patch_sha256"]
+    source_id = hashlib.sha256((revision + "\n" + patch_hash).encode("utf-8")).hexdigest()[:16]
+    source = Path(config["binary"]) / "dependencies/sources" / ("libarchive-" + source_id)
+    record_path = Path(config["binary"]) / "libarchive-generated-source.json"
+    identity = {"schema_version": 1, "upstream_revision": revision, "patch_sha256": patch_hash}
+    if operation == "prepare":
+        # A cached preparation stamp cannot attest files that are actually built.
+        # Regenerate the complete expected tree from the exact official commit on
+        # every configure; never bless an edited generated source as a baseline.
+        with tempfile.TemporaryDirectory(prefix="ananarchiver-libarchive-verify-") as temporary:
+            temporary = Path(temporary).resolve()
+            archive = temporary / "upstream.tar"
+            expected = temporary / "source"
+            upstream = Path(config["root"]) / backends[0]["path"]
+            subprocess.run(["git", "-C", str(upstream), "archive", "--format=tar",
+                            "--output=" + str(archive), revision], check=True, capture_output=True)
+            expected.mkdir()
+            with tarfile.open(archive) as exported:
+                # Git exports only tracked directories, files and symlinks. Use
+                # a narrow extraction path compatible with Python 3.10, without
+                # following a link while creating another member.
+                for member in exported:
+                    relative = PurePosixPath(member.name)
+                    target = expected.joinpath(*relative.parts)
+                    if relative.is_absolute() or ".." in relative.parts or target.is_symlink() \
+                            or not target.parent.resolve().is_relative_to(expected):
+                        raise ValueError("Unsafe path in exported libarchive source")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if member.isdir():
+                        target.mkdir(exist_ok=True)
+                    elif member.issym():
+                        target.symlink_to(member.linkname)
+                    elif member.isfile():
+                        with exported.extractfile(member) as source_stream, target.open("wb") as output_stream:
+                            shutil.copyfileobj(source_stream, output_stream)
+                    else:
+                        raise ValueError("Unexpected entry in exported libarchive source")
+            subprocess.run(["git", "init", "--quiet", str(expected)], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(expected), "apply",
+                            str(Path(config["root"]) / "cmake/patches/libarchive-compatibility.patch")],
+                           check=True, capture_output=True)
+            record = {**identity, "files": generated_source_files(expected)}
+    else:
+        if not record_path.is_file():
+            raise ValueError(f"Missing generated libarchive source identity: {record_path}. Reconfigure first.")
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        if not isinstance(record, dict) or any(record.get(key) != value for key, value in identity.items()) \
+                or not isinstance(record.get("files"), dict):
+            raise ValueError("Generated libarchive source identity differs from the configured backend. Reconfigure first.")
+    actual = generated_source_files(source)
+    if record["files"] != actual:
+        changed = next(path for path in sorted(record["files"].keys() | actual.keys())
+                       if record["files"].get(path) != actual.get(path))
+        raise ValueError(f"Generated libarchive source differs from its official revision and patch: {changed}. Reconfigure first; restore the generated sources or use a new build directory.")
+    if operation == "prepare":
+        write_json(record_path, record)
+
+
 def build_record(config: dict, manifest: dict | None, dependencies: list[dict]) -> dict:
     git = ["git", "-C", config["root"]]
     revision = subprocess.check_output(git + ["rev-parse", "HEAD"], text=True).strip()
@@ -167,6 +276,12 @@ def build_record(config: dict, manifest: dict | None, dependencies: list[dict]) 
     if config.get("qt_windows_patch_sha256"):
         record["qt_windows_longpaths_sha256"] = config["qt_windows_patch_sha256"]
         record["qtbase_revision"] = config["qtbase_revision"]
+    if not config["system_backend"]:
+        record["libarchive_compatibility_patch"] = {
+            "path": "cmake/patches/libarchive-compatibility.patch",
+            "sha256": config["libarchive_patch_sha256"],
+            "upstream_revision": (backend or {}).get("revision"),
+        }
     for package in ("jinja2", "jsonschema"):
         try:
             record["source_generation_tools"][package] = importlib.metadata.version(package)
@@ -203,6 +318,7 @@ def run(config: dict, operation: str) -> None:
         if not prefix_path.is_file():
             raise ValueError(f"Missing compiled dependency identity: {prefix_path}. Build dependencies through the superbuild first.")
         assert_same(json.loads(prefix_path.read_text(encoding="utf-8")), current, prefix_path, subset=True)
+    validate_generated_libarchive(config, dependencies, operation)
     if operation == "prepare":
         if config["superbuild"] and prefix_path.exists():
             assert_same(json.loads(prefix_path.read_text(encoding="utf-8")), current, prefix_path)
@@ -230,7 +346,7 @@ def main() -> int:
     arguments = parser.parse_args()
     try:
         run(json.loads(arguments.config.read_text(encoding="utf-8")), arguments.operation)
-    except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, KeyError, OSError, subprocess.CalledProcessError, tarfile.TarError) as error:
         print(f"Build traceability error: {error}", file=sys.stderr)
         return 1
     return 0

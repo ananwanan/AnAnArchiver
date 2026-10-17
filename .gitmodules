@@ -1,6 +1,6 @@
 [submodule "third_party/libarchive"]
 	path = third_party/libarchive
-	url = https://github.com/ananwanan/libarchive.git
+	url = https://github.com/libarchive/libarchive.git
 	shallow = true
 [submodule "third_party/zlib"]
 	path = third_party/zlib

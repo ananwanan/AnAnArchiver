@@ -1,7 +1,7 @@
 # AnAnArchiver
 
 跨平台归档管理器，使用 C++23、Qt 6 Quick/QML 和
-[ananwanan/libarchive](https://github.com/ananwanan/libarchive)。
+[libarchive/libarchive](https://github.com/libarchive/libarchive)。
 
 当前完成 AGENTS.md 的 M1、M2、M3 与 M4：独立 Core、libarchive RAII 适配器、
 结构化错误、内容检测、流式元数据枚举，以及异步打开和安全流式解压。
@@ -38,7 +38,7 @@ Core 和 Application 使用标准 C++，支持不安装 Qt 时独立编译和测
 ## 构建依赖
 
 依赖方案统一采用指定上游的最新稳定发布版，不固定历史版本号、tag 或 commit。
-`ananwanan/libarchive` 没有独立正式发布版时使用默认分支最新提交。
+libarchive 从官方 `libarchive/libarchive` 获取最新稳定发布版。
 依赖源码保存在 `third_party` 的 Git 子模块中：
 libarchive、zlib、bzip2、XZ/liblzma、Zstandard、LZ4、Expat、Mbed TLS、Qt，
 以及 Qt 可选图形接口所用的 Khronos Vulkan-Headers。
@@ -54,8 +54,8 @@ codec 版本。方案要求在依赖初始化或更新时解析最新版本，�
 实际版本与提交；编译过程中使用同一份源码。依赖更新后重新运行回归测试。
 
 `scripts/resolve-dependencies.py` 在初始化时查询指定上游的正式发布记录或正式版本 tag，
-排除预发布版本，解析并检出最新源码；没有独立正式发布版的 libarchive 使用
-默认分支最新提交。Qt 子模块和 Mbed TLS framework 使用所选发布版记录的配套
+排除预发布版本，解析并检出最新源码；libarchive 与其他发布正式版本的依赖一样
+优先选择官方最新稳定版。Qt 子模块和 Mbed TLS framework 使用所选发布版记录的配套
 提交，不独立升级。解析失败、脏源码或不兼容版本会明确报错，不自动降级。
 `scripts/init-dependencies.cmake` 是调用该解析器的兼容入口。
 
@@ -103,12 +103,21 @@ GitHub API 限流时通过环境变量 `GITHUB_TOKEN` 提供只读凭据，不�
 也不改写清单；CMake 入口可用 `ANANARCHIVER_DEPENDENCY_VERIFY=ON` 配合
 `ANANARCHIVER_DEPENDENCY_REPLAY_MANIFEST`。Core-only 验证增加 `--core-only`。
 
-Mbed TLS 4 公共 PSA API 与 ZIP 取消资源清理修复已通过
-[libarchive PR #1](https://github.com/ananwanan/libarchive/pull/1) 合入指定上游，
-应用直接构建解析到的上游源码，移除父项目中的兼容补丁副本。共享 PSA 并发保护、
-持久 AES operation 和 CryptoOnly 支持也已通过
-[libarchive PR #2](https://github.com/ananwanan/libarchive/pull/2) 合入上游，相关验证见
-[本次依赖验证记录](docs/validation/2026-10-11-dependency-resolution.md)。
+归档 backend 从官方仓库解析最新稳定发布版。为保留 Mbed TLS 4 / TF-PSA-Crypto
+兼容与 ZIP 取消资源清理，`cmake/PrepareLibarchive.cmake` 从已验证的官方 revision
+导出构建用源码副本，仅对副本应用 `cmake/patches/libarchive-compatibility.patch`，
+不修改子模块。补丁不能应用时明确失败，更新上游后需审查并移除已被官方包含的修复。
+配置时会从官方 revision 与补丁重建预期完整源码清单；每次构建和记录来源前，
+只读校验实际生成源码的全部文件、目录及符号链接，拒绝源码被修改、增添或删除。
+provenance 记录官方 base revision 和补丁 SHA-256；安装和分发包将补丁副本保存在
+`share/AnAnArchiver/libarchive-compatibility.patch`。复现时使用对应应用源码及相同补丁，
+重放随包的官方依赖清单后正常运行 CMake，构建入口会自动应用并记录补丁。
+
+历史 fork 的修复与审计不能作为官方发布版的兼容性证明。旧来源、对应 revision 和
+当时的验证结果保留在 [历史依赖验证记录](docs/validation/2026-10-11-dependency-resolution.md)
+中。切换来源、版本或补丁后，须重新验证并构建，不能复用旧 backend 的构建来源记录。
+当前官方来源切换及验证范围见
+[2026-10-17 验证记录](docs/validation/2026-10-17-official-libarchive.md)。
 
 构建和测试不依赖 Qt 的 Core、Backend、Application：
 

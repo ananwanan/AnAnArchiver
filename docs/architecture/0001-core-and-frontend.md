@@ -10,14 +10,23 @@ Dependency direction:
 QML -> Qt ArchiveController / model adapters
     -> Application ArchiveService / TaskManager / DirectoryService
     -> ArchiveReader / ArchiveEntry / ArchiveInfo / ArchiveError
-    -> libarchive adapter -> ananwanan/libarchive
+    -> libarchive adapter -> libarchive/libarchive
 ```
 
 Dependency policy uses the latest stable upstream releases rather than a fixed
-historical version. For ananwanan/libarchive without separately maintained
-releases, use the latest default-branch commit. Resolve sources before building
+historical version. Use the latest stable release from the official
+libarchive/libarchive repository. Resolve sources before building
 and record the actual revisions used. See the [dependency plan](../../third_party/README.md)
 for source selection, matching nested modules, and current implementation status.
+
+The official libarchive checkout stays unchanged. Backend compatibility fixes for
+Mbed TLS 4 / TF-PSA-Crypto and ZIP abort cleanup are applied by
+`cmake/PrepareLibarchive.cmake` to a generated export of the verified revision.
+`cmake/patches/libarchive-compatibility.patch` remains backend code rather than
+application or GUI logic. The build records the official base revision and patch
+hash, and installs a matching patch copy with its provenance so replaying the
+official source manifest and building the corresponding application source can
+reproduce the modified backend. An incompatible patch fails explicitly.
 
 Only the backend adapter includes libarchive headers. Only `frontend/qt` includes
 Qt headers. Public headers under `include/ananarchiver` contain standard C++

@@ -10,6 +10,10 @@ set(ANANARCHIVER_DEPENDENCY_JOBS 4 CACHE STRING "Parallel jobs per dependency bu
 set(dependency_build_root "${CMAKE_BINARY_DIR}/dependencies/build")
 set(ANANARCHIVER_QT_BUILD_DIRECTORY "${CMAKE_BINARY_DIR}/qt" CACHE PATH
     "Short Qt source build directory, to avoid generated MSVC object path limits")
+if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
+    include("${PROJECT_SOURCE_DIR}/cmake/PrepareLibarchive.cmake")
+    ananarchiver_prepare_libarchive(ananarchiver_libarchive_source_directory)
+endif()
 if(ANANARCHIVER_BUILD_QT AND NOT ANANARCHIVER_USE_SYSTEM_QT AND WIN32)
     include("${PROJECT_SOURCE_DIR}/cmake/PrepareQt.cmake")
     ananarchiver_prepare_qt(ananarchiver_qt_source_directory)
@@ -129,7 +133,7 @@ if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
     set(codec_dependencies dependency_zlib dependency_bzip2 dependency_xz dependency_zstd
         dependency_lz4 dependency_expat dependency_mbedtls)
     # Searches inside this build's prefix only; no optional codec can come from the host.
-    ananarchiver_dependency(libarchive "${PROJECT_SOURCE_DIR}/third_party/libarchive"
+    ananarchiver_dependency(libarchive "${ananarchiver_libarchive_source_directory}"
         "-DCMAKE_PREFIX_PATH:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
         "-DCMAKE_FIND_ROOT_PATH:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
         -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
@@ -179,6 +183,7 @@ set(application_arguments ${dependency_arguments}
     "-DANANARCHIVER_LIBARCHIVE_USE_CNG:BOOL=${ANANARCHIVER_LIBARCHIVE_USE_CNG}"
     "-DANANARCHIVER_DEPENDENCY_PREFIX:PATH=${ANANARCHIVER_DEPENDENCY_PREFIX}"
     "-DANANARCHIVER_DEPENDENCY_MANIFEST:FILEPATH=${ANANARCHIVER_DEPENDENCY_MANIFEST}"
+    "-DANANARCHIVER_LIBARCHIVE_PATCH_SHA256:STRING=${ANANARCHIVER_LIBARCHIVE_PATCH_SHA256}"
     "-DANANARCHIVER_QT_PATCH_SHA256:STRING=${ANANARCHIVER_QT_PATCH_SHA256}"
     "-DANANARCHIVER_QTBASE_REVISION:STRING=${ANANARCHIVER_QTBASE_REVISION}"
     "-DBUILD_TESTING:BOOL=${BUILD_TESTING}")

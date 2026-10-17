@@ -1,8 +1,14 @@
 # Dependency resolution validation — 2026-10-11
 
+历史来源说明（2026-10-17）：本记录中的 libarchive revision、PR 与后端审计来自
+当时使用的 fork。当前依赖已切换为官方
+[libarchive/libarchive](https://github.com/libarchive/libarchive) 最新稳定发布版。
+下文保留当时的源码快照与验证证据，不代表当前官方发布版包含这些 fork 修复，
+也不代表官方来源已通过下述验收；当前构建须重新生成解析清单和 provenance。
+
 本次在已合并主线的最新稳定依赖方案上整合增强：沿用单一 canonical 解析器、
 现有 manifest/provenance 契约和 Qt 桌面 CI，加入纯本地验证、构建身份绑定、
-失败日志与真实全新 checkout 回归。后端修复已移到指定上游，父项目不再维护补丁副本。
+失败日志与真实全新 checkout 回归。当时后端修复已移到指定 fork，父项目不再维护补丁副本。
 
 本记录的版本和 revision 只描述本次验证，不是长期固定要求。
 [2026-10-10 记录](2026-10-10-dependency-resolution.md) 保留为历史证据。
@@ -116,14 +122,15 @@ junction 形式的构建路径，使用真实 SSD 目录；迁移后曾因旧 CM
 配置失败，修正生成缓存后重新 configure/generate 成功。最终构建复用已经验证来源、
 编译器和选项一致的 Qt 产物。上述路径仅为本次测试缓存，不是生产代码默认路径。
 
-## 已合入的后端修复与独立审计
+## 历史 fork 已合入的后端修复与独立审计
 
-[libarchive PR #1](https://github.com/ananwanan/libarchive/pull/1) 合入公共 PSA API、
+[旧 fork PR #1](https://github.com/ananwanan/libarchive/pull/1) 合入公共 PSA API、
 ZIP abort 资源清理、盐头失败资源归属与认证失败保护，merge revision a4be649。
-[PR #2](https://github.com/ananwanan/libarchive/pull/2) 补齐原父项目补丁的共享 PSA
+[旧 fork PR #2](https://github.com/ananwanan/libarchive/pull/2) 补齐原父项目补丁的共享 PSA
 并发保护、成功初始化缓存、持久 ECB operation、CryptoOnly 发现与失败处理，
-merge revision `d0661f5e7d89c9f3eea55be894340d3976ec97e4`。两项均已合入指定
-上游 `master`；实际初始化从该默认分支获得新 HEAD，没有用父仓库补丁生成副本。
+merge revision `d0661f5e7d89c9f3eea55be894340d3976ec97e4`。两项当时均已合入旧
+fork 的 `master`；该轮初始化从旧 fork 默认分支获得 HEAD，没有用父仓库补丁生成副本。
+这些 PR 链接只指向历史 fork，不是官方仓库的同号 PR。
 
 原审计命令和记录位于 `out/audit/latest-compatibility/validation-report.md`。
 该审计首先在合并前独立 checkout 运行，不能当作当前应用完整测试结果。

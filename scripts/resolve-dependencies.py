@@ -24,7 +24,7 @@ import urllib.request
 CORE = ("libarchive", "zlib", "bzip2", "xz", "zstd", "lz4", "expat", "mbedtls")
 QT_MODULES = ("qtbase", "qtshadertools", "qtdeclarative", "qtsvg")
 UPSTREAMS = {
-    "libarchive": "ananwanan/libarchive", "zlib": "madler/zlib",
+    "libarchive": "libarchive/libarchive", "zlib": "madler/zlib",
     "bzip2": "libarchive/bzip2", "xz": "tukaani-project/xz",
     "zstd": "facebook/zstd", "lz4": "lz4/lz4", "expat": "libexpat/libexpat",
     "mbedtls": "Mbed-TLS/mbedtls", "qt": "qt/qt5",
@@ -205,7 +205,7 @@ def select_source(name: str, url: str, api: GitHub) -> dict:
         if not isinstance(release.get("html_url"), str) or not release["html_url"]:
             raise ResolutionError(f"Invalid published release metadata: {repo}")
         tag, selection, metadata_source = release["tag_name"], "release", release["html_url"]
-    elif name != "libarchive" and not metadata.get("fork"):
+    elif not metadata.get("fork"):
         preview_tags = {row["tag_name"] for row in releases
                         if row.get("draft") or row.get("prerelease") or not row.get("published_at")}
         tags = [(stable_version(name, ref.removeprefix("refs/tags/")), ref.removeprefix("refs/tags/"))

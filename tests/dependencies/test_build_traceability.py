@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -28,6 +29,10 @@ class BuildTraceabilityTests(unittest.TestCase):
             "cmake_version": "current", "generator": "Ninja", "external_libraries": [],
             "toolchain": {"system": "test-host", "cxx_compiler": {"id": "test", "version": "1"}},
         }
+        self.backend_patch = root / "cmake/patches/libarchive-compatibility.patch"
+        self.backend_patch.parent.mkdir(parents=True)
+        self.backend_patch.write_text("fixture compatibility patch\n", encoding="utf-8")
+        self.config["libarchive_patch_sha256"] = hashlib.sha256(self.backend_patch.read_bytes()).hexdigest()
         self.entry = {"name": "libarchive", "path": "third_party/libarchive", "url": "https://example.test/libarchive.git",
                       "version": "3.9.0", "ref": "refs/heads/master", "revision": "a" * 40, "coupled_to": None,
                       "resolved_at": "2026-10-11T00:00:00Z"}
@@ -35,6 +40,11 @@ class BuildTraceabilityTests(unittest.TestCase):
         self.sources = patch.object(trace, "source_dependencies", side_effect=lambda _: (self.manifest, [self.entry.copy()]))
         self.sources.start()
         self.addCleanup(self.sources.stop)
+        # These tests isolate identity/prefix policy with synthetic revisions.
+        # Generated source attestation has real Git fixtures in its own suite.
+        self.generated_sources = patch.object(trace, "validate_generated_libarchive")
+        self.generated_sources.start()
+        self.addCleanup(self.generated_sources.stop)
 
     def test_a_changed_source_cannot_reuse_a_configured_build(self):
         trace.run(self.config, "prepare")
@@ -82,6 +92,36 @@ class BuildTraceabilityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "new build directory"):
             trace.run(self.config, "verify")
 
+    def test_missing_or_forged_backend_patch_hash_is_rejected(self):
+        for invalid in (None, "0" * 64):
+            with self.subTest(hash=invalid):
+                self.config["libarchive_patch_sha256"] = invalid
+                with self.assertRaisesRegex(ValueError, "patch hash"):
+                    trace.run(self.config, "prepare")
+        self.assertFalse((Path(self.config["binary"]) / "dependency-build.json").exists())
+
+    def test_changed_backend_patch_requires_rebuilding_the_compiled_prefix(self):
+        trace.run(self.config, "prepare")
+        trace.run(self.config, "record-prefix")
+        self.backend_patch.write_text("updated compatibility patch\n", encoding="utf-8")
+        self.config["libarchive_patch_sha256"] = hashlib.sha256(self.backend_patch.read_bytes()).hexdigest()
+        self.config["binary"] += "-application"
+        self.config["superbuild"] = False
+        with self.assertRaisesRegex(ValueError, "new build directory"):
+            trace.run(self.config, "prepare")
+
+    def test_legacy_prefix_without_backend_patch_identity_is_rejected(self):
+        trace.run(self.config, "prepare")
+        trace.run(self.config, "record-prefix")
+        path = Path(self.config["prefix"]) / "share/AnAnArchiver/dependency-build.json"
+        previous = json.loads(path.read_text(encoding="utf-8"))
+        previous["build_options"].pop("libarchive_patch_sha256")
+        trace.write_json(path, previous)
+        self.config["binary"] += "-application"
+        self.config["superbuild"] = False
+        with self.assertRaisesRegex(ValueError, "new build directory"):
+            trace.run(self.config, "prepare")
+
     def test_a_new_resolution_time_does_not_require_recompilation(self):
         trace.run(self.config, "prepare")
         self.entry["resolved_at"] = "2026-10-12T00:00:00Z"
@@ -90,7 +130,7 @@ class BuildTraceabilityTests(unittest.TestCase):
 
     def test_changing_dependency_build_options_requires_rebuilding_dependencies(self):
         recipe = Path(self.config["root"]) / "cmake/Superbuild.cmake"
-        recipe.parent.mkdir()
+        recipe.parent.mkdir(exist_ok=True)
         recipe.write_text("set(CRYPTO_THREADS ON)", encoding="utf-8")
         trace.run(self.config, "prepare")
         recipe.write_text("set(CRYPTO_THREADS OFF)", encoding="utf-8")
@@ -183,6 +223,154 @@ class BuildTraceabilityTests(unittest.TestCase):
         self.assertEqual(record["dependencies"][0]["revision"], "a" * 40)
         self.assertEqual(record["external_libraries"][0]["version"], "6.99.1")
         self.assertEqual(len(record["application"]["revision"]), 40)
+        self.assertEqual(record["libarchive_compatibility_patch"]["sha256"], self.config["libarchive_patch_sha256"])
+        self.assertEqual(record["libarchive_compatibility_patch"]["upstream_revision"], "a" * 40)
+
+
+class GeneratedLibarchiveTraceabilityTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="ananarchiver-generated-source-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.upstream = self.root / "third_party/libarchive"
+        self.upstream.mkdir(parents=True)
+        self.git("init", "--quiet", str(self.upstream))
+        self.git("config", "core.autocrlf", "false")
+        self.git("config", "core.symlinks", "true")
+        (self.upstream / "patched.txt").write_bytes(b"original\n")
+        (self.upstream / "untouched.c").write_bytes(b"upstream\n")
+        (self.upstream / "include").mkdir()
+        (self.upstream / "include/header.h").write_bytes(b"header\n")
+        self.has_symlink = False
+        try:
+            (self.upstream / "source-link").symlink_to("untouched.c")
+            self.has_symlink = True
+        except OSError:
+            pass
+        self.git("add", ".")
+        self.git("-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "commit", "-q", "-m", "upstream")
+        self.revision = self.git("rev-parse", "HEAD").strip()
+        self.patch_path = self.root / "cmake/patches/libarchive-compatibility.patch"
+        self.patch_path.parent.mkdir(parents=True)
+        self.patch_path.write_bytes(b"diff --git a/patched.txt b/patched.txt\n"
+                                    b"--- a/patched.txt\n+++ b/patched.txt\n@@ -1 +1 @@\n-original\n+compatible\n")
+        self.patch_hash = hashlib.sha256(self.patch_path.read_bytes()).hexdigest()
+        self.config = {"root": str(self.root), "binary": str(self.root / "build"), "prefix": str(self.root / "prefix"),
+                       "superbuild": True, "system_backend": False, "source_qt": False,
+                       "libarchive_patch_sha256": self.patch_hash,
+                       "toolchain": {"cxx_compiler": {"id": "fixture", "version": "1"}}}
+        self.backend = {"name": "libarchive", "path": "third_party/libarchive", "revision": self.revision}
+        source_id = hashlib.sha256((self.revision + "\n" + self.patch_hash).encode()).hexdigest()[:16]
+        self.source = Path(self.config["binary"]) / "dependencies/sources" / ("libarchive-" + source_id)
+        self.source.mkdir(parents=True)
+        (self.source / "patched.txt").write_bytes(b"compatible\n")
+        (self.source / "untouched.c").write_bytes(b"upstream\n")
+        (self.source / "include").mkdir()
+        (self.source / "include/header.h").write_bytes(b"header\n")
+        if self.has_symlink:
+            (self.source / "source-link").symlink_to("untouched.c")
+        (self.source / ".git").mkdir()
+        (self.source / ".git/ignored").write_bytes(b"metadata\n")
+        for name in (".prepared", ".patched-files"):
+            (self.source / name).write_bytes(b"metadata\n")
+        self.record_path = Path(self.config["binary"]) / "libarchive-generated-source.json"
+        self.dependencies = patch.object(trace, "source_dependencies", return_value=(None, [self.backend]))
+        self.dependencies.start()
+        self.addCleanup(self.dependencies.stop)
+
+    def git(self, *arguments):
+        return subprocess.check_output(["git", "-C", str(self.upstream), *arguments], text=True, encoding="utf-8")
+
+    def test_prepare_attests_the_full_official_tree_and_verify_is_read_only(self):
+        trace.run(self.config, "prepare")
+        record = json.loads(self.record_path.read_text(encoding="utf-8"))
+        self.assertEqual(self.revision, record["upstream_revision"])
+        self.assertEqual(self.patch_hash, record["patch_sha256"])
+        self.assertEqual(hashlib.sha256(b"upstream\n").hexdigest(), record["files"]["untouched.c"]["sha256"])
+        self.assertEqual(hashlib.sha256(b"compatible\n").hexdigest(), record["files"]["patched.txt"]["sha256"])
+        self.assertFalse({".git", ".prepared", ".patched-files"} & record["files"].keys())
+        before = self.record_path.read_bytes()
+        for name in (".prepared", ".patched-files"):
+            (self.source / name).write_bytes(b"irrelevant metadata changes\n")
+        with patch.object(trace, "write_json", side_effect=AssertionError("verify must not write")), \
+                patch.object(trace.subprocess, "run", side_effect=AssertionError("verify must not export or apply")):
+            trace.run(self.config, "verify")
+        self.assertEqual(before, self.record_path.read_bytes())
+        self.assertEqual(b"original\n", (self.upstream / "patched.txt").read_bytes())
+        self.assertEqual("", self.git("status", "--porcelain"))
+
+    def test_every_build_operation_rejects_modified_missing_and_added_inputs(self):
+        trace.run(self.config, "prepare")
+        original_record = self.record_path.read_bytes()
+        for name, content in (("patched.txt", b"tampered patch\n"), ("untouched.c", b"tampered source\n"),
+                              ("include/header.h", None), ("unexpected.c", b"added source\n")):
+            path = self.source / name
+            original = path.read_bytes() if path.exists() else None
+            if content is None:
+                path.unlink()
+            else:
+                path.write_bytes(content)
+            try:
+                for operation in ("verify", "record-prefix", "record"):
+                    with self.subTest(path=name, operation=operation), \
+                            patch.object(trace, "write_json", side_effect=AssertionError("invalid inputs must not write")):
+                        with self.assertRaisesRegex(ValueError, "Generated libarchive source differs.*Reconfigure"):
+                            trace.run(self.config, operation)
+                self.assertEqual(original_record, self.record_path.read_bytes())
+            finally:
+                if original is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(original)
+
+    def test_missing_or_mismatched_attestation_requires_reconfigure_without_writes(self):
+        trace.run(self.config, "prepare")
+        record = json.loads(self.record_path.read_text(encoding="utf-8"))
+        for invalid in (None, {**record, "upstream_revision": "b" * 40}, {**record, "patch_sha256": "0" * 64}):
+            if invalid is None:
+                self.record_path.unlink()
+            else:
+                self.record_path.write_text(json.dumps(invalid), encoding="utf-8")
+            for operation in ("verify", "record-prefix", "record"):
+                with self.subTest(record=invalid is not None, operation=operation), \
+                        patch.object(trace, "write_json", side_effect=AssertionError("verification must not regenerate records")):
+                    with self.assertRaisesRegex(ValueError, "[Gg]enerated libarchive source identity.*Reconfigure"):
+                        trace.run(self.config, operation)
+
+    def test_reconfigure_cannot_bless_an_edited_cache_or_its_forged_file_list(self):
+        trace.run(self.config, "prepare")
+        (self.source / "untouched.c").write_bytes(b"changed after configure\n")
+        record = json.loads(self.record_path.read_text(encoding="utf-8"))
+        record["files"]["untouched.c"]["sha256"] = hashlib.sha256(b"changed after configure\n").hexdigest()
+        self.record_path.write_text(json.dumps(record), encoding="utf-8")
+        forged = self.record_path.read_bytes()
+        with patch.object(trace, "write_json", side_effect=AssertionError("prepare must reject edited source before writing")):
+            with self.assertRaisesRegex(ValueError, "Generated libarchive source differs.*untouched.c"):
+                trace.run(self.config, "prepare")
+        self.assertEqual(forged, self.record_path.read_bytes())
+
+    def test_symlink_targets_and_entry_types_are_checked_without_following_them(self):
+        if not self.has_symlink:
+            self.skipTest("Host cannot create symbolic links")
+        trace.run(self.config, "prepare")
+        link = self.source / "source-link"
+        link.unlink()
+        link.symlink_to("patched.txt")
+        with self.assertRaisesRegex(ValueError, "source-link.*Reconfigure"):
+            trace.run(self.config, "verify")
+        link.unlink()
+        link.write_bytes(b"upstream\n")
+        with self.assertRaisesRegex(ValueError, "source-link.*Reconfigure"):
+            trace.run(self.config, "verify")
+
+    def test_system_and_application_builds_skip_generated_source_attestation(self):
+        for option in ("system_backend", "superbuild"):
+            config = {**self.config, option: option == "system_backend"}
+            with self.subTest(option=option), \
+                    patch.object(trace, "generated_source_files", side_effect=AssertionError("generated source must be skipped")), \
+                    patch.object(trace, "write_json", side_effect=AssertionError("generated record must be skipped")):
+                trace.validate_generated_libarchive(config, [], "prepare")
+                trace.validate_generated_libarchive(config, [], "verify")
 
 
 if __name__ == "__main__":

@@ -28,8 +28,8 @@ Dialog {
             name: "libarchive",
             purpose: qsTr("Archive reading and writing"),
             license: qsTr("BSD-2-Clause and additional component licenses"),
-            projectUrl: "https://github.com/ananwanan/libarchive",
-            licenseUrl: "https://github.com/ananwanan/libarchive/blob/HEAD/COPYING"
+            projectUrl: "https://github.com/libarchive/libarchive",
+            licenseUrl: "https://github.com/libarchive/libarchive/blob/HEAD/COPYING"
         },
         {
             name: "zlib",

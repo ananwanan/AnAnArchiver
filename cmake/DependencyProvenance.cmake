@@ -41,6 +41,14 @@ function(ananarchiver_json_quote output value)
 endfunction()
 
 function(ananarchiver_configure_dependency_provenance)
+    if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
+        file(SHA256 "${PROJECT_SOURCE_DIR}/cmake/patches/libarchive-compatibility.patch" libarchive_patch_hash)
+        if(ANANARCHIVER_LIBARCHIVE_PATCH_SHA256 AND
+                NOT ANANARCHIVER_LIBARCHIVE_PATCH_SHA256 STREQUAL libarchive_patch_hash)
+            message(FATAL_ERROR "The configured libarchive patch hash differs from the current build recipe")
+        endif()
+        set(ANANARCHIVER_LIBARCHIVE_PATCH_SHA256 "${libarchive_patch_hash}")
+    endif()
     set(libarchive_cng false)
     if(ANANARCHIVER_LIBARCHIVE_USE_CNG)
         set(libarchive_cng true)
@@ -88,6 +96,7 @@ function(ananarchiver_configure_dependency_provenance)
             "{\"name\":\"Qt\",\"selection\":\"developer-kit\",\"version\":${version},\"location\":${location},\"revision\":null}")
     endif()
     ananarchiver_json_quote(json_qt_windows_patch_sha256 "${ANANARCHIVER_QT_PATCH_SHA256}")
+    ananarchiver_json_quote(json_libarchive_patch_sha256 "${ANANARCHIVER_LIBARCHIVE_PATCH_SHA256}")
     ananarchiver_json_quote(json_qtbase_revision "${ANANARCHIVER_QTBASE_REVISION}")
     set(trace_config "${CMAKE_BINARY_DIR}/build-trace-config.json")
     file(WRITE "${trace_config}" "{
@@ -96,6 +105,7 @@ function(ananarchiver_configure_dependency_provenance)
   \"qt_build_binary\":${json_ANANARCHIVER_QT_BUILD_DIRECTORY},
   \"qt_options\":${qt_options},
   \"qt_windows_patch_sha256\":${json_qt_windows_patch_sha256},
+  \"libarchive_patch_sha256\":${json_libarchive_patch_sha256},
   \"qtbase_revision\":${json_qtbase_revision},
   \"superbuild\":${superbuild}, \"source_qt\":${source_qt}, \"system_backend\":${system_backend},
   \"libarchive_cng\":${libarchive_cng},
@@ -126,5 +136,9 @@ function(ananarchiver_configure_dependency_provenance)
     install(FILES "${CMAKE_BINARY_DIR}/dependency-provenance.json" DESTINATION share/AnAnArchiver)
     if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE OR source_qt)
         install(FILES "${CMAKE_BINARY_DIR}/resolved-dependencies.json" DESTINATION share/AnAnArchiver)
+    endif()
+    if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
+        install(FILES "${PROJECT_SOURCE_DIR}/cmake/patches/libarchive-compatibility.patch"
+            DESTINATION share/AnAnArchiver)
     endif()
 endfunction()

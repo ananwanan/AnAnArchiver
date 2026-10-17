@@ -54,6 +54,11 @@ install -m 644 "$source/packaging/macos/README.md" "$stage/README.md"
 for provenance in dependency-provenance.json resolved-dependencies.json; do
     if [[ -f "$build/$provenance" ]]; then install -m 644 "$build/$provenance" "$resources/$provenance"; fi
 done
+backend_patch="$stage/share/AnAnArchiver/libarchive-compatibility.patch"
+if [[ -f "$backend_patch" ]]; then
+    mkdir -p "$resources/share/AnAnArchiver"
+    install -m 644 "$backend_patch" "$resources/share/AnAnArchiver/libarchive-compatibility.patch"
+fi
 license_directory=${ANANARCHIVER_QT_LICENSE_DIRECTORY:-"$source/third_party/qt/LICENSES"}
 python3 "$source/packaging/linux/collect_licenses.py" \
     --project-root "$source" --source-root "${ANANARCHIVER_DEPENDENCY_SOURCE_DIRECTORY:-$source}" \

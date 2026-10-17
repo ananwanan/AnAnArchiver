@@ -44,6 +44,30 @@ function Read-PackageBuildRecord([string] $Path) {
     }
     return $record
 }
+function Get-LibarchivePatch($Provenance, $Sources) {
+    $backends = @($Sources.dependencies | Where-Object { $_.name -eq 'libarchive' })
+    $hasPatch = $null -ne $Provenance.PSObject.Properties['libarchive_compatibility_patch']
+    if ($backends.Count -eq 0 -and -not $hasPatch) { return $null }
+    if ($backends.Count -ne 1 -or -not $hasPatch) {
+        throw 'The bundled libarchive build requires its matching compatibility patch record.'
+    }
+    $record = $Provenance.libarchive_compatibility_patch
+    if ($null -eq $record -or $record -isnot [pscustomobject] -or
+        $null -eq $record.PSObject.Properties['path'] -or
+        $null -eq $record.PSObject.Properties['sha256'] -or
+        $null -eq $record.PSObject.Properties['upstream_revision'] -or
+        $record.path -cne 'cmake/patches/libarchive-compatibility.patch' -or
+        $record.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+        $record.upstream_revision -cne $backends[0].revision) {
+        throw 'The libarchive compatibility patch record differs from the resolved backend.'
+    }
+    $patch = Join-Path $taskRepository $record.path
+    if (-not (Test-Path -LiteralPath $patch -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $patch -Algorithm SHA256).Hash.ToLowerInvariant() -cne $record.sha256) {
+        throw 'The libarchive compatibility patch differs from its build record. Rebuild before packaging.'
+    }
+    return $patch
+}
 function Assert-X64Executable([string] $Path) {
     $stream = [IO.File]::OpenRead($Path)
     $reader = [IO.BinaryReader]::new($stream)
@@ -305,6 +329,7 @@ Configure and fully build a new build directory (see packaging/windows/README.md
 }
 $taskProvenance = Read-PackageBuildRecord $taskProvenancePath
 $taskSources = Read-PackageBuildRecord $taskManifestPath
+$taskLibarchivePatch = Get-LibarchivePatch $taskProvenance $taskSources
 Assert-X64Executable $taskExecutable
 $taskCache = Read-Cache (Join-Path $taskApplication 'CMakeCache.txt')
 if ($taskCache['CMAKE_BUILD_TYPE'] -ne 'Release') { throw 'Portable packages require a Release application build.' }
@@ -370,6 +395,9 @@ New-Item -ItemType Directory -Path (Join-Path $taskStage 'share/AnAnArchiver') -
 foreach ($record in @('dependency-provenance.json', 'resolved-dependencies.json')) {
     Copy-Item -LiteralPath (Join-Path $taskApplication $record) -Destination (Join-Path $taskStage 'share/AnAnArchiver')
 }
+if ($taskLibarchivePatch) {
+    Copy-Item -LiteralPath $taskLibarchivePatch -Destination (Join-Path $taskStage 'share/AnAnArchiver/libarchive-compatibility.patch')
+}
 
 if (-not $DependencySourceDirectory) {
     $taskManifestCachePath = $taskCache['ANANARCHIVER_DEPENDENCY_MANIFEST']
@@ -423,7 +451,11 @@ Dependency versions, revisions, source URLs and license texts are included in
 share/AnAnArchiver and licenses/. Qt libraries may be replaced with compatible
 modified builds; the package does not restrict debugging those modifications.
 Application source and build instructions: https://github.com/ananwanan/AnAnArchiver
-Backend source: https://github.com/ananwanan/libarchive
+Backend source: https://github.com/libarchive/libarchive
+Bundled backend builds apply the recorded compatibility fixes in
+share/AnAnArchiver/libarchive-compatibility.patch; its hash and official base
+revision are in dependency-provenance.json. Apply this patch after replaying
+the source manifest to reproduce the modified backend.
 For the exact dependency sources, use the included resolved-dependencies.json
 with scripts/resolve-dependencies.py --replay-manifest; see the repository build guidance.
 The Qt runtime's vendor SBOM and matching license texts are in licenses/qt-runtime.

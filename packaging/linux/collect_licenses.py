@@ -114,7 +114,10 @@ def collect(source_root: Path, manifest_file: Path, output: Path,
         "Exact dependency revisions, source URLs and license text hashes are in third-party-notices.json.\n"
         "The package permits replacement of Qt with compatible modified builds and debugging those modifications.\n"
         "Application source and build instructions: https://github.com/ananwanan/AnAnArchiver\n"
-        "Backend source: https://github.com/ananwanan/libarchive\n"
+        "Backend source: https://github.com/libarchive/libarchive\n"
+        "Bundled backend builds apply the compatibility patch shipped in share/AnAnArchiver/\n"
+        "libarchive-compatibility.patch; its hash and official base revision are in dependency-provenance.json.\n"
+        "The CMake build applies this recorded patch after replaying the source manifest.\n"
         "Replay the included resolved-dependencies.json with scripts/resolve-dependencies.py --replay-manifest\n"
         "to obtain the exact selected sources. Qt's matching notices and available runtime SBOM are in qt-runtime.\n",
         encoding="utf-8")

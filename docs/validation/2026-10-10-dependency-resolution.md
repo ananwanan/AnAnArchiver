@@ -1,5 +1,11 @@
 # Dependency resolution and desktop validation — 2026-10-10
 
+Historical source note (2026-10-17): the libarchive source and backend patch
+described here belong to the former fork. Current dependency initialization uses
+the official [libarchive/libarchive](https://github.com/libarchive/libarchive)
+latest stable release. The old revisions, patch details, and results below are
+preserved as historical evidence and do not validate the current official source.
+
 Implemented latest-stable source resolution, synchronized CI, and verified the
 updated Core and Qt desktop frontend. Resolution started on October 9; final
 validation completed on October 10, Asia/Shanghai.
@@ -8,8 +14,8 @@ validation completed on October 10, Asia/Shanghai.
 
 `scripts/resolve-dependencies.py` uses Python's standard library and Git. It
 selects non-draft, non-prerelease official Releases, or recognized stable tags
-where a designated upstream does not publish Releases. The designated libarchive
-fork has no independent release; its latest default-branch commit is selected,
+where a designated upstream does not publish Releases. The then-designated libarchive
+fork had no independent release; its latest default-branch commit was selected,
 including its actual `3.9.0dev` source version. Inherited fork tags do not replace
 that branch selection. Metadata errors fail explicitly; there is no old-version
 fallback. `GITHUB_TOKEN`/`GH_TOKEN` supports authenticated public metadata access
@@ -25,7 +31,7 @@ The resolved set used in this validation includes:
 
 | Source | Version | Revision |
 | --- | --- | --- |
-| ananwanan/libarchive | 3.9.0dev, default branch | `3bdd98d298af3ba33fb10c51582f05ddd0584c35` |
+| Former fork: ananwanan/libarchive | 3.9.0dev, default branch | `3bdd98d298af3ba33fb10c51582f05ddd0584c35` |
 | zlib | 1.3.2 | `da607da739fa6047df13e66a2af6b8bec7c2a498` |
 | bzip2 | 1.0.8 | `6a8690fc8d26c815e798c588f796eabe9d684cf0` |
 | XZ | 5.8.4 | `d3e650e63c110e830fd5391e7f8b45df0b91d3da` |
@@ -37,8 +43,8 @@ The resolved set used in this validation includes:
 | Qt | 6.12.0 | `ef25002ed292b132d1ed3246bfcee1d24a9cd966` |
 | Vulkan-Headers | 1.4.365 | `c46850864f4661461b0f6cb9922c058ffea4915e` |
 
-These are observations from one resolution, not permanent pins. The next normal
-initialization resolves current upstreams again.
+These are observations from the historical resolution, not permanent pins. A new
+normal initialization resolves the currently configured official upstreams again.
 
 ```sh
 # Normal initialization selects current stable sources.

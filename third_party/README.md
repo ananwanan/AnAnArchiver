@@ -4,7 +4,8 @@ Use the latest stable release from each dependency's designated upstream when
 initializing or updating sources. Do not prescribe a fixed historical version,
 tag, or commit. Exclude alpha, beta, RC, and nightly builds by default. If a
 project has no maintained releases, use its upstream default branch's latest
-commit. For libarchive, the designated upstream remains ananwanan/libarchive.
+commit. The libarchive upstream is the official libarchive/libarchive repository;
+select its latest stable release.
 
 Resolve all sources before compiling and use that resolved source set throughout
 one build. Record source URLs, actual versions, tags where available, commits,
@@ -29,7 +30,7 @@ the shorter `out/build/<preset>/qt`, adjustable with
 
 | Submodule | Upstream | Selection policy | Purpose |
 | --- | --- | --- | --- |
-| libarchive | [ananwanan/libarchive](https://github.com/ananwanan/libarchive) | Latest maintained release, or latest default-branch commit if no independent releases exist | Project archive backend |
+| libarchive | [libarchive/libarchive](https://github.com/libarchive/libarchive) | Latest stable official release | Project archive backend |
 | zlib | [madler/zlib](https://github.com/madler/zlib) | Latest stable release | Deflate / ZIP / GZIP |
 | bzip2 | [libarchive/bzip2](https://github.com/libarchive/bzip2) | Latest stable release | BZIP2 |
 | XZ/liblzma | [tukaani-project/xz](https://github.com/tukaani-project/xz) | Latest stable release | LZMA / LZMA2 / XZ / 7z |
@@ -126,17 +127,35 @@ Offline dependency-tool regressions run independently on Windows and Linux.
 Replay is followed by pure local verification; each build preserves available
 provenance, configure metadata, JUnit/CTest output, and dependency logs on failure.
 
-When an upstream release changes an API before the designated archive backend
-adapts to it, compatibility fixes belong to the backend rather than the Qt
-frontend. Public PSA Crypto support for Mbed TLS 4 and ZIP abort cleanup were
-merged into the designated upstream through
-[libarchive PR #1](https://github.com/ananwanan/libarchive/pull/1). The parent
-project's compatibility-patch copy is removed; the build uses the resolved
-upstream checkout directly. The previous patch's shared concurrency protection,
-persistent AES operation, and CryptoOnly support were also merged through
-[libarchive PR #2](https://github.com/ananwanan/libarchive/pull/2). Current status and
-the distinction between independent backend audits and application validation
-are recorded in `docs/validation/2026-10-11-dependency-resolution.md`.
+When an upstream release changes an API before the archive backend adapts to it,
+compatibility fixes belong to the backend rather than the Qt frontend. The build
+obtains libarchive's latest stable release from its official repository.
+`cmake/PrepareLibarchive.cmake` exports the verified official revision with
+`git archive` and applies `cmake/patches/libarchive-compatibility.patch` only to
+that generated source tree. The patch provides Mbed TLS 4 / TF-PSA-Crypto
+compatibility and ZIP abort cleanup. The official submodule remains unchanged.
+A patch that no longer applies fails explicitly, requiring review and retirement
+of fixes already included upstream; the build does not silently omit fixes or
+select an older backend.
+
+Each configure independently reconstructs the expected complete tree from the
+official revision and patch. Build verification checks every generated file,
+directory and symbolic link against that attestation without rewriting it,
+including files untouched by the patch. Edited, missing or added inputs are
+rejected before build provenance is recorded.
+
+Build provenance records the official base revision and patch SHA-256. Installation
+and distribution packages include the matching patch at
+`share/AnAnArchiver/libarchive-compatibility.patch`. To reproduce a build, use the
+corresponding application source and recorded patch, replay its official source
+manifest, and run CMake normally; the build applies and records the patch
+automatically. Source or patch changes require a compatible new build directory
+and dependency prefix.
+
+Historical fork fixes and audits are recorded in
+`docs/validation/2026-10-11-dependency-resolution.md`; they do not establish that
+an official release contains those changes. A source switch requires new source
+resolution, build provenance, and regression evidence.
 
 Mbed TLS and TF-PSA-Crypto Git checkouts require generated C/header sources which
 release tarballs may already contain. The superbuild enables their upstream

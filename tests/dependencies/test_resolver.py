@@ -23,8 +23,9 @@ NOW = "2026-10-09T00:00:00+00:00"
 
 
 class FakeGitHub:
-    def __init__(self, *, fork=False, releases=None, contents=None, links=None):
+    def __init__(self, *, fork=False, releases=None, contents=None, links=None, default_branch="main"):
         self.fork = fork
+        self.default_branch = default_branch
         self.release_rows = [{"published_at": NOW, **row} for row in (releases or [])]
         self.contents = contents or {}
         self.links = links or {}
@@ -33,7 +34,7 @@ class FakeGitHub:
         return resolver.canonical_url(url).removeprefix("https://github.com/")
 
     def metadata(self, repo):
-        return {"fork": self.fork, "default_branch": "main"}
+        return {"fork": self.fork, "default_branch": self.default_branch}
 
     def releases(self, repo):
         return self.release_rows
@@ -62,23 +63,19 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("v1.10.0", resolver.choose_release("zlib", rows)["tag_name"])
 
     def test_independent_fork_release_is_used_and_tag_peeled(self):
-        api = FakeGitHub(fork=True, releases=[{"tag_name": "v3.9.1", "html_url": "https://github.com/fork/releases/3.9.1"}],
-                         contents={("ananwanan/libarchive", B, "libarchive/archive.h"):
-                                   '#define ARCHIVE_VERSION_ONLY_STRING "3.9.1"'})
-        with patch.object(resolver, "remote_refs", return_value={"refs/tags/v3.9.1": A, "refs/tags/v3.9.1^{}": B}):
-            row = resolver.select_source("libarchive", "https://github.com/ananwanan/libarchive.git", api)
+        api = FakeGitHub(fork=True, releases=[{"tag_name": "v1.2.3", "html_url": "https://github.com/example/zlib/releases/1.2.3"}])
+        with patch.object(resolver, "remote_refs", return_value={"refs/tags/v1.2.3": A, "refs/tags/v1.2.3^{}": B}):
+            row = resolver.select_source("zlib", "https://github.com/example/zlib.git", api)
         self.assertEqual(B, row["revision"])
         self.assertEqual("release", row["selection"])
 
     def test_fork_without_own_releases_ignores_inherited_tags(self):
-        api = FakeGitHub(fork=True, contents={("ananwanan/libarchive", B, "libarchive/archive.h"):
-                                             '#define ARCHIVE_VERSION_ONLY_STRING "3.9.0dev"'})
+        api = FakeGitHub(fork=True)
         with patch.object(resolver, "remote_refs", return_value={"refs/tags/v99.0.0": A, "refs/heads/main": B}):
-            row = resolver.select_source("libarchive", "https://github.com/ananwanan/libarchive.git", api)
+            row = resolver.select_source("zlib", "https://github.com/example/zlib.git", api)
         self.assertEqual(B, row["revision"])
-        self.assertEqual("3.9.0dev", row["version"])
+        self.assertEqual("git-" + B[:12], row["version"])
         self.assertEqual("default-branch", row["selection"])
-        self.assertEqual("libarchive/archive.h:ARCHIVE_VERSION_ONLY_STRING", row["version_source"])
 
     def test_release_selection_does_not_jump_to_unreleased_future_tag(self):
         api = FakeGitHub(releases=[{"tag_name": "v1.2.3", "html_url": "https://github.com/project/releases/1.2.3"}])
@@ -130,12 +127,36 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(resolver.ResolutionError):
                 resolver.parse_gitmodules(f'[submodule "source"]\npath={path}\nurl=https://github.com/source/source\n')
 
-    def test_libarchive_import_with_inherited_tags_still_follows_default_branch(self):
-        api = FakeGitHub(fork=False, contents={("ananwanan/libarchive", B, "libarchive/archive.h"):
-                                              '#define ARCHIVE_VERSION_ONLY_STRING "3.9.0dev"'})
-        with patch.object(resolver, "remote_refs", return_value={"refs/tags/v99.0.0": A, "refs/heads/main": B}):
-            row = resolver.select_source("libarchive", "https://github.com/ananwanan/libarchive.git", api)
-        self.assertEqual((B, "default-branch"), (row["revision"], row["selection"]))
+    def test_libarchive_official_release_precedes_default_branch_and_future_tag(self):
+        api = FakeGitHub(default_branch="master", releases=[
+            {"tag_name": "v3.9.1", "html_url": "https://github.com/libarchive/libarchive/releases/tag/v3.9.1"},
+            {"tag_name": "v3.9.2", "html_url": "https://github.com/libarchive/libarchive/releases/tag/v3.9.2"}],
+            contents={("libarchive/libarchive", B, "libarchive/archive.h"):
+                      '#define ARCHIVE_VERSION_ONLY_STRING "3.9.2"'})
+        with patch.object(resolver, "remote_refs", return_value={"refs/tags/v3.9.1": A,
+                          "refs/tags/v3.9.2": A, "refs/tags/v3.9.2^{}": B,
+                          "refs/tags/v99.0.0": C, "refs/heads/master": C}):
+            row = resolver.select_source("libarchive", "https://github.com/libarchive/libarchive.git", api)
+        self.assertEqual((B, "release", "refs/tags/v3.9.2", "3.9.2"),
+                         (row["revision"], row["selection"], row["ref"], row["version"]))
+        self.assertEqual("libarchive/archive.h:ARCHIVE_VERSION_ONLY_STRING", row["version_source"])
+
+    def test_libarchive_without_github_releases_uses_latest_stable_tag(self):
+        api = FakeGitHub(default_branch="master", contents={("libarchive/libarchive", B, "libarchive/archive.h"):
+                                  '#define ARCHIVE_VERSION_ONLY_STRING "3.10.0"'})
+        with patch.object(resolver, "remote_refs", return_value={"refs/tags/v3.9.2": A,
+                          "refs/tags/v3.10.0": B, "refs/tags/v4.0.0-rc1": C, "refs/heads/master": C}):
+            row = resolver.select_source("libarchive", "https://github.com/libarchive/libarchive.git", api)
+        self.assertEqual((B, "stable-tag", "refs/tags/v3.10.0", "3.10.0"),
+                         (row["revision"], row["selection"], row["ref"], row["version"]))
+
+    def test_libarchive_without_releases_or_stable_tags_uses_default_branch(self):
+        api = FakeGitHub(default_branch="master", contents={("libarchive/libarchive", B, "libarchive/archive.h"):
+                                  '#define ARCHIVE_VERSION_ONLY_STRING "3.10.0dev"'})
+        with patch.object(resolver, "remote_refs", return_value={"refs/tags/v3.10.0-rc1": A, "refs/heads/master": B}):
+            row = resolver.select_source("libarchive", "https://github.com/libarchive/libarchive.git", api)
+        self.assertEqual((B, "default-branch", "3.10.0dev"),
+                         (row["revision"], row["selection"], row["version"]))
 
     def test_unpublished_release_metadata_is_not_formal_release(self):
         self.assertIsNone(resolver.choose_release("zlib", [{"tag_name": "v1.2.3", "published_at": None}]))
@@ -321,6 +342,18 @@ class ReplayTests(unittest.TestCase):
         invalid["dependencies"].append(invalid["dependencies"][0])
         with self.assertRaisesRegex(resolver.ResolutionError, "Duplicate"):
             resolver.validate_manifest(invalid, self.root)
+
+    def test_old_libarchive_fork_is_rejected_even_when_manifest_and_modules_agree(self):
+        self.rows[0]["url"] = "https://github.com/ananwanan/libarchive.git"
+        self.write_modules(self.root, self.rows)
+        with patch.object(resolver, "select_source") as select:
+            with self.assertRaisesRegex(resolver.ResolutionError, "upstream differs from project policy: libarchive"):
+                resolver.resolve(self.root, False, FakeGitHub())
+        select.assert_not_called()
+        with patch.object(resolver, "initialize_checkout") as initialize:
+            with self.assertRaisesRegex(resolver.ResolutionError, "upstream differs from project policy: libarchive"):
+                resolver.apply_manifest(self.manifest, self.root, offline=True)
+        initialize.assert_not_called()
 
     def test_malformed_manifest_and_parent_rejected_cleanly(self):
         for invalid in ([], "bad", None, {"schema_version": 1}):
