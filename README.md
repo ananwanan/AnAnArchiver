@@ -246,6 +246,32 @@ Linux 生成 Qt/QML runtime 与启动脚本配套的 tar.gz，提供可选的当
 尚未进行这两个平台的原生 GUI/打包运行验收。证据见
 [M5 验收记录](docs/validation/2026-10-12-m5.md)。
 
+### Windows Store MSIX
+
+`scripts/Package-MSIX.ps1` 可将 Release MSVC x64 构建打包为供 Microsoft Store
+提交的未签名 MSIX。需要安装含 `MakeAppx.exe` 的 Windows SDK；脚本自动发现
+SDK，也可用 `-MakeAppxPath` 指定工具。以下三个身份值必须替换为 Partner Center
+产品的 **Product management > Product identity** 中的准确值：
+
+```powershell
+./scripts/Package-MSIX.ps1 -BuildDirectory out/build/desktop-release -SkipBuild `
+    -IdentityName '<Partner Center 的 Package/Identity/Name>' `
+    -Publisher '<Partner Center 的 Package/Identity/Publisher>' `
+    -PublisherDisplayName '<Partner Center 的 Package/Properties/PublisherDisplayName>'
+```
+
+脚本复用现有 Qt/CRT、许可证和依赖来源部署，不需要 Inno Setup；也可用
+`-PortableDirectory` 输入现有完整 portable 目录，并校验其清单和逐文件哈希。
+默认版本取构建记录并补齐第四段 `.0`；`-PackageVersion 1.0.1.0` 可单独设置
+Store 包版本，第四段必须为零。产物与身份、来源、工具和哈希记录位于
+`out/artifacts/msix`，打包后会解包核对全部文件。同名产物不会覆盖；再次打包时
+请使用新的 `-PackageVersion` 或 `-OutputDirectory`。
+
+该包声明桌面 full-trust 能力，最低 Windows 10 1809，不增加安装器的可选右键菜单
+或文件关联。Microsoft Store 认证后负责签名；本地侧载需另外签名。生成成功不代表
+已完成 MSIX 安装、Windows App Certification Kit 或 Store 审核；详细参数和提交
+步骤见 [MSIX 发布说明](packaging/windows/README.md#microsoft-store-msix)。
+
 ### Android 测试 APK
 
 Windows 上可用同版本的 Qt Android kit 与宿主 Qt kit 构建测试 APK；归档 backend

@@ -133,3 +133,97 @@ The ZIP, setup EXE and their SHA-256 hashes are written under
 `out/artifacts/windows`. `package-manifest.json` contains per-file hashes and the
 Qt/runtime deployment sources. Release installers are unsigned unless signing is
 added by the release owner; the build-tool download has its vendor signature.
+
+## Microsoft Store MSIX
+
+`scripts/Package-MSIX.ps1` creates an unsigned Windows x64 MSIX for submission to
+Microsoft Store. Install the Windows SDK with `MakeAppx.exe` first. The script
+discovers the newest installed numeric SDK tool version through the registered
+Windows Kits root, SDK environment variables and standard installation paths.
+For a specific installation, pass `-MakeAppxPath <path-to-makeappx.exe>`.
+
+Reserve the product in Partner Center, open **Product management > Product
+identity**, and copy these exact values into the required parameters:
+
+| Parameter | Partner Center / manifest value |
+| --- | --- |
+| `-IdentityName` | `Package/Identity/Name` |
+| `-Publisher` | `Package/Identity/Publisher` |
+| `-PublisherDisplayName` | `Package/Properties/PublisherDisplayName` |
+
+The following values are placeholders; replace all three with your product's
+identity. Names, publisher strings, capitalization and punctuation must match
+Partner Center. `-DisplayName` defaults to `AnAnArchiver`; set it to the reserved
+Store display name if that differs.
+
+```powershell
+./scripts/Package-MSIX.ps1 -BuildDirectory out/build/desktop-release -SkipBuild `
+    -IdentityName '<Package/Identity/Name from Partner Center>' `
+    -Publisher '<Package/Identity/Publisher from Partner Center>' `
+    -PublisherDisplayName '<Package/Properties/PublisherDisplayName from Partner Center>'
+```
+
+Without `-SkipBuild`, the script first builds the specified Release directory.
+It then calls `Package-Windows.ps1 -SkipInstaller`, preserving the same matched
+Qt/QML deployment, app-local MSVC runtime, dependency records and licenses. The
+existing requirements for both build provenance records also apply here. Pass
+`-DependencySourceDirectory` when using a separate dependency source checkout.
+This path does not need Inno Setup.
+
+Alternatively, package the complete deployed directory previously produced by
+`Package-Windows.ps1`. Its manifest and every recorded payload hash are checked
+before staging; do not pass an arbitrary EXE directory or an extracted subset:
+
+```powershell
+./scripts/Package-MSIX.ps1 `
+    -PortableDirectory out/artifacts/windows/AnAnArchiver-1.0.0-windows-x64 `
+    -IdentityName '<Package/Identity/Name from Partner Center>' `
+    -Publisher '<Package/Identity/Publisher from Partner Center>' `
+    -PublisherDisplayName '<Package/Properties/PublisherDisplayName from Partner Center>' `
+    -PackageVersion 1.0.1.0
+```
+
+`-PackageVersion` defaults to the recorded project version with a fourth `.0`
+component. Store versions must have four integer components: the first is
+1–65535, the second and third are 0–65535, and the fourth must be zero. Set an
+explicit version when the Store package needs a different build number; this
+does not change the source build version recorded in provenance.
+
+The manifest declares `Windows.Desktop`, x64, a full-trust classic desktop entry
+point and the restricted `runFullTrust` capability. Its Windows version floor is
+`10.0.17763.0` (Windows 10 1809), matching the current Qt 6.12 support floor.
+`MaxVersionTested` conservatively uses the same value; discovering a newer SDK
+does not establish that the application was tested on that Windows version.
+Tile and Store logos are generated from the existing application icon without
+additional image tools. This package does not add the Inno installer's optional
+Open with registration, Explorer context commands or desktop shortcut.
+
+By default, `out/artifacts/msix` receives:
+
+- `AnAnArchiver-<four-part-version>-windows-x64.msix`
+- `AnAnArchiver-<four-part-version>-windows-x64.AppxManifest.xml`
+- `AnAnArchiver-<four-part-version>-windows-x64-artifacts.json`, containing the
+  selected identity, source provenance, packaging tool and output SHA-256 hashes.
+
+Use `-OutputDirectory` to select another artifact directory. MakeAppx's manifest
+validation remains enabled. Existing same-name artifacts are never overwritten;
+use a new `-PackageVersion` or `-OutputDirectory` when packaging again. The script
+unpacks the generated MSIX and checks all
+staged file hashes before reporting success. It does not install the package,
+modify certificate trust, run Windows App Certification Kit or submit to Store.
+Those checks and the Store review remain release acceptance steps; the existing
+Inno installer tests do not establish MSIX installation compatibility.
+
+Upload the `.msix` in the product submission's **Packages** page. Store signs the
+package after certification, so this submission workflow does not require a
+signing certificate. Local sideload testing needs a separately signed package
+whose certificate publisher matches the manifest; follow Microsoft's SignTool
+instructions. Do not modify the verified submission artifact in place without
+regenerating its hash record.
+
+Official references: [manual desktop package manifest](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-manual-conversion),
+[Partner Center identity values](https://learn.microsoft.com/en-us/windows/apps/publish/view-app-identity-details),
+[Store package, version and signing requirements](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/app-package-requirements),
+[MakeAppx and its validation limits](https://learn.microsoft.com/en-us/windows/msix/package/create-app-package-with-makeappx-tool),
+[SignTool for sideload packages](https://learn.microsoft.com/en-us/windows/msix/package/sign-app-package-using-signtool),
+and [Qt supported platforms](https://doc.qt.io/qt-6/supported-platforms.html).
