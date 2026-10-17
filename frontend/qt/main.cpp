@@ -61,12 +61,15 @@ int main(int argc, char* argv[])
         QStringLiteral("Save the rendered main window for launch verification"), QStringLiteral("file"));
     QCommandLineOption aboutOption(QStringLiteral("smoke-about"),
         QStringLiteral("Open the About dialog for launch verification"));
+    QCommandLineOption licensesOption(QStringLiteral("smoke-licenses"),
+        QStringLiteral("Open the open-source licenses dialog for launch verification"));
     QCommandLineOption languageOption(QStringLiteral("language"),
         QStringLiteral("Select the interface language (en or zh-CN)"), QStringLiteral("language"));
     parser.addOption(smokeOption);
     parser.addOption(smokeArchiveOption);
     parser.addOption(screenshotOption);
     parser.addOption(aboutOption);
+    parser.addOption(licensesOption);
     parser.addOption(languageOption);
     parser.addOption({QStringLiteral("extract-here"), QStringLiteral("Extract the archive into its containing folder")});
     parser.addOption({QStringLiteral("extract-to-folder"), QStringLiteral("Extract into a folder named after the archive")});
@@ -152,10 +155,11 @@ int main(int argc, char* argv[])
             if (!application.handleShellAction(shellAction, positional)) app.exit(2);
         });
     }
-    if (parser.isSet(aboutOption)) {
+    if (parser.isSet(aboutOption) || parser.isSet(licensesOption)) {
         bool opened = false;
         for (auto* window : app.allWindows()) {
-            auto* dialog = window->findChild<QObject*>(QStringLiteral("aboutDialog"));
+            auto* dialog = window->findChild<QObject*>(parser.isSet(licensesOption)
+                ? QStringLiteral("openSourceDialog") : QStringLiteral("aboutDialog"));
             if (dialog) {
                 opened = QMetaObject::invokeMethod(dialog, "open");
                 break;

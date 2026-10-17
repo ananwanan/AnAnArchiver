@@ -224,6 +224,12 @@ ApplicationWindow {
         Menu {
             title: qsTr("Help")
             MenuItem {
+                objectName: "openSourceMenuItem"
+                text: qsTr("Open-source components and licenses")
+                onTriggered: openSourceDialog.open()
+            }
+            MenuSeparator {}
+            MenuItem {
                 text: qsTr("About AnAnArchiver")
                 onTriggered: aboutDialog.open()
             }
@@ -593,6 +599,10 @@ ApplicationWindow {
         hostWindow: window
         title: qsTr("Unable to read folder")
         message: qsTr("Unable to read folder")
+    }
+    OpenSourceDialog {
+        id: openSourceDialog
+        hostWindow: window
     }
     Dialog {
         id: aboutDialog

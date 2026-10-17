@@ -55,6 +55,7 @@ set_source_files_properties(qml/components/PlainToolTip.qml PROPERTIES QT_RESOUR
 set_source_files_properties(qml/dialogs/CompressionDialog.qml PROPERTIES QT_RESOURCE_ALIAS dialogs/CompressionDialog.qml)
 set_source_files_properties(qml/dialogs/TaskCenter.qml PROPERTIES QT_RESOURCE_ALIAS dialogs/TaskCenter.qml)
 set_source_files_properties(qml/dialogs/ErrorDetailsDialog.qml PROPERTIES QT_RESOURCE_ALIAS dialogs/ErrorDetailsDialog.qml)
+set_source_files_properties(qml/dialogs/OpenSourceDialog.qml PROPERTIES QT_RESOURCE_ALIAS dialogs/OpenSourceDialog.qml)
 set_source_files_properties(qml/pages/WelcomePage.qml PROPERTIES QT_RESOURCE_ALIAS pages/WelcomePage.qml)
 set_source_files_properties(qml/components/AppIcon.qml PROPERTIES QT_RESOURCE_ALIAS components/AppIcon.qml)
 set_source_files_properties(qml/components/SortHeader.qml PROPERTIES QT_RESOURCE_ALIAS components/SortHeader.qml)
@@ -72,6 +73,7 @@ qt_add_qml_module(AnAnArchiver
         qml/dialogs/CompressionDialog.qml
         qml/dialogs/TaskCenter.qml
         qml/dialogs/ErrorDetailsDialog.qml
+        qml/dialogs/OpenSourceDialog.qml
         qml/pages/WelcomePage.qml
         qml/components/AppIcon.qml
         qml/components/SortHeader.qml)

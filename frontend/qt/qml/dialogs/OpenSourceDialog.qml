@@ -1,0 +1,180 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+Dialog {
+    id: root
+    objectName: "openSourceDialog"
+    required property var hostWindow
+    title: qsTr("Open-source components and licenses")
+    modal: true
+    anchors.centerIn: Overlay.overlay
+    width: Math.min(740, hostWindow.width - 48)
+    height: Math.min(620, hostWindow.height - 48)
+    standardButtons: Dialog.Close
+
+    // Library licenses, rather than licenses of unrelated upstream CLI tools.
+    // Keep this catalog aligned with cmake/Dependencies.cmake and third_party.
+    readonly property var components: [
+        {
+            name: "Qt 6",
+            purpose: qsTr("Desktop interface, QML, SVG and shader tools"),
+            license: "LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only",
+            projectUrl: "https://www.qt.io/",
+            licenseUrl: "https://github.com/qt/qtbase/tree/HEAD/LICENSES"
+        },
+        {
+            name: "libarchive",
+            purpose: qsTr("Archive reading and writing"),
+            license: qsTr("BSD-2-Clause and additional component licenses"),
+            projectUrl: "https://github.com/ananwanan/libarchive",
+            licenseUrl: "https://github.com/ananwanan/libarchive/blob/HEAD/COPYING"
+        },
+        {
+            name: "zlib",
+            purpose: qsTr("DEFLATE compression"),
+            license: "Zlib",
+            projectUrl: "https://zlib.net/",
+            licenseUrl: "https://github.com/madler/zlib/blob/HEAD/LICENSE"
+        },
+        {
+            name: "bzip2 / libbzip2",
+            purpose: qsTr("BZIP2 compression"),
+            license: "bzip2-1.0.6",
+            projectUrl: "https://sourceware.org/bzip2/",
+            licenseUrl: "https://github.com/libarchive/bzip2/blob/HEAD/COPYING"
+        },
+        {
+            name: "XZ Utils / liblzma",
+            purpose: qsTr("XZ and LZMA compression"),
+            license: "0BSD",
+            projectUrl: "https://tukaani.org/xz/",
+            licenseUrl: "https://github.com/tukaani-project/xz/blob/HEAD/COPYING"
+        },
+        {
+            name: "Zstandard",
+            purpose: qsTr("Zstandard compression"),
+            license: "BSD-3-Clause OR GPL-2.0-only",
+            projectUrl: "https://facebook.github.io/zstd/",
+            licenseUrl: "https://github.com/facebook/zstd/blob/HEAD/LICENSE"
+        },
+        {
+            name: "LZ4",
+            purpose: qsTr("LZ4 compression"),
+            license: "BSD-2-Clause",
+            projectUrl: "https://lz4.org/",
+            licenseUrl: "https://github.com/lz4/lz4/blob/HEAD/lib/LICENSE"
+        },
+        {
+            name: "Expat",
+            purpose: qsTr("XML parsing for archive metadata"),
+            license: "MIT",
+            projectUrl: "https://libexpat.github.io/",
+            licenseUrl: "https://github.com/libexpat/libexpat/blob/HEAD/COPYING"
+        },
+        {
+            name: "Mbed TLS",
+            purpose: qsTr("Archive cryptography (depending on build)"),
+            license: "Apache-2.0 OR GPL-2.0-or-later",
+            projectUrl: "https://github.com/Mbed-TLS/mbedtls",
+            licenseUrl: "https://github.com/Mbed-TLS/mbedtls/blob/HEAD/LICENSE"
+        },
+        {
+            name: "TF-PSA-Crypto",
+            purpose: qsTr("Cryptography provider for Mbed TLS"),
+            license: "Apache-2.0 OR GPL-2.0-or-later",
+            projectUrl: "https://github.com/Mbed-TLS/TF-PSA-Crypto",
+            licenseUrl: "https://github.com/Mbed-TLS/TF-PSA-Crypto/blob/HEAD/LICENSE"
+        },
+        {
+            name: "Vulkan-Headers",
+            purpose: qsTr("Graphics API headers (build time)"),
+            license: "Apache-2.0 OR MIT",
+            projectUrl: "https://github.com/KhronosGroup/Vulkan-Headers",
+            licenseUrl: "https://github.com/KhronosGroup/Vulkan-Headers/blob/HEAD/LICENSE.md"
+        }
+    ]
+
+    contentItem: ColumnLayout {
+        spacing: 12
+        Label {
+            Layout.fillWidth: true
+            text: qsTr("AnAnArchiver uses the following open-source libraries. Thank you to their authors and contributors.")
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+        }
+        ListView {
+            id: libraries
+            objectName: "openSourceComponents"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            model: root.components
+            clip: true
+            reuseItems: true
+            spacing: 8
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {}
+            delegate: Frame {
+                id: library
+                required property var modelData
+                width: libraries.width - 16
+                padding: 12
+                contentItem: ColumnLayout {
+                    spacing: 4
+                    Label {
+                        Layout.fillWidth: true
+                        text: library.modelData.name
+                        textFormat: Text.PlainText
+                        font.weight: Font.DemiBold
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: library.modelData.purpose
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("License: %1").arg(library.modelData.license)
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+                    RowLayout {
+                        spacing: 8
+                        Button {
+                            text: qsTr("Project website")
+                            flat: true
+                            font.underline: true
+                            Accessible.name: qsTr("Open %1 project website").arg(library.modelData.name)
+                            Accessible.description: library.modelData.projectUrl
+                            onClicked: Qt.openUrlExternally(library.modelData.projectUrl)
+                        }
+                        Button {
+                            text: qsTr("License text")
+                            flat: true
+                            font.underline: true
+                            Accessible.name: qsTr("Read %1 license").arg(library.modelData.name)
+                            Accessible.description: library.modelData.licenseUrl
+                            onClicked: Qt.openUrlExternally(library.modelData.licenseUrl)
+                        }
+                    }
+                }
+            }
+        }
+        Label {
+            Layout.fillWidth: true
+            text: qsTr("This list covers the bundled backend and Qt. Optional libraries and components embedded in Qt depend on the platform and build. See their notices for all applicable terms; links open upstream license texts in your browser.")
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            font.pixelSize: 12
+        }
+        Button {
+            text: qsTr("Third-party components in Qt")
+            flat: true
+            font.underline: true
+            onClicked: Qt.openUrlExternally("https://doc.qt.io/qt-6/licenses-used-in-qt.html")
+        }
+    }
+}
