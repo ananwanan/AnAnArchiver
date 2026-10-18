@@ -16,7 +16,7 @@ param(
     [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string] $IdentityName,
     [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string] $Publisher,
     [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string] $PublisherDisplayName,
-    [string] $DisplayName = 'AnAnArchiver',
+    [string] $DisplayName = 'LiteArc',
     [string] $PackageVersion,
     [string] $OutputDirectory = 'out/artifacts/msix',
     [string] $MakeAppxPath
@@ -59,7 +59,7 @@ function Get-StoreVersion([string] $Value) {
     return $parts -join '.'
 }
 function Assert-ArtifactPathsAvailable([string] $Version) {
-    $name = "AnAnArchiver-$Version-windows-x64"
+    $name = "LiteArc-$Version-windows-x64"
     foreach ($suffix in @('.msix', '.AppxManifest.xml', '-artifacts.json')) {
         $path = Join-Path $taskOutput ($name + $suffix)
         if (Test-Path -LiteralPath $path) {
@@ -70,13 +70,13 @@ function Assert-ArtifactPathsAvailable([string] $Version) {
 function Assert-X64Executable([string] $Path) {
     $reader = [IO.BinaryReader]::new([IO.File]::OpenRead($Path))
     try {
-        if ($reader.ReadUInt16() -ne 0x5A4D) { throw 'Invalid AnAnArchiver.exe DOS header.' }
+        if ($reader.ReadUInt16() -ne 0x5A4D) { throw 'Invalid LiteArc.exe DOS header.' }
         $reader.BaseStream.Position = 0x3C
         $offset = $reader.ReadInt32()
-        if ($offset -lt 0 -or $offset -gt $reader.BaseStream.Length - 6) { throw 'Invalid AnAnArchiver.exe PE offset.' }
+        if ($offset -lt 0 -or $offset -gt $reader.BaseStream.Length - 6) { throw 'Invalid LiteArc.exe PE offset.' }
         $reader.BaseStream.Position = $offset
         if ($reader.ReadUInt32() -ne 0x4550 -or $reader.ReadUInt16() -ne 0x8664) {
-            throw 'AnAnArchiver.exe must be a Windows x64 executable.'
+            throw 'LiteArc.exe must be a Windows x64 executable.'
         }
     } finally { $reader.Dispose() }
 }
@@ -120,14 +120,14 @@ function Assert-PortablePackage([string] $Root) {
             throw "Unlisted portable file: $relative"
         }
     }
-    foreach ($required in @('AnAnArchiver.exe', 'Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Qml.dll', 'Qt6Quick.dll', 'Qt6Svg.dll',
+    foreach ($required in @('LiteArc.exe', 'Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Qml.dll', 'Qt6Quick.dll', 'Qt6Svg.dll',
         'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'plugins/platforms/qwindows.dll',
         'plugins/imageformats/qsvg.dll', 'plugins/iconengines/qsvgicon.dll', 'qml/QtQuick/qmldir', 'qt.conf',
         'THIRD-PARTY-NOTICES.txt', 'share/AnAnArchiver/third-party-notices.json',
         'share/AnAnArchiver/dependency-provenance.json', 'share/AnAnArchiver/resolved-dependencies.json')) {
         if (-not $known.ContainsKey($required)) { throw "Incomplete portable package: $required" }
     }
-    Assert-X64Executable (Join-Path $Root 'AnAnArchiver.exe')
+    Assert-X64Executable (Join-Path $Root 'LiteArc.exe')
     return $manifest
 }
 function Find-MakeAppx {
@@ -224,7 +224,7 @@ try {
             SkipBuild = $SkipBuild; SkipInstaller = $true; Jobs = $Jobs }
         if ($DependencySourceDirectory) { $arguments.DependencySourceDirectory = $DependencySourceDirectory }
         & (Join-Path $PSScriptRoot 'Package-Windows.ps1') @arguments
-        $directories = @(Get-ChildItem -LiteralPath $arguments.OutputDirectory -Directory -Filter 'AnAnArchiver-*-windows-x64')
+        $directories = @(Get-ChildItem -LiteralPath $arguments.OutputDirectory -Directory -Filter 'LiteArc-*-windows-x64')
         if ($directories.Count -ne 1) { throw 'Windows deployment did not produce exactly one portable package.' }
         $taskPortable = $directories[0].FullName
         $taskPortableManifest = Assert-PortablePackage $taskPortable
@@ -235,7 +235,7 @@ try {
         $PackageVersion = Get-StoreVersion $sourceVersion
     }
     Assert-ArtifactPathsAvailable $PackageVersion
-    $taskName = "AnAnArchiver-$PackageVersion-windows-x64"
+    $taskName = "LiteArc-$PackageVersion-windows-x64"
     $taskPayload = Join-Path $taskWork 'payload'
     Copy-Item -LiteralPath $taskPortable -Destination $taskPayload -Recurse
     New-LogoAssets (Join-Path $taskPayload 'Assets')
@@ -256,7 +256,7 @@ try {
   <Resources><Resource Language="en-US" /><Resource Language="zh-CN" /></Resources>
   <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.17763.0" /></Dependencies>
   <Applications>
-    <Application Id="AnAnArchiver" Executable="AnAnArchiver.exe" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="AnAnArchiver" Executable="LiteArc.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements DisplayName="$(& $escape $DisplayName)" Description="Browse, create, test and safely extract archives."
           Square150x150Logo="Assets\Logo150.png" Square44x44Logo="Assets\Logo44.png" BackgroundColor="transparent" />
     </Application>

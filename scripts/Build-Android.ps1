@@ -79,7 +79,7 @@ try {
     if (-not $builtApk) { throw 'The Android build did not produce a signed debug APK' }
     New-Item -ItemType Directory -Path $ArtifactDirectory -Force | Out-Null
     $artifactApk = $builtApk.FullName
-    $finalApk = Join-Path $ArtifactDirectory "AnAnArchiver-1.0.0-$Abi-test.apk"
+    $finalApk = Join-Path $ArtifactDirectory "LiteArc-1.0.0-$Abi-test.apk"
     $buildTools = Get-ChildItem -LiteralPath (Join-Path $AndroidSdkDir 'build-tools') -Directory |
         Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } |
         Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
@@ -97,7 +97,7 @@ try {
         $nativeFiles = @($apkArchive.Entries | Where-Object { $_.FullName -match '^lib/[^/]+/[^/]+\.so$' } | ForEach-Object FullName)
         $actualAbis = @($nativeFiles | ForEach-Object { ($_ -split '/')[1] } | Sort-Object -Unique)
         if ($actualAbis.Count -ne 1 -or $actualAbis[0] -ne $Abi) { throw "Unexpected APK ABI: $actualAbis" }
-        if (-not ($nativeFiles -match '/libAnAnArchiver_') -or -not ($nativeFiles -match '/libc\+\+_shared.so$')) {
+        if (-not ($nativeFiles -match '/libLiteArc_') -or -not ($nativeFiles -match '/libc\+\+_shared.so$')) {
             throw 'Required application or C++ runtime library is missing from the APK'
         }
         $requiredPlugins = @(

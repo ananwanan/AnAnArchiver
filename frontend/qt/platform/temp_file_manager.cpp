@@ -111,7 +111,7 @@ void TempFileManager::clean(std::stop_token stop) {
             if (removed) {
                 roots_.erase(selected);
             } else if (stop.stop_requested()) {
-                qWarning().noquote() << "AnAnArchiver could not remove private export directory:" << fromPath(root);
+                qWarning().noquote() << "LiteArc could not remove private export directory:" << fromPath(root);
                 roots_.erase(selected);
             } else if (++selected->second.attempts < 3) {
                 selected->second.cleaning = false;

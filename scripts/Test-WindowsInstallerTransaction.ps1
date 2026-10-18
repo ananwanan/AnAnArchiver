@@ -68,7 +68,7 @@ function New-TaskPayload([string] $Name, [bool] $Old) {
     $directory = Join-Path $taskOutput $Name
     Assert-Task (-not (Test-Path -LiteralPath $directory)) 'Use a fresh output directory for each regression run.'
     [IO.Directory]::CreateDirectory($directory) | Out-Null
-    [IO.File]::WriteAllText((Join-Path $directory 'AnAnArchiver.exe'), $(if ($Old) { 'old-not-executed-fixture' } else { 'new-not-executed-fixture' }))
+    [IO.File]::WriteAllText((Join-Path $directory 'LiteArc.exe'), $(if ($Old) { 'old-not-executed-fixture' } else { 'new-not-executed-fixture' }))
     if ($Old) {
         foreach ($name in @('001-obsolete.dat', '002-locked-obsolete.dat', 'modified-managed.dat', 'link/owned.dat')) {
             $file = Join-Path $directory $name

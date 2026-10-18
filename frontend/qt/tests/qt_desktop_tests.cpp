@@ -1,4 +1,5 @@
 #include "controllers/archive_controller.h"
+#include "app/build_info.h"
 #include "controllers/compression_controller.h"
 #include "controllers/desktop_controller.h"
 #include "controllers/task_controller.h"
@@ -8,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <iostream>
@@ -84,6 +86,23 @@ void settings() {
     require(restored.recentArchives().isEmpty(), "clear recent failed");
     require(waitUntil([&] { return !restored.saving(); }), "settings persistence did not finish");
     require(DesktopController(file).recentArchives().isEmpty(), "clear recent not persisted");
+}
+void buildIdentity() {
+    BuildInfo info;
+    const QRegularExpression revision(QStringLiteral("^[0-9a-f]{40,64}$"));
+    require(revision.match(info.applicationRevision()).hasMatch(), "application Git revision missing");
+    require(info.qtRuntimeVersion() == QString::fromLatin1(qVersion()), "Qt version does not describe the loaded runtime");
+    const auto dependencies = info.dependencyInfo();
+    for (const auto& name : {QStringLiteral("qt"), QStringLiteral("libarchive")}) {
+        const auto source = dependencies.value(name).toMap();
+        require(!source.value(QStringLiteral("version")).toString().isEmpty(), "selected dependency version missing");
+        const auto selection = source.value(QStringLiteral("selection")).toString();
+        const auto sha = source.value(QStringLiteral("revision")).toString();
+        require(selection == QStringLiteral("bundled-source") ? revision.match(sha).hasMatch() : sha.isEmpty(),
+            "source revision missing or fabricated for an external library");
+    }
+    require(info.repositoryUrl() == QUrl(QStringLiteral("https://github.com/ananwanan/AnAnArchiver")),
+        "product rename changed the actual repository URL");
 }
 void tasks() {
     TaskController center;
@@ -162,6 +181,7 @@ void actualControllerHistory() {
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     try {
+        buildIdentity(); std::cout << "PASS selected dependency versions, full Git identities and loaded Qt runtime\n";
         settings(); std::cout << "PASS persisted themes and bounded Unicode recent archives\n";
         persistenceFailureAndRetry(); std::cout << "PASS asynchronous settings failure, recovery and latest revision\n";
         tasks(); std::cout << "PASS bounded task center identity, progress, cancellation and errors\n";

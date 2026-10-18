@@ -1,5 +1,8 @@
 # Main packaging fixes — 2026-10-12
 
+> Historical validation: this run predates the 2026-10-18 rename to 轻匣 / LiteArc.
+> Original AnAnArchiver artifact names, build paths and results are preserved as evidence.
+
 Fixed the three requested packaging regressions on top of main `d947b28`.
 Implementation commit: `889c9cdf49f2e5800895f6ec4d176980eb08e73d`.
 

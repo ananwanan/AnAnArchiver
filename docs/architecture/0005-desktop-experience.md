@@ -65,3 +65,18 @@ crash-recovery journal.
 Native adapter work remains under `frontend/qt/platform`. UI text, file paths and
 backend details are plain text. The icon set is original SVG artwork with its
 license alongside the assets. Existing Core security policies are unchanged.
+
+## Product name and component provenance
+
+The product is 轻匣 in Chinese and LiteArc in English. Window titles, About/help
+content and localized system-integration labels use the selected display name.
+Existing API, QML, settings and application identities remain stable for
+compatibility; public executable and distribution names use LiteArc.
+
+The open-source components dialog presents the application version and available
+application Git revision, plus each component's actual build version, available
+Git revision and source repository. Build-generated metadata is derived from
+the verified `dependency-build.json` and `build-trace-config.json` inputs shared
+with the final provenance record; current dependency checkout revisions and
+example versions must not be substituted for the recorded build. Missing source
+metadata is explicitly unavailable. License and upstream links remain accessible.

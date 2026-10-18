@@ -11,7 +11,7 @@ owner="X-AnAnArchiver-Package=${root//\\/\\\\}"
 if [[ -f "$desktop" ]] && grep -Fxq -- "$owner" "$desktop"; then
     rm -f -- "$desktop" "$data_home/icons/$id.png"
     if command -v update-desktop-database >/dev/null; then update-desktop-database "$data_home/applications"; fi
-    printf '%s\n' 'Removed AnAnArchiver desktop integration. The package and user settings are preserved.'
+    printf '%s\n' 'Removed LiteArc desktop integration. The package and user settings are preserved.'
 else
     printf '%s\n' 'No desktop integration owned by this package was found.'
 fi

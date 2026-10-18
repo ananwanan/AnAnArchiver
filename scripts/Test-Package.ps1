@@ -7,6 +7,8 @@ portable payload, then pass that fixture as InstallerPath and the release as Upg
 The installer redirects its registry writes into a unique PackageValidation namespace;
 application smoke runs redirect their settings and use a minimal Windows PATH.
 The report, subprocess logs, regression JUnit, and native UI screenshots are kept in OutputDirectory.
+MinimumInstallPathLength defaults to long-path coverage. Use 0 only for a separately
+reported ordinary-path lifecycle run; it does not replace the default long-path check.
 #>
 [CmdletBinding()]
 param(
@@ -18,6 +20,7 @@ param(
     [string] $TemporaryRoot,
     [string] $OutputDirectory,
     [int] $Jobs = 4,
+    [ValidateRange(0, 10000)] [int] $MinimumInstallPathLength = 275,
     [switch] $KeepWorkDirectory
 )
 
@@ -44,11 +47,12 @@ if (-not $TemporaryRoot) {
 $taskTempRoot = [IO.Path]::GetFullPath($TemporaryRoot)
 [IO.Directory]::CreateDirectory($taskTempRoot) | Out-Null
 $taskId = [Guid]::NewGuid().ToString('D')
-$taskWork = Join-Path $taskTempRoot ('AnAnArchiver-Package-' + $taskId)
+$taskWork = Join-Path $taskTempRoot ('LiteArc-Package-' + $taskId)
 $taskRegistryPrefix = 'Software\AnAnArchiver\PackageValidation\' + $taskId
 $taskInstall = Join-Path $taskWork '安装位置 中文 空格'
-while ($taskInstall.Length -lt 275) { $taskInstall = Join-Path $taskInstall '长路径 安装 验证 abcdefghijklmnopqrst' }
-$taskInstall = Join-Path $taskInstall 'AnAnArchiver'
+while ($taskInstall.Length -lt $MinimumInstallPathLength) { $taskInstall = Join-Path $taskInstall '长路径 安装 验证 abcdefghijklmnopqrst' }
+$taskInstall = Join-Path $taskInstall 'LiteArc'
+$taskLongInstallPath = $taskInstall.Length -gt 260
 [IO.Directory]::CreateDirectory($taskWork) | Out-Null
 $taskChecks = [Collections.Generic.List[object]]::new()
 $taskProcesses = [Collections.Generic.List[object]]::new()
@@ -57,6 +61,8 @@ $taskReport = [ordered]@{
     schema = 1; status = 'running'; started_utc = [DateTime]::UtcNow.ToString('o')
     portable_archive = $taskArchive; installer = $taskInstaller; upgrade_installer = $taskUpgradeInstaller
     build_directory = $taskBuild; work_directory = $taskWork; registry_prefix = $taskRegistryPrefix
+    minimum_install_path_length = $MinimumInstallPathLength; installation_root_length = $taskInstall.Length
+    long_installation_path = $taskLongInstallPath
     checks = $taskChecks; processes = $taskProcesses
 }
 
@@ -338,7 +344,7 @@ try {
     $taskExpanded = Join-Path $taskWork '便携 ZIP 解压 空格'
     [IO.Directory]::CreateDirectory($taskExpanded) | Out-Null
     [IO.Compression.ZipFile]::ExtractToDirectory($taskArchive, $taskExpanded)
-    $taskExecutables = @(Get-ChildItem -LiteralPath $taskExpanded -Recurse -File -Filter AnAnArchiver.exe)
+    $taskExecutables = @(Get-ChildItem -LiteralPath $taskExpanded -Recurse -File -Filter LiteArc.exe)
     Assert-Condition ($taskExecutables.Count -eq 1) 'The ZIP must contain exactly one desktop executable.'
     $taskExe = $taskExecutables[0].FullName
     $taskPackage = Split-Path $taskExe -Parent
@@ -450,7 +456,7 @@ try {
     Complete-Check 'Core, Application, and production Qt desktop regressions' @{ suites = $taskTestNames.Count; junit = 'regression-results.xml' }
 
     Invoke-Installer $taskInstaller 'install-without-integration' ''
-    $taskInstalledExe = Join-Path $taskInstall 'AnAnArchiver.exe'
+    $taskInstalledExe = Join-Path $taskInstall 'LiteArc.exe'
     Assert-Condition ([IO.File]::Exists($taskInstalledExe)) 'The installer did not deploy the executable.'
     foreach ($taskFile in $taskManifest.files) {
         # The older fixture lists additional obsolete files to exercise upgrade cleanup.
@@ -461,14 +467,15 @@ try {
     Assert-Condition (-not (Get-TestRegistryValue 'Classes\AnAnArchiver.Archive')) 'Associations were registered when the optional task was disabled.'
     $taskInstalledVersion = Get-TestRegistryValue 'Uninstall\AnAnArchiver' 'DisplayVersion'
     Assert-Condition ([bool] $taskInstalledVersion) 'The isolated uninstall registration does not record its installed version.'
-    Assert-Condition ((Get-TestRegistryValue 'Uninstall\AnAnArchiver' 'InstallLocation') -ceq $taskInstall) 'The installer did not retain the original long installation path in its metadata.'
+    Assert-Condition ((Get-TestRegistryValue 'Uninstall\AnAnArchiver' 'DisplayName') -cin @('LiteArc', '轻匣')) 'The installer did not register the localized product name.'
+    Assert-Condition ((Get-TestRegistryValue 'Uninstall\AnAnArchiver' 'InstallLocation') -ceq $taskInstall) 'The installer did not retain the original installation path in its metadata.'
     $taskUninstaller = Get-TestUninstaller
     $taskInstallerData = Split-Path $taskUninstaller -Parent
     Assert-Inside $taskInstallerData $taskWork | Out-Null
     Assert-Condition ($taskInstallerData.Length -lt 260) 'The isolated uninstaller data path exceeds its supported native path length.'
-    Complete-Check 'uninstaller data is isolated and records the original long application root' @{ application_root_length = $taskInstall.Length; installer_data = $taskInstallerData }
+    Complete-Check 'uninstaller data is isolated and records the original application root' @{ application_root_length = $taskInstall.Length; long_path = $taskLongInstallPath; installer_data = $taskInstallerData }
     Invoke-TestProcess $taskInstalledExe @('--smoke-test', '1800') 'installed-launch' -Application -ObserveQtModules -Platform windows | Out-Null
-    Complete-Check 'silent per-user install into a long Chinese path with optional integration disabled' @{ path = $taskInstall; path_length = $taskInstall.Length; version = $taskInstalledVersion }
+    Complete-Check 'silent per-user install into a Chinese path with optional integration disabled' @{ path = $taskInstall; path_length = $taskInstall.Length; long_path = $taskLongInstallPath; version = $taskInstalledVersion }
 
     # Existing COM shell handlers can have only DelegateExecute and no default command.
     # They still own their verb; enabling integration must fail before replacing them.
@@ -495,12 +502,12 @@ try {
     $taskOriginalFiles = Get-DirectorySnapshot $taskInstall
     $taskOriginalData = Get-DirectorySnapshot $taskInstallerData
     $taskOriginalRegistry = Get-RegistrySnapshot @($taskRegistryPrefix)
-    $taskMovedInstall = Assert-Inside (Join-Path $taskWork '错误 迁移 目标\AnAnArchiver') $taskWork
+    $taskMovedInstall = Assert-Inside (Join-Path $taskWork '错误 迁移 目标\LiteArc') $taskWork
     Invoke-Installer $taskUpgradeInstaller 'reject-installation-directory-move' 'associations,contextmenu' $taskMovedInstall -ExpectFailure
     Assert-Condition ((Get-DirectorySnapshot $taskInstall) -ceq $taskOriginalFiles) 'A rejected installation move changed the existing installation.'
     Assert-Condition ((Get-DirectorySnapshot $taskInstallerData) -ceq $taskOriginalData) 'A rejected installation move changed the uninstaller data.'
     Assert-Condition ((Get-RegistrySnapshot @($taskRegistryPrefix)) -ceq $taskOriginalRegistry) 'A rejected installation move changed the installation registration.'
-    Assert-Condition (-not [IO.File]::Exists((Join-Path $taskMovedInstall 'AnAnArchiver.exe'))) 'A rejected installation move wrote the executable to the new target.'
+    Assert-Condition (-not [IO.File]::Exists((Join-Path $taskMovedInstall 'LiteArc.exe'))) 'A rejected installation move wrote the executable to the new target.'
     $taskMovedFiles = @(Get-ChildItem -LiteralPath $taskMovedInstall -Recurse -File -ErrorAction SilentlyContinue)
     Assert-Condition ($taskMovedFiles.Count -eq 0) 'A rejected installation move wrote managed files to the new target.'
     Complete-Check 'installation directory changes fail before writing files or registration' 'Existing installation and complete registration snapshots remain identical.'
@@ -514,7 +521,50 @@ try {
     if ($taskHasModifiedOwnedFixture) { [IO.File]::WriteAllText($taskModifiedOwnedFile, $taskModifiedOwnedPayload) }
     $taskExistingZip = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($taskRegistryPrefix + '\Classes\.zip')
     try { $taskExistingZip.SetValue('', 'Other.Archiver') } finally { $taskExistingZip.Dispose() }
+    $taskShortcutRoot = Assert-Inside (Join-Path $taskInstallerData 'shortcut-validation') $taskWork
+    $taskFormerGroup = Join-Path $taskShortcutRoot 'programs/AnAnArchiver'
+    $taskFormerDesktop = Join-Path $taskShortcutRoot 'desktop'
+    [IO.Directory]::CreateDirectory($taskFormerGroup) | Out-Null
+    [IO.Directory]::CreateDirectory($taskFormerDesktop) | Out-Null
+    $taskShortcutShell = New-Object -ComObject WScript.Shell
+    $taskFormerAppLink = Join-Path $taskFormerGroup 'AnAnArchiver.lnk'
+    $taskFormerDesktopLink = Join-Path $taskFormerDesktop 'AnAnArchiver.lnk'
+    foreach ($taskLinkPath in @($taskFormerAppLink, $taskFormerDesktopLink)) {
+        $taskLink = $taskShortcutShell.CreateShortcut($taskLinkPath)
+        $taskLink.TargetPath = Join-Path $taskInstall 'AnAnArchiver.exe'
+        $taskLink.Save()
+    }
+    $taskForeignShortcut = Join-Path $taskFormerGroup 'Uninstall AnAnArchiver.lnk'
+    $taskLink = $taskShortcutShell.CreateShortcut($taskForeignShortcut)
+    $taskLink.TargetPath = Join-Path $taskInstall 'user-owned-tool.exe'
+    $taskLink.Save()
+    $taskForeignShortcutHash = (Get-FileHash -LiteralPath $taskForeignShortcut -Algorithm SHA256).Hash
+    [IO.File]::WriteAllText((Join-Path $taskFormerGroup 'user-note.txt'), 'Keep this user-owned shortcut group content.')
     Invoke-Installer $taskUpgradeInstaller 'upgrade-with-integration' 'associations,contextmenu'
+    Assert-Condition (-not [IO.File]::Exists($taskFormerAppLink) -and -not [IO.File]::Exists($taskFormerDesktopLink)) 'Upgrade retained shortcuts owned by the former product name.'
+    Assert-Condition ([IO.File]::Exists($taskForeignShortcut) -and
+        (Get-FileHash -LiteralPath $taskForeignShortcut -Algorithm SHA256).Hash -ceq $taskForeignShortcutHash) 'Upgrade changed a shortcut that targets another program.'
+    Assert-Condition ([IO.File]::Exists((Join-Path $taskFormerGroup 'user-note.txt'))) 'Upgrade removed user-owned shortcut group content.'
+    Complete-Check 'former product shortcuts migrate only when owned by this installation' 'Former executable links removed; foreign target link and user group content preserved.'
+    Remove-Item -LiteralPath $taskForeignShortcut, (Join-Path $taskFormerGroup 'user-note.txt') -Force
+    Remove-Item -LiteralPath $taskFormerGroup
+    $taskOutsideShortcutGroup = Assert-Inside (Join-Path $taskWork 'unrelated-shortcut-group') $taskWork
+    [IO.Directory]::CreateDirectory($taskOutsideShortcutGroup) | Out-Null
+    $taskOutsideShortcut = Join-Path $taskOutsideShortcutGroup 'AnAnArchiver.lnk'
+    $taskLink = $taskShortcutShell.CreateShortcut($taskOutsideShortcut)
+    $taskLink.TargetPath = Join-Path $taskInstall 'AnAnArchiver.exe'
+    $taskLink.Save()
+    $taskOutsideShortcutHash = (Get-FileHash -LiteralPath $taskOutsideShortcut -Algorithm SHA256).Hash
+    New-Item -ItemType Junction -Path $taskFormerGroup -Target $taskOutsideShortcutGroup | Out-Null
+    Invoke-Installer $taskUpgradeInstaller 'upgrade-with-junction-shortcut-group' 'associations,contextmenu'
+    Assert-Condition (((Get-Item -LiteralPath $taskFormerGroup).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) 'Upgrade removed the former shortcut group junction.'
+    Assert-Condition ([IO.File]::Exists($taskOutsideShortcut) -and
+        (Get-FileHash -LiteralPath $taskOutsideShortcut -Algorithm SHA256).Hash -ceq $taskOutsideShortcutHash) 'Shortcut migration followed a junction outside the former group.'
+    Complete-Check 'shortcut migration preserves reparse groups and their targets' 'A matching-target shortcut behind a group junction remains byte for byte unchanged.'
+    # Remove the generated junction itself, without following its target.
+    Remove-Item -LiteralPath $taskFormerGroup -Force
+    # Only this generated subtree is removed; its resolved path was checked against taskWork.
+    Remove-Item -LiteralPath $taskShortcutRoot -Recurse -Force
     $taskUpgradedVersion = Get-TestRegistryValue 'Uninstall\AnAnArchiver' 'DisplayVersion'
     Assert-Condition ([version] $taskUpgradedVersion -gt [version] $taskInstalledVersion) 'Upgrade verification requires an older installer fixture followed by the current installer. Pass -InstallerPath <older fixture> and -UpgradeInstallerPath <current installer>.'
     Assert-Condition ((Get-TestRegistryValue 'Classes\.zip') -ceq 'Other.Archiver') 'Upgrade overwrote an existing default archive association.'
@@ -534,7 +584,8 @@ try {
     [IO.File]::WriteAllText((Join-Path $taskOutput 'integration-enabled.json'), $taskRegistryEnabled)
     Assert-Condition ($taskRegistryEnabled.Contains('--extract-here') -and $taskRegistryEnabled.Contains('--extract-to-folder') -and
         $taskRegistryEnabled.Contains('--compress') -and $taskRegistryEnabled.Contains('OpenWithProgids')) 'Optional shell commands or Open With registration are missing.'
-    Assert-Condition ($taskRegistryEnabled.Contains('AnAnArchiver.exe') -and $taskRegistryEnabled.Contains('%1')) 'Shell commands do not target the installed executable and selected path.'
+    Assert-Condition ($taskRegistryEnabled.Contains('LiteArc.exe') -and $taskRegistryEnabled.Contains('%1')) 'Shell commands do not target the installed executable and selected path.'
+    Assert-Condition ((Get-TestRegistryValue 'Classes\Applications\AnAnArchiver.exe' 'FriendlyAppName') -cin @('LiteArc', '轻匣')) 'Open With does not use the localized product name.'
     $taskQuotedExe = '"' + (ConvertTo-NativeTestPath $taskInstalledExe 248) + '"'
     Assert-Condition ((Get-TestRegistryValue 'Classes\AnAnArchiver.Archive\shell\open\command') -ceq ($taskQuotedExe + ' "%1"')) 'The archive ProgID open command is incorrect.'
     foreach ($taskExtension in $taskExtensions) {
@@ -555,15 +606,15 @@ try {
     $taskRegisteredExecutable = $taskRegisteredMatch.Groups[1].Value
     Assert-Inside $taskRegisteredExecutable $taskInstall | Out-Null
     # Keep the registered executable byte for byte. The helper must not quietly
-    # repair an invalid long command that Windows receives from the registration.
+    # repair the command that Windows receives from the registration.
     Invoke-TestProcess $taskRegisteredExecutable @('--smoke-archive', $taskFixture) 'upgraded-registered-archive-launch' -Application -ObserveQtModules -UseExactExecutable | Out-Null
-    Complete-Check 'registered long-path archive command launches without path repair' @{ registered_executable = $taskRegisteredExecutable; command = $taskRegisteredCommand }
+    Complete-Check 'registered archive command launches without path repair' @{ registered_executable = $taskRegisteredExecutable; command = $taskRegisteredCommand; installation_root_length = $taskInstall.Length; long_path = $taskLongInstallPath }
     Complete-Check 'in-place version upgrade, opt-in associations and Explorer commands' @{ from_version = $taskInstalledVersion; to_version = $taskUpgradedVersion; existing_default_preserved = $true; user_file_preserved = $true }
 
     Invoke-Installer $taskUpgradeInstaller 'upgrade-disable-integration' ''
     $taskRegistryDisabled = Get-RegistrySnapshot @(($taskRegistryPrefix + '\Classes'), ($taskRegistryPrefix + '\RegisteredApplications'))
     Assert-Condition (-not ($taskRegistryDisabled.Contains('--extract-here') -or $taskRegistryDisabled.Contains('--compress') -or
-        $taskRegistryDisabled.Contains('AnAnArchiver.Archive'))) 'Disabling optional integration during upgrade retained AnAnArchiver registrations.'
+        $taskRegistryDisabled.Contains('AnAnArchiver.Archive'))) 'Disabling optional integration during upgrade retained LiteArc registrations.'
     Assert-Condition ((Get-TestRegistryValue 'Classes\.zip') -ceq 'Other.Archiver') 'Disabling optional integration removed the existing default association.'
     Complete-Check 'upgrade can disable previously enabled optional integration' 'Application registration removed; the existing archive default retained.'
 
@@ -583,7 +634,7 @@ try {
     Assert-Condition ([IO.File]::Exists((Join-Path $taskInstall 'user-note.txt'))) 'Uninstall removed a user-owned file.'
     Assert-Condition ((Get-TestRegistryValue 'Classes\.zip') -ceq 'Other.Archiver') 'Uninstall removed an unrelated default association.'
     $taskRegistryRemoved = Get-RegistrySnapshot @(($taskRegistryPrefix + '\Classes'), ($taskRegistryPrefix + '\RegisteredApplications'), ($taskRegistryPrefix + '\Uninstall'))
-    Assert-Condition (-not $taskRegistryRemoved.Contains('AnAnArchiver.exe')) 'Uninstall retained application shell or uninstall registration.'
+    Assert-Condition (-not ($taskRegistryRemoved.Contains('AnAnArchiver.exe') -or $taskRegistryRemoved.Contains('LiteArc.exe'))) 'Uninstall retained application shell or uninstall registration.'
     Complete-Check 'uninstall removes managed payload and registration while preserving user files' 'User-owned note and unrelated .zip default retained.'
     $taskReport.status = 'passed'
 } catch {

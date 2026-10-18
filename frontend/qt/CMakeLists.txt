@@ -30,7 +30,20 @@ add_custom_target(ananarchiver_build_timestamp
     VERBATIM)
 add_dependencies(ananarchiver_qt ananarchiver_build_timestamp)
 target_include_directories(ananarchiver_qt PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-set_source_files_properties(app/build_info.cpp PROPERTIES OBJECT_DEPENDS "${ananarchiver_timestamp_header}")
+
+# Embed the verified sources selected by this configuration. The final build
+# provenance is recorded after linking, so use its prepared input records here.
+set(ananarchiver_dependency_header "${CMAKE_CURRENT_BINARY_DIR}/generated/ananarchiver_dependency_info.h")
+add_custom_target(ananarchiver_frontend_build_info
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/write_frontend_build_info.py"
+        --build-dir "${CMAKE_BINARY_DIR}" --output "${ananarchiver_dependency_header}"
+    BYPRODUCTS "${ananarchiver_dependency_header}"
+    COMMENT "Embedding verified dependency versions and revisions"
+    VERBATIM)
+add_dependencies(ananarchiver_frontend_build_info ananarchiver_verify_dependencies)
+add_dependencies(ananarchiver_qt ananarchiver_frontend_build_info)
+set_source_files_properties(app/build_info.cpp PROPERTIES
+    OBJECT_DEPENDS "${ananarchiver_timestamp_header};${ananarchiver_dependency_header}")
 
 qt_add_executable(AnAnArchiver main.cpp)
 ananarchiver_project_options(AnAnArchiver)
@@ -78,7 +91,9 @@ qt_add_qml_module(AnAnArchiver
         qml/components/AppIcon.qml
         qml/components/SortHeader.qml)
 set_target_properties(AnAnArchiver PROPERTIES
+    OUTPUT_NAME LiteArc
     MACOSX_BUNDLE TRUE
+    MACOSX_BUNDLE_BUNDLE_NAME LiteArc
     MACOSX_BUNDLE_GUI_IDENTIFIER com.ananwanan.AnAnArchiver
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
@@ -98,7 +113,7 @@ endif()
 if(ANDROID)
     set_target_properties(AnAnArchiver PROPERTIES
         QT_ANDROID_PACKAGE_NAME com.ananwanan.ananarchiver
-        QT_ANDROID_APP_NAME AnAnArchiver
+        QT_ANDROID_APP_NAME LiteArc
         QT_ANDROID_MIN_SDK_VERSION 28
         QT_ANDROID_TARGET_SDK_VERSION 36
         QT_ANDROID_COMPILE_SDK_VERSION 36
@@ -209,6 +224,10 @@ if(BUILD_TESTING)
     add_executable(ananarchiver_qt_desktop_flow_tests tests/qt_desktop_flow_tests.cpp)
     ananarchiver_project_options(ananarchiver_qt_desktop_flow_tests)
     target_link_libraries(ananarchiver_qt_desktop_flow_tests PRIVATE ananarchiver_qt AnAnArchiver::Archive Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+    qt_add_resources(ananarchiver_qt_desktop_flow_tests "flow_app_branding"
+        PREFIX "/branding"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons"
+        FILES resources/icons/ananarchiver.png)
     target_compile_definitions(ananarchiver_qt_desktop_flow_tests PRIVATE ANANARCHIVER_TEST_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
     add_test(NAME qt_desktop_flow COMMAND ananarchiver_qt_desktop_flow_tests)
     set_tests_properties(qt_desktop_flow PROPERTIES TIMEOUT 90 ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")

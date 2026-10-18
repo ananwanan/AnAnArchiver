@@ -167,7 +167,7 @@ SafeOutput::SafeOutput(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 SafeOutput::~SafeOutput() {
     if (!impl_->completed) {
         try { (void)rollback(); }
-        catch (...) { std::fputs("AnAnArchiver: extraction rollback could not complete\n", stderr); }
+        catch (...) { std::fputs("LiteArc: extraction rollback could not complete\n", stderr); }
     }
 }
 const std::filesystem::path& SafeOutput::root() const noexcept { return impl_->rootPath; }

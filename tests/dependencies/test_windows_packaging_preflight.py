@@ -58,15 +58,15 @@ class WindowsPackagingPreflightTests(unittest.TestCase):
             application.mkdir(parents=True)
             # Deliberately not an executable or a formal build identity. A missing
             # record must be diagnosed before validating or deploying this fixture.
-            (application / "AnAnArchiver.exe").write_bytes(b"negative-test-fixture")
+            (application / "LiteArc.exe").write_bytes(b"negative-test-fixture")
             for name, contents in records.items():
                 (application / name).write_text(contents, encoding="utf-8")
             output = root / "artifacts"
-            stage = output / "AnAnArchiver-1.0.0-windows-x64"
+            stage = output / "LiteArc-1.0.0-windows-x64"
             stage.mkdir(parents=True)
             (output / "sentinel.txt").write_bytes(b"keep artifact root")
             (stage / "sentinel.txt").write_bytes(b"keep existing portable directory")
-            (output / "AnAnArchiver-1.0.0-windows-x64.zip").write_bytes(b"keep existing ZIP")
+            (output / "LiteArc-1.0.0-windows-x64.zip").write_bytes(b"keep existing ZIP")
             before = snapshot(root)
             # Each PowerShell host needs its own standard module paths. An
             # inherited pwsh path can hide Get-FileHash in Windows PowerShell.

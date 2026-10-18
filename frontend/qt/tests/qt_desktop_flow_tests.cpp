@@ -1,4 +1,5 @@
 #include "controllers/archive_controller.h"
+#include "app/build_info.h"
 #include "controllers/compression_controller.h"
 #include "controllers/desktop_controller.h"
 #include "controllers/drag_controller.h"
@@ -46,6 +47,18 @@ QObject* named(QObject* root, const char* name) {
     check(result != nullptr, std::string("Missing production UI: ") + name);
     return result;
 }
+QQuickItem* visualItem(QQuickItem* root, const QString& name) {
+    if (!root) return nullptr;
+    if (root->objectName() == name) return root;
+    for (auto* child : root->childItems())
+        if (auto* found = visualItem(child, name)) return found;
+    return nullptr;
+}
+QObject* namedVisual(QObject* root, const char* name) {
+    auto* result = visualItem(qobject_cast<QQuickItem*>(root), QString::fromUtf8(name));
+    check(result != nullptr, std::string("Missing production list delegate: ") + name);
+    return result;
+}
 void invoke(QObject* item, const char* method) {
     check(QMetaObject::invokeMethod(item, method, Qt::DirectConnection), std::string("Cannot invoke ") + method);
 }
@@ -63,6 +76,7 @@ struct View {
     qt::DesktopController desktop{settings.filePath(QStringLiteral("settings.ini"))};
     qt::TaskController tasks;
     qt::DragController drag{archive, compression};
+    qt::BuildInfo buildInfo;
     QQmlApplicationEngine engine;
     QQuickWindow* window{};
     View() {
@@ -74,6 +88,7 @@ struct View {
                 tasks.observe(QStringLiteral("archive"), snapshot, path, [this](auto id) { archive.cancelTask(id); });
             });
         engine.setInitialProperties({
+            {QStringLiteral("buildInfo"), QVariant::fromValue(&buildInfo)},
             {QStringLiteral("archiveController"), QVariant::fromValue(&archive)},
             {QStringLiteral("compressionController"), QVariant::fromValue(&compression)},
             {QStringLiteral("directoryModel"), QVariant::fromValue(&directory)},
@@ -109,12 +124,60 @@ struct View {
         check(event.isAccepted(), "Production DropArea rejected the drop");
     }
 };
+void brandingAndLicenses(View& view, const QString& language) {
+    const auto productName = language == QStringLiteral("zh-CN") ? QString::fromUtf8("轻匣") : QStringLiteral("LiteArc");
+    check(view.window->title() == productName, "Home title did not use the localized product name");
+    auto* about = named(view.window, "aboutDialog");
+    invoke(about, "open");
+    check(named(about, "aboutProductName")->property("text").toString() == productName,
+        "About dialog retained the old product name");
+    check(named(about, "aboutGitRevision")->property("text").toString().contains(view.buildInfo.applicationRevision()),
+        "About dialog did not show the built application's Git revision");
+    check(named(about, "aboutRepositoryLink")->property("text").toString() == view.buildInfo.repositoryUrl().toString(),
+        "About dialog repository link changed with the product name");
+    view.capture(language + QStringLiteral("-about"));
+    invoke(about, "close");
+    auto* licenses = named(view.window, "openSourceDialog");
+    invoke(licenses, "open");
+    check(named(licenses, "licenseApplicationVersion")->property("text").toString().contains(productName),
+        "License dialog application version did not use the localized product name");
+    check(named(licenses, "licenseApplicationRevision")->property("text").toString().contains(view.buildInfo.applicationRevision()),
+        "License dialog omitted the application's full Git revision");
+    auto* list = named(licenses, "openSourceComponents");
+    check(list->property("count").toInt() == 11, "License component catalog missing");
+    const auto qt = view.buildInfo.dependencyInfo().value(QStringLiteral("qt")).toMap();
+    check(waitUntil([&] { return visualItem(qobject_cast<QQuickItem*>(list), QStringLiteral("componentVersion-qt")) != nullptr; }),
+        "Qt license row was not created");
+    check(namedVisual(list, "componentVersion-qt")->property("text").toString().contains(qt.value(QStringLiteral("version")).toString()),
+        "Qt license version does not come from selected build metadata");
+    check(namedVisual(list, "qtRuntimeVersion")->property("text").toString().contains(view.buildInfo.qtRuntimeVersion()),
+        "License dialog omitted the actual Qt runtime version");
+    const auto qtRevision = qt.value(QStringLiteral("revision")).toString();
+    if (!qtRevision.isEmpty())
+        check(namedVisual(list, "componentRevision-qt")->property("text").toString().contains(qtRevision),
+            "License dialog abbreviated or lost the Qt source revision");
+    view.capture(language + QStringLiteral("-licenses-qt"));
+    check(QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, 1), Q_ARG(int, 0)),
+        "Cannot scroll license list to backend");
+    check(waitUntil([&] { return visualItem(qobject_cast<QQuickItem*>(list), QStringLiteral("componentVersion-libarchive")) != nullptr; }),
+        "Backend license row was not created");
+    const auto backend = view.buildInfo.dependencyInfo().value(QStringLiteral("libarchive")).toMap();
+    check(namedVisual(list, "componentVersion-libarchive")->property("text").toString().contains(backend.value(QStringLiteral("version")).toString()),
+        "Backend license row omitted the used version");
+    const auto backendRevision = backend.value(QStringLiteral("revision")).toString();
+    if (!backendRevision.isEmpty())
+        check(namedVisual(list, "componentRevision-libarchive")->property("text").toString().contains(backendRevision),
+            "Backend license row omitted the full Git revision");
+    view.capture(language + QStringLiteral("-licenses-backend"));
+    invoke(licenses, "close");
+}
 void flow(const QString& language) {
     TemporaryDirectory fixture;
     const auto file = fixture.path / pathFromUtf8("归档🐈.dat");
     createFixture(file, FixtureFormat::Zip, {{"z.txt", "z"}, {"dup.txt", "first"},
         {"dup.txt", "second payload"}, {"中文/安安.txt", "unicode"}});
     View view;
+    brandingAndLicenses(view, language);
     view.window->setProperty("themeMode", 1);
     view.capture(language + QStringLiteral("-home-light"));
     view.window->setProperty("themeMode", 2);

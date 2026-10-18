@@ -85,7 +85,7 @@ def create_portable(root):
     image[0x80:0x84] = b"PE\0\0"
     struct.pack_into("<H", image, 0x84, 0x8664)
     struct.pack_into("<H", image, 0x98, 0x20B)
-    (root / "AnAnArchiver.exe").write_bytes(image)
+    (root / "LiteArc.exe").write_bytes(image)
     for relative in REQUIRED_PAYLOAD:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,7 +131,7 @@ class WindowsMsixPackagingTests(unittest.TestCase):
         self.output = self.root / "\u5df2\u6709\u4ea7\u7269"
         self.output.mkdir()
         (self.output / "sentinel.txt").write_bytes(b"preserve output directory")
-        (self.output / "AnAnArchiver_1.0.0.0_x64.msix").write_bytes(b"preserve existing MSIX")
+        (self.output / "LiteArc_1.0.0.0_x64.msix").write_bytes(b"preserve existing MSIX")
         self.parameters = {
             "PortableDirectory": str(self.portable), "OutputDirectory": str(self.output),
             "IdentityName": "AnAnArchiver.TestFixture", "Publisher": "CN=AnAnArchiver Tests",
@@ -267,7 +267,7 @@ class WindowsMsixPackagingTests(unittest.TestCase):
         self.assert_refused(self.manifest["files"][0]["relative_path"])
 
     def test_same_version_release_artifacts_are_never_overwritten(self):
-        stem = "AnAnArchiver-1.0.0.0-windows-x64"
+        stem = "LiteArc-1.0.0.0-windows-x64"
         for suffix in (".msix", ".AppxManifest.xml", "-artifacts.json"):
             for explicit_version in (True, False):
                 with self.subTest(suffix=suffix, explicit_version=explicit_version):

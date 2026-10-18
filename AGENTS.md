@@ -2,14 +2,14 @@
 
 ## 1. Project Overview
 
-项目名称：**AnAnArchiver**
+项目名称：**轻匣（LiteArc）**
 
 仓库：
 
 - Application: `https://github.com/ananwanan/AnAnArchiver`
 - Archive backend: `https://github.com/libarchive/libarchive`
 
-AnAnArchiver 是一个面向 Windows、Linux、macOS 的现代跨平台压缩/解压缩桌面软件。
+轻匣（LiteArc）是一个面向 Windows、Linux、macOS 的现代跨平台压缩/解压缩桌面软件。
 
 项目目标不是简单地给 `libarchive` 套一层 GUI，而是构建一个：
 
@@ -324,7 +324,7 @@ benchmark tools
 internal diagnostics
 ```
 
-但不作为正式 AnAnArchiver GUI。
+但不作为正式 LiteArc GUI。
 
 不要因为“换技术栈看起来更现代”而无理由重写 frontend。
 
@@ -335,7 +335,7 @@ internal diagnostics
 重构后的推荐目录：
 
 ```text
-AnAnArchiver/
+LiteArc/
 │
 ├── AGENTS.md
 ├── README.md
@@ -431,7 +431,7 @@ AnAnArchiver/
 
 # 8. libarchive Is the Archive Backend
 
-AnAnArchiver 必须优先使用：
+LiteArc 必须优先使用：
 
 ```text
 https://github.com/libarchive/libarchive
@@ -439,7 +439,7 @@ https://github.com/libarchive/libarchive
 
 而不是默认使用操作系统中的随机版本。
 
-该仓库是 AnAnArchiver 的 libarchive 上游来源。
+该仓库是 LiteArc 的 libarchive 上游来源。
 
 使用该仓库的最新版本，不固定历史版本号、tag 或 commit。
 
@@ -497,7 +497,7 @@ RAR parser
 TAR parser
 ```
 
-到 AnAnArchiver。
+到 LiteArc。
 
 格式解析应由：
 
@@ -509,7 +509,7 @@ libarchive/libarchive
 
 如果发现 libarchive bug：
 
-1. 确认是否是 AnAnArchiver adapter 问题。
+1. 确认是否是 LiteArc adapter 问题。
 2. 添加最小复现。
 3. 如果确实属于 libarchive，则修复 `libarchive/libarchive`。
 4. 不要在 GUI 中增加奇怪 workaround。
@@ -1050,7 +1050,7 @@ entry count
 
 性能目标不是要求超过 codec 自身极限。
 
-AnAnArchiver 应尽量让应用自身额外开销保持很低。
+LiteArc 应尽量让应用自身额外开销保持很低。
 
 目标：
 
@@ -1594,7 +1594,7 @@ View 必须使用虚拟化组件。
 
 # 40. Modern UI Direction
 
-AnAnArchiver UI 应：
+LiteArc UI 应：
 
 ```text
 简洁
@@ -2338,43 +2338,31 @@ src/
 
 # 66. Naming
 
-推荐 namespace：
-
-```cpp
-namespace anan::archive
-```
-
-或：
-
-```cpp
-namespace ananarchiver
-```
-
-选定后整个项目保持一致。
-
-不要混用：
+正式产品名称统一为：
 
 ```text
-AnZip
-AnanZip
-AnAnZip
-AnArchiver
-AnAnArchiver
+中文显示名：轻匣
+英文产品名：LiteArc
 ```
 
-正式产品统一为：
+中文界面显示“轻匣”，英文界面显示“LiteArc”。窗口标题、关于页面、菜单、
+系统集成显示名、安装器和需求/用户文档必须保持一致。
 
-```text
-AnAnArchiver
-```
+公开可执行文件使用 `LiteArc` / `LiteArc.exe`，macOS bundle 使用 `LiteArc.app`，
+Linux portable 启动器使用 `LiteArc.sh`，分发包使用 `LiteArc-<version>-<platform>-<arch>`。
+CMake project 名称使用 `LiteArc`。
 
-中文显示名可以使用：
+为保持现有源码、构建、用户设置和安装升级兼容，保留下列技术标识：
 
-```text
-安安解压
-```
+- `ananarchiver` namespace、`include/ananarchiver/` 和已有 API 名称。
+- `ananarchiver_*` / `AnAnArchiver` CMake targets 与 `ANANARCHIVER_*` 选项。
+- 已有 QML URI、资源路径、应用组织/设置标识、registry keys、bundle/application IDs。
+- `share/AnAnArchiver` 安装数据目录。
+- GitHub 仓库 `https://github.com/ananwanan/AnAnArchiver`。
 
-但代码标识使用英文。
+这些技术标识不是用户可见产品名，不因品牌变更机械重命名。
+历史验证记录、旧产物路径和原始素材生成提示词保留当时的真实名称，明确其历史背景；
+不得将旧测试结果描述成 LiteArc 新构建的验证结果。
 
 ---
 
@@ -2456,19 +2444,19 @@ recent files
 虽然第一阶段主要做 GUI，但核心功能应允许未来创建：
 
 ```text
-ananarchiver-cli
+LiteArc-cli
 ```
 
 例如：
 
 ```bash
-ananarchiver list file.7z
+LiteArc-cli list file.7z
 
-ananarchiver extract file.zip -o ./output
+LiteArc-cli extract file.zip -o ./output
 
-ananarchiver create output.zip ./folder
+LiteArc-cli create output.zip ./folder
 
-ananarchiver test file.rar
+LiteArc-cli test file.rar
 ```
 
 因此所有核心功能必须独立于 GUI 生命周期。
@@ -2658,7 +2646,7 @@ Core 不得依赖它。
 ```text
 Extract Here
 Extract to "folder\"
-Open with AnAnArchiver
+Open with LiteArc
 Compress to ZIP
 ```
 
@@ -2957,6 +2945,11 @@ Core 不依赖 global singleton。
 一次构建在开始前完成依赖解析和源码获取，编译过程中使用同一份解析结果；下一次依赖初始化或更新重新检查上游最新版本。
 
 构建记录必须包含每项依赖的来源、实际版本、tag（如有）、commit 和解析时间，用于诊断、审计与复现该次构建。记录解析结果不改变后续使用最新版本的策略。
+
+帮助菜单中的“开源组件与许可”必须显示当前应用版本及其 Git revision（可用时），
+并为各组件显示本次构建实际使用的版本、Git revision（可用时）和源码仓库链接。
+数据来自经验证的当前构建身份与配置记录（与最终 provenance 共用输入），不用文档示例或当前子模块 HEAD
+代替已构建依赖；未知信息明确显示为不可用，不编造版本。
 
 获取最新版本失败或发现兼容性问题时，应明确报告原因并修复适配，不能静默退回旧版本却宣称使用最新版本。
 
@@ -3326,7 +3319,7 @@ frontend/flutter
 
 # 102. Product Vision
 
-AnAnArchiver 最终应成为：
+LiteArc 最终应成为：
 
 > 一个以现代 C++ 为核心、以 libarchive 为统一归档引擎、UI 可替换、跨平台、安全、快速、适合大型压缩包的现代桌面归档管理器。
 

@@ -1,13 +1,14 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=AnAnArchiver
+Name=LiteArc
+Name[zh_CN]=轻匣
 GenericName=Archive Manager
 GenericName[zh_CN]=归档管理器
 Comment=Browse, extract and create archives
 Comment[zh_CN]=浏览、解压和创建压缩包
-Exec=AnAnArchiver %f
-TryExec=AnAnArchiver
+Exec=LiteArc %f
+TryExec=LiteArc
 Icon=com.ananwanan.AnAnArchiver
 Terminal=false
 Categories=Utility;Archiving;Compression;

@@ -42,7 +42,7 @@ foreach ($name in @('obsolete-component.txt', 'user-modified-managed.txt')) {
     [IO.File]::AppendAllText((Join-Path $taskFixture 'package-owned-files.txt'),
         $name + '|' + $hash + "`n", [Text.UTF8Encoding]::new($false))
 }
-$taskOutputName = 'AnAnArchiver-' + $PreviousVersion + '-windows-x64-upgrade-fixture-setup'
+$taskOutputName = 'LiteArc-' + $PreviousVersion + '-windows-x64-upgrade-fixture-setup'
 $taskCompilerArguments = @('/Qp', ('/DPackageRoot=' + $taskFixture), ('/DOutputRoot=' + $taskOutput),
     ('/DAppVersion=' + $PreviousVersion), ('/DOutputName=' + $taskOutputName),
     (Join-Path $taskRepository 'packaging/windows/AnAnArchiver.iss'))

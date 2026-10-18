@@ -1,7 +1,8 @@
 # Application icon
 
-`ananarchiver.png` is the original AnAnArchiver application icon. It was generated
-with the built-in `image_gen` tool in built-in mode, with
+`ananarchiver.png` is the original application icon, now used by 轻匣 (LiteArc).
+The compatibility asset filenames and resource URLs remain unchanged. The icon
+was generated with the built-in `image_gen` tool in built-in mode, with
 `transparent_background: true`; no reference images were used. The selected
 1254 × 1254 PNG is stored at its original resolution with its generated RGBA alpha
 channel preserved. Platform icon containers are derived from this source.
@@ -23,6 +24,8 @@ The committed exports are consumed directly; building the application does not
 require an image-generation or image-conversion dependency.
 
 ## Exact generation prompt
+
+This historical prompt retains the product name used when the icon was created.
 
 ```text
 Use case: logo-brand

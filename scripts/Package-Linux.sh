@@ -33,10 +33,10 @@ version=$(sed -n 's/^version=//p' "$metadata")
 qt_version=$(sed -n 's/^qt_version=//p' "$metadata")
 qt_prefix=$(sed -n 's/^qt_prefix=//p' "$metadata")
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { printf '%s\n' 'Invalid package version.' >&2; exit 2; }
-name="AnAnArchiver-$version-linux-$(uname -m)"
+name="LiteArc-$version-linux-$(uname -m)"
 package="$stage/$name"
 cmake --install "$build" --config Release --prefix "$package"
-install -m 755 "$source/packaging/linux/AnAnArchiver.sh" "$package/AnAnArchiver.sh"
+install -m 755 "$source/packaging/linux/LiteArc.sh" "$package/LiteArc.sh"
 install -m 755 "$source/packaging/linux/install-desktop.sh" "$package/install-desktop.sh"
 install -m 755 "$source/packaging/linux/uninstall-desktop.sh" "$package/uninstall-desktop.sh"
 install -m 644 "$source/packaging/linux/README.md" "$package/README.md"
@@ -68,7 +68,7 @@ done < <(find "$package/bin" "$package/lib" "$package/plugins" "$package/qml" -t
 }
 env -u QT_PLUGIN_PATH -u QML_IMPORT_PATH -u QML2_IMPORT_PATH -u LD_LIBRARY_PATH \
     ANANARCHIVER_SETTINGS_FILE="$stage/smoke-settings/settings.ini" \
-    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software "$package/AnAnArchiver.sh" --smoke-test 500
+    QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software "$package/LiteArc.sh" --smoke-test 500
 if command -v desktop-file-validate >/dev/null; then
     desktop-file-validate "$package/share/applications/com.ananwanan.AnAnArchiver.desktop"
 fi

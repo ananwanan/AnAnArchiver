@@ -1,9 +1,20 @@
 #include "build_info.h"
 #include "ananarchiver_build_timestamp.h"
+#include "ananarchiver_dependency_info.h"
 #include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLocale>
 
 namespace ananarchiver::qt {
+
+namespace {
+const QJsonObject& metadata()
+{
+    static const auto value = QJsonDocument::fromJson(ANANARCHIVER_DEPENDENCY_INFO_JSON).object();
+    return value;
+}
+}
 
 QString BuildInfo::buildTime() const
 {
@@ -27,6 +38,26 @@ QString BuildInfo::buildTime() const
 QUrl BuildInfo::repositoryUrl() const
 {
     return QUrl(QStringLiteral("https://github.com/ananwanan/AnAnArchiver"));
+}
+
+QVariantMap BuildInfo::dependencyInfo() const
+{
+    return metadata().value(QStringLiteral("components")).toObject().toVariantMap();
+}
+
+QString BuildInfo::applicationRevision() const
+{
+    return metadata().value(QStringLiteral("applicationRevision")).toString();
+}
+
+bool BuildInfo::applicationDirty() const
+{
+    return metadata().value(QStringLiteral("applicationDirty")).toBool();
+}
+
+QString BuildInfo::qtRuntimeVersion() const
+{
+    return QString::fromLatin1(qVersion());
 }
 
 }

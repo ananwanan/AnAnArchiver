@@ -46,8 +46,8 @@ qt_prefix=$(sed -n 's/^qt_prefix=//p' "$metadata")
 deploy="$qt_prefix/bin/macdeployqt"
 [[ -x "$deploy" ]] || { printf '%s\n' 'The recorded Qt kit has no macdeployqt.' >&2; exit 2; }
 cmake --install "$build" --config Release --prefix "$stage"
-app="$stage/AnAnArchiver.app"
-[[ -x "$app/Contents/MacOS/AnAnArchiver" ]] || exit 1
+app="$stage/LiteArc.app"
+[[ -x "$app/Contents/MacOS/LiteArc" ]] || exit 1
 resources="$app/Contents/Resources"
 install -m 644 "$metadata" "$resources/packaging-metadata.txt"
 install -m 644 "$source/packaging/macos/README.md" "$stage/README.md"
@@ -65,7 +65,7 @@ python3 "$source/packaging/linux/collect_licenses.py" \
     --manifest "$build/resolved-dependencies.json" --output "$resources/licenses" \
     --qt-license-dir "$license_directory" --qt-prefix "$qt_prefix" --qt-version "$qt_version"
 
-deploy_args=(AnAnArchiver.app "-qmldir=$source/frontend/qt/qml" -always-overwrite -verbose=2)
+deploy_args=(LiteArc.app "-qmldir=$source/frontend/qt/qml" -always-overwrite -verbose=2)
 # These runtime SVG plugins are used by QML icons but do not create a direct
 # link from the executable to QtSvg. Explicit scanning deploys their frameworks.
 for plugin in imageformats/libqsvg.dylib iconengines/libqsvgicon.dylib; do
@@ -78,33 +78,33 @@ if [[ -n "$identity" ]]; then
     deploy_args+=("-sign-for-notarization=$identity")
 fi
 plutil -lint "$app/Contents/Info.plist"
-arch=$(lipo -archs "$app/Contents/MacOS/AnAnArchiver" | tr ' ' '-')
-name="AnAnArchiver-$version-macos-$arch"
+arch=$(lipo -archs "$app/Contents/MacOS/LiteArc" | tr ' ' '-')
+name="LiteArc-$version-macos-$arch"
 printf 'version=%s\nqt_version=%s\narchitecture=%s\n' "$version" "$qt_version" "$arch" > "$resources/package-verification.txt"
 
 # Sign only after all bundle resources have reached their final state. Run in
 # the staging directory so a DMG never acquires the developer's full path name.
 pushd "$stage" >/dev/null
 "$deploy" "${deploy_args[@]}"
-codesign --verify --deep --strict --verbose=2 AnAnArchiver.app
+codesign --verify --deep --strict --verbose=2 LiteArc.app
 while IFS= read -r -d '' binary; do
     if file "$binary" | grep -q 'Mach-O'; then
         if otool -L "$binary" | tail -n +2 | awk '{print $1}' | grep '^/' | grep -Ev '^(/System/Library/|/usr/lib/)' ; then
             printf '%s\n' "Non-system absolute dependency remains in $binary" >&2; exit 1
         fi
     fi
-done < <(find AnAnArchiver.app -type f -print0)
+done < <(find LiteArc.app -type f -print0)
 env -u QT_PLUGIN_PATH -u QML_IMPORT_PATH -u QML2_IMPORT_PATH -u DYLD_LIBRARY_PATH \
     ANANARCHIVER_SETTINGS_FILE="$stage/smoke-settings/settings.ini" \
-    ./AnAnArchiver.app/Contents/MacOS/AnAnArchiver --smoke-test 500
-ditto -c -k --sequesterRsrc --keepParent AnAnArchiver.app "$name.zip"
+    ./LiteArc.app/Contents/MacOS/LiteArc --smoke-test 500
+ditto -c -k --sequesterRsrc --keepParent LiteArc.app "$name.zip"
 if $make_dmg; then
     # Include the standard Applications shortcut and installation instructions.
     mkdir dmg-root
-    cp -R AnAnArchiver.app dmg-root/
+    cp -R LiteArc.app dmg-root/
     cp README.md dmg-root/
     ln -s /Applications dmg-root/Applications
-    hdiutil create -volname AnAnArchiver -srcfolder dmg-root -format UDZO "$name.dmg"
+    hdiutil create -volname LiteArc -srcfolder dmg-root -format UDZO "$name.dmg"
     if [[ -n "$identity" ]]; then codesign --timestamp --sign "$identity" "$name.dmg"; fi
     mv -f -- "$name.dmg" "$output/$name.dmg"
     (cd "$output" && shasum -a 256 "$name.dmg" > "$name.dmg.sha256")

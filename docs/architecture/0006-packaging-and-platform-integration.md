@@ -1,5 +1,12 @@
 # Packaging and platform integration
 
+The product display names are 轻匣 (Chinese) and LiteArc (English). Public
+executables and launchers use `LiteArc`, `LiteArc.exe`, `LiteArc.sh` and
+`LiteArc.app`; distribution artifacts use `LiteArc-<version>-<platform>-<arch>`.
+Existing registry, settings, bundle/application and desktop identities, and the
+`share/AnAnArchiver` data directory, retain their compatibility names. The source
+repository remains `https://github.com/ananwanan/AnAnArchiver`.
+
 Archive and Application APIs remain independent of Qt and system registration.
 Packaging scripts consume the application's CMake cache and provenance instead
 of selecting a Qt installation from PATH. Windows uses the same-kit windeployqt;

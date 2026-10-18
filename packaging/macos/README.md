@@ -1,11 +1,11 @@
-# AnAnArchiver for macOS
+# LiteArc for macOS
 
-Unzip the package and move `AnAnArchiver.app` into Applications, or drag it to the
+Unzip the package and move `LiteArc.app` into Applications, or drag it to the
 Applications shortcut in the disk image. The complete bundle contains the
 selected Qt kit's frameworks, QML imports, plugins and application icon.
 
 Finder's Open With menu recognizes the supported archive types. Use Finder's
-Get Info → Open with → Change All to make AnAnArchiver a default for a selected
+Get Info → Open with → Change All to make LiteArc a default for a selected
 type. Installing the app registers it as an alternate viewer and preserves
 existing defaults. Double-click and document-open events use the same async
 archive controller as the application's Open command.

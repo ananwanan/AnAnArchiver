@@ -384,8 +384,8 @@ AtomicArchiveOutput::~AtomicArchiveOutput() {
     if (!impl_->cleaned) {
         try {
             auto result = rollback();
-            if (!result) std::fputs("AnAnArchiver: compression staging cleanup failed\n", stderr);
-        } catch (...) { std::fputs("AnAnArchiver: compression staging cleanup failed\n", stderr); }
+            if (!result) std::fputs("LiteArc: compression staging cleanup failed\n", stderr);
+        } catch (...) { std::fputs("LiteArc: compression staging cleanup failed\n", stderr); }
     }
 }
 

@@ -1,4 +1,4 @@
-# Build dependency plan
+# LiteArc build dependency plan
 
 Use the latest stable release from each dependency's designated upstream when
 initializing or updating sources. Do not prescribe a fixed historical version,
@@ -188,3 +188,9 @@ bundled archive backend. Reader/writer format limitations still follow libarchiv
 
 Upstream licenses are retained in each submodule. Refer to their `LICENSE`,
 `COPYING`, and Qt `LICENSES/` files for the components being distributed.
+
+The application help menu shows each component's actual build version and Git
+revision when recorded, together with its source repository. These values come
+from the verified build identity and configuration shared with final provenance, so a later
+submodule update cannot relabel an existing binary. The application is branded
+as 轻匣 / LiteArc; `share/AnAnArchiver` remains the compatibility data location.

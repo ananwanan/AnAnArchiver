@@ -1,5 +1,8 @@
 # 2026-10-17：切换官方 libarchive 来源
 
+> Historical validation: this run predates the 2026-10-18 rename to 轻匣 / LiteArc.
+> Original AnAnArchiver artifact names, build paths and results are preserved as evidence.
+
 ## 实际解析结果
 
 libarchive 的指定来源改为 [libarchive/libarchive](https://github.com/libarchive/libarchive)。

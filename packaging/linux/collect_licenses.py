@@ -110,7 +110,7 @@ def collect(source_root: Path, manifest_file: Path, output: Path,
     output.mkdir(parents=True, exist_ok=True)
     (output / "third-party-notices.json").write_text(json.dumps(records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (output / "THIRD-PARTY-NOTICES.txt").write_text(
-        "AnAnArchiver contains open source archive backends/codecs and dynamically linked Qt.\n"
+        "LiteArc contains open source archive backends/codecs and dynamically linked Qt.\n"
         "Exact dependency revisions, source URLs and license text hashes are in third-party-notices.json.\n"
         "The package permits replacement of Qt with compatible modified builds and debugging those modifications.\n"
         "Application source and build instructions: https://github.com/ananwanan/AnAnArchiver\n"

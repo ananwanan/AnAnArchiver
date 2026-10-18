@@ -12,10 +12,10 @@ $taskBuildPath = if ([System.IO.Path]::IsPathRooted($BuildDirectory)) {
 }
 $taskBuildPath = (Resolve-Path -LiteralPath $taskBuildPath).Path
 $applicationDirectory = $taskBuildPath
-$executable = Join-Path $applicationDirectory 'AnAnArchiver.exe'
+$executable = Join-Path $applicationDirectory 'LiteArc.exe'
 if (-not (Test-Path -LiteralPath $executable)) {
     $applicationDirectory = Join-Path $taskBuildPath 'application'
-    $executable = Join-Path $applicationDirectory 'AnAnArchiver.exe'
+    $executable = Join-Path $applicationDirectory 'LiteArc.exe'
 }
 if (-not (Test-Path -LiteralPath $executable)) {
     throw 'Desktop executable is missing. Build the Qt frontend first.'

@@ -8,20 +8,21 @@
   #error AppVersion is required
 #endif
 #ifndef OutputName
-  #define OutputName "AnAnArchiver-" + AppVersion + "-windows-x64-setup"
+  #define OutputName "LiteArc-" + AppVersion + "-windows-x64-setup"
 #endif
 
 [Setup]
 AppId={{B5695574-44A8-4DAB-AD67-31776F46CC31}
-AppName=AnAnArchiver
+AppName={cm:ProductName}
 AppVersion={#AppVersion}
 AppPublisher=ananwanan
 AppPublisherURL=https://github.com/ananwanan/AnAnArchiver
 AppSupportURL=https://github.com/ananwanan/AnAnArchiver/issues
-DefaultDirName={localappdata}\Programs\AnAnArchiver
+DefaultDirName={localappdata}\Programs\LiteArc
 CreateAppDir=no
 UsePreviousAppDir=no
-DefaultGroupName=AnAnArchiver
+DefaultGroupName=LiteArc
+UsePreviousGroup=no
 PrivilegesRequired=lowest
 SetupArchitecture=x64
 ArchitecturesAllowed=x64compatible
@@ -48,36 +49,40 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [CustomMessages]
-english.Associations=Register AnAnArchiver in Open with for supported archives
+english.ProductName=LiteArc
+chinesesimplified.ProductName=轻匣
+english.UninstallName=Uninstall LiteArc
+chinesesimplified.UninstallName=卸载轻匣
+english.Associations=Register LiteArc in Open with for supported archives
 english.ContextMenu=Add Open / Extract / Compress commands to Explorer's context menu
 english.DesktopIcon=Create a desktop shortcut
 english.IntegrationGroup=Optional system integration:
-english.MoveInstallDir=AnAnArchiver is already installed in another directory. Uninstall that installation before choosing a different directory.
+english.MoveInstallDir=LiteArc is already installed in another directory. Uninstall that installation before choosing a different directory.
 english.InstallFolderTitle=Installation folder
-english.InstallFolderDescription=Choose where AnAnArchiver will be installed.
+english.InstallFolderDescription=Choose where LiteArc will be installed.
 english.InstallFolderPrompt=Enter an absolute folder path. Extended-length paths are supported.
 english.InstallFolderLabel=Folder:
 english.InvalidInstallFolder=Enter a valid absolute folder path with valid Windows names. Root folders, relative components, trailing dots or spaces and device names are not supported.
-chinesesimplified.Associations=为支持的归档格式注册 AnAnArchiver“打开方式”
+chinesesimplified.Associations=为支持的归档格式注册轻匣“打开方式”
 chinesesimplified.ContextMenu=在资源管理器右键菜单中添加“打开 / 解压 / 压缩”
 chinesesimplified.DesktopIcon=创建桌面快捷方式
 chinesesimplified.IntegrationGroup=可选的系统集成：
-chinesesimplified.MoveInstallDir=AnAnArchiver 已安装在其他目录。请先卸载原安装，再选择不同的安装目录。
+chinesesimplified.MoveInstallDir=轻匣已安装在其他目录。请先卸载原安装，再选择不同的安装目录。
 chinesesimplified.InstallFolderTitle=安装目录
-chinesesimplified.InstallFolderDescription=选择 AnAnArchiver 的安装位置。
+chinesesimplified.InstallFolderDescription=选择轻匣的安装位置。
 chinesesimplified.InstallFolderPrompt=请输入绝对目录路径。支持超长路径。
 chinesesimplified.InstallFolderLabel=目录：
 chinesesimplified.InvalidInstallFolder=请输入有效的绝对目录路径和 Windows 文件夹名称。不支持根目录、相对路径段、末尾的点或空格及设备名称。
-english.ArchiveDescription=AnAnArchiver archive
-chinesesimplified.ArchiveDescription=AnAnArchiver 归档
-english.OpenMenu=Open with AnAnArchiver
-chinesesimplified.OpenMenu=用 AnAnArchiver 打开
-english.ExtractHereMenu=Extract here with AnAnArchiver
-chinesesimplified.ExtractHereMenu=用 AnAnArchiver 解压到当前位置
-english.ExtractFolderMenu=Extract to folder with AnAnArchiver
-chinesesimplified.ExtractFolderMenu=用 AnAnArchiver 解压到同名文件夹
-english.CompressMenu=Compress with AnAnArchiver
-chinesesimplified.CompressMenu=用 AnAnArchiver 压缩
+english.ArchiveDescription=LiteArc archive
+chinesesimplified.ArchiveDescription=轻匣归档
+english.OpenMenu=Open with LiteArc
+chinesesimplified.OpenMenu=用轻匣打开
+english.ExtractHereMenu=Extract here with LiteArc
+chinesesimplified.ExtractHereMenu=用轻匣解压到当前位置
+english.ExtractFolderMenu=Extract to folder with LiteArc
+chinesesimplified.ExtractFolderMenu=用轻匣解压到同名文件夹
+english.CompressMenu=Compress with LiteArc
+chinesesimplified.CompressMenu=用轻匣压缩
 
 [Tasks]
 Name: "associations"; Description: "{cm:Associations}"; GroupDescription: "{cm:IntegrationGroup}"; Flags: unchecked
@@ -89,12 +94,12 @@ Source: "{#PackageRoot}\*"; DestDir: "{code:InstallRoot}"; Flags: ignoreversion 
 Source: "{#PackageRoot}\package-owned-files.txt"; DestName: "ananarchiver-new-owned-files.txt"; Flags: dontcopy
 
 [Icons]
-Name: "{group}\AnAnArchiver"; Filename: "{code:ExecutablePath}"; Check: not IsIntegrationTest
-Name: "{group}\Uninstall AnAnArchiver"; Filename: "{uninstallexe}"; Check: not IsIntegrationTest
-Name: "{autodesktop}\AnAnArchiver"; Filename: "{code:ExecutablePath}"; Tasks: desktopicon; Check: not IsIntegrationTest
+Name: "{group}\{cm:ProductName}"; Filename: "{code:ExecutablePath}"; Check: not IsIntegrationTest
+Name: "{group}\{cm:UninstallName}"; Filename: "{uninstallexe}"; Check: not IsIntegrationTest
+Name: "{autodesktop}\{cm:ProductName}"; Filename: "{code:ExecutablePath}"; Tasks: desktopicon; Check: not IsIntegrationTest
 
 [Run]
-Filename: "{code:ExecutablePath}"; Description: "{cm:LaunchProgram,AnAnArchiver}"; Flags: shellexec nowait postinstall skipifsilent; Check: not IsIntegrationTest
+Filename: "{code:ExecutablePath}"; Description: "{cm:LaunchProgram,{cm:ProductName}}"; Flags: shellexec nowait postinstall skipifsilent; Check: not IsIntegrationTest
 
 [UninstallDelete]
 Type: files; Name: "{code:InstallRoot}\.integration-test-namespace"
@@ -106,6 +111,7 @@ Type: dirifempty; Name: "{localappdata}\AnAnArchiver"; Check: not IsIntegrationT
 
 [Code]
 const
+  { Preserve registry identities and installer data across the product rename. }
   ArchiveProgID = 'AnAnArchiver.Archive';
   ArchiveExtensions = '.zip;.zipx;.7z;.rar;.tar;.gz;.tgz;.bz2;.tbz;.tbz2;.xz;.txz;.zst;.tzst;.lz4;.cab;.cpio;.ar;.iso;.lha;.lzh;.xar';
   TestPrefix = 'Software\AnAnArchiver\PackageValidation\';
@@ -127,6 +133,8 @@ var
 
 function GetFileAttributesW(Name: String): LongWord;
   external 'GetFileAttributesW@kernel32.dll stdcall';
+function GetLongPathNameW(ShortPath, LongPath: String; BufferLength: LongWord): LongWord;
+  external 'GetLongPathNameW@kernel32.dll stdcall';
 function NativeLastError: LongWord;
   external 'GetLastError@kernel32.dll stdcall';
 function SetFileAttributesW(Name: String; Attributes: LongWord): Boolean;
@@ -152,7 +160,7 @@ begin
   end;
   begin
     Result := SelectedInstallFolder;
-    if Result = '' then Result := ExpandConstant('{localappdata}\Programs\AnAnArchiver');
+    if Result = '' then Result := ExpandConstant('{localappdata}\Programs\LiteArc');
   end;
 end;
 
@@ -172,7 +180,7 @@ end;
 
 function ExecutablePath(Param: String): String;
 begin
-  Result := InstallRoot('') + '\AnAnArchiver.exe';
+  Result := InstallRoot('') + '\LiteArc.exe';
   if Length(Result) >= 248 then Result := PathConvertNormalToSuper(Result);
 end;
 
@@ -263,6 +271,18 @@ function CommandForAction(Action: String): String;
 begin
   if Action = 'open' then Result := OpenCommand
   else Result := Executable + ' --' + Action + ' "%1"';
+end;
+
+function LegacyCommandForAction(Action: String): String;
+var
+  LegacyPath: String;
+begin
+  { Accept only commands from this installation when migrating the former name. }
+  LegacyPath := InstallRoot('') + '\AnAnArchiver.exe';
+  if Length(LegacyPath) >= 248 then LegacyPath := PathConvertNormalToSuper(LegacyPath);
+  Result := '"' + LegacyPath + '"';
+  if Action = 'open' then Result := Result + ' "%1"'
+  else Result := Result + ' --' + Action + ' "%1"';
 end;
 
 function CommandOwned(Key, Expected: String): Boolean;
@@ -591,7 +611,7 @@ begin
     Exit;
   end;
   if not CheckRegistrationOwnership then begin
-    Result := 'An AnAnArchiver integration key belongs to another command. Disable the optional integration or remove that conflicting registration first.';
+    Result := 'A LiteArc integration key belongs to another command. Disable the optional integration or remove that conflicting registration first.';
     Exit;
   end;
   ExtractTemporaryFile('ananarchiver-new-owned-files.txt');
@@ -697,7 +717,7 @@ begin
   if SelectedInstallFolder = '' then begin
     if RegQueryStringValue(HKCU, AppRoot + '\Integration', 'InstallPath', Previous) then
       SelectedInstallFolder := Previous
-    else SelectedInstallFolder := ExpandConstant('{localappdata}\Programs\AnAnArchiver');
+    else SelectedInstallFolder := ExpandConstant('{localappdata}\Programs\LiteArc');
   end;
   InstallFolderPage.Values[0] := SelectedInstallFolder;
   InstallFolderBrowseButton := TNewButton.Create(WizardForm);
@@ -728,9 +748,10 @@ begin
   end;
 end;
 
-procedure DeleteOwnedCommand(Key, Expected: String);
+procedure DeleteOwnedAction(Key, Action: String);
 begin
-  if CommandOwned(Key, Expected) then
+  if CommandOwned(Key, CommandForAction(Action)) or
+     CommandOwned(Key, LegacyCommandForAction(Action)) then
     RegDeleteKeyIncludingSubkeys(HKCU, Key);
 end;
 
@@ -755,22 +776,24 @@ begin
       RegDeleteKeyIfEmpty(HKCU, ClassesRoot + '\' + Extension);
     end;
     Key := ClassesRoot + '\SystemFileAssociations\' + Extension + '\shell\AnAnArchiver.';
-    DeleteOwnedCommand(Key + 'Open', OpenCommand);
-    DeleteOwnedCommand(Key + 'ExtractHere', CommandForAction('extract-here'));
-    DeleteOwnedCommand(Key + 'ExtractToFolder', CommandForAction('extract-to-folder'));
+    DeleteOwnedAction(Key + 'Open', 'open');
+    DeleteOwnedAction(Key + 'ExtractHere', 'extract-here');
+    DeleteOwnedAction(Key + 'ExtractToFolder', 'extract-to-folder');
     RegDeleteKeyIfEmpty(HKCU, ClassesRoot + '\SystemFileAssociations\' + Extension + '\shell');
     RegDeleteKeyIfEmpty(HKCU, ClassesRoot + '\SystemFileAssociations\' + Extension);
   until Remaining = '';
-  DeleteOwnedCommand(ClassesRoot + '\*\shell\AnAnArchiver.Compress', CommandForAction('compress'));
-  DeleteOwnedCommand(ClassesRoot + '\Directory\shell\AnAnArchiver.Compress', CommandForAction('compress'));
+  DeleteOwnedAction(ClassesRoot + '\*\shell\AnAnArchiver.Compress', 'compress');
+  DeleteOwnedAction(ClassesRoot + '\Directory\shell\AnAnArchiver.Compress', 'compress');
   RegDeleteKeyIfEmpty(HKCU, ClassesRoot + '\*\shell');
   RegDeleteKeyIfEmpty(HKCU, ClassesRoot + '\*');
   RegDeleteKeyIfEmpty(HKCU, ClassesRoot + '\Directory\shell');
   RegDeleteKeyIfEmpty(HKCU, ClassesRoot + '\Directory');
   RegDeleteKeyIfEmpty(HKCU, ClassesRoot + '\SystemFileAssociations');
-  if CommandOwned(ClassesRoot + '\' + ArchiveProgID + '\shell\open', OpenCommand) then
+  if CommandOwned(ClassesRoot + '\' + ArchiveProgID + '\shell\open', OpenCommand) or
+     CommandOwned(ClassesRoot + '\' + ArchiveProgID + '\shell\open', LegacyCommandForAction('open')) then
     RegDeleteKeyIncludingSubkeys(HKCU, ClassesRoot + '\' + ArchiveProgID);
-  if CommandOwned(ClassesRoot + '\Applications\AnAnArchiver.exe\shell\open', OpenCommand) then
+  if CommandOwned(ClassesRoot + '\Applications\AnAnArchiver.exe\shell\open', OpenCommand) or
+     CommandOwned(ClassesRoot + '\Applications\AnAnArchiver.exe\shell\open', LegacyCommandForAction('open')) then
     RegDeleteKeyIncludingSubkeys(HKCU, ClassesRoot + '\Applications\AnAnArchiver.exe');
   RegDeleteKeyIfEmpty(HKCU, ClassesRoot + '\Applications');
   if RegQueryStringValue(HKCU, RegisteredApplicationsRoot, 'AnAnArchiver', Value)
@@ -791,7 +814,7 @@ end;
 procedure WriteString(Key, Name, Value: String);
 begin
   if not RegWriteStringValue(HKCU, Key, Name, Value) then
-    RaiseException('Could not register AnAnArchiver system integration.');
+    RaiseException('Could not register LiteArc system integration.');
 end;
 
 procedure RegisterMenu(Key, MenuText, Action: String);
@@ -819,9 +842,9 @@ begin
     WriteString(ClassesRoot + '\' + ArchiveProgID, '', CustomMessage('ArchiveDescription'));
     WriteString(ClassesRoot + '\' + ArchiveProgID + '\DefaultIcon', '', Executable + ',0');
     WriteString(ClassesRoot + '\' + ArchiveProgID + '\shell\open\command', '', OpenCommand);
-    WriteString(ClassesRoot + '\Applications\AnAnArchiver.exe', 'FriendlyAppName', 'AnAnArchiver');
+    WriteString(ClassesRoot + '\Applications\AnAnArchiver.exe', 'FriendlyAppName', CustomMessage('ProductName'));
     WriteString(ClassesRoot + '\Applications\AnAnArchiver.exe\shell\open\command', '', OpenCommand);
-    WriteString(AppRoot + '\Capabilities', 'ApplicationName', 'AnAnArchiver');
+    WriteString(AppRoot + '\Capabilities', 'ApplicationName', CustomMessage('ProductName'));
     WriteString(AppRoot + '\Capabilities', 'ApplicationDescription', 'Archive browser, compression and extraction');
     WriteString(RegisteredApplicationsRoot, 'AnAnArchiver', AppRoot + '\Capabilities');
   end;
@@ -852,7 +875,7 @@ begin
       RaiseException('The installer test namespace record could not be saved.');
     SaveStringToFile(ExpandConstant('{code:InstallRoot}\.integration-test-namespace'), RegistryPrefix, False);
     Key := RegistryPrefix + '\Uninstall\AnAnArchiver';
-    WriteString(Key, 'DisplayName', 'AnAnArchiver');
+    WriteString(Key, 'DisplayName', CustomMessage('ProductName'));
     WriteString(Key, 'DisplayVersion', '{#AppVersion}');
     WriteString(Key, 'InstallLocation', ExpandConstant('{code:InstallRoot}'));
     WriteString(Key, 'UninstallString', '"' + ExpandConstant('{uninstallexe}') + '"');
@@ -867,6 +890,89 @@ function InitializeSetup: Boolean;
 begin
   RegistryPrefix;
   Result := True;
+end;
+
+function ComparableShortcutTarget(Value: String): String;
+var
+  Directory, LongDirectory: String;
+  Count: LongWord;
+begin
+  Value := PathConvertSuperToNormal(Value);
+  Directory := ExtractFileDir(Value);
+  SetLength(LongDirectory, 32768);
+  { Inno may use a short TEMP path while Windows expands the saved link target.
+    Normalize the existing parent, since upgrade may already remove the old EXE. }
+  Count := GetLongPathNameW(Directory, LongDirectory, 32768);
+  if (Count > 0) and (Count < 32768) then
+    Result := AddBackslash(Copy(LongDirectory, 1, Count)) + ExtractFileName(Value)
+  else Result := Value;
+end;
+
+function ShortcutPathWithoutReparsePoints(Path: String): Boolean;
+var
+  Current, Parent: String;
+  Ancestors: TArrayOfString;
+  I, Count: Integer;
+  Attributes: LongWord;
+begin
+  Result := False;
+  Current := RemoveBackslashUnlessRoot(PathConvertSuperToNormal(Path));
+  repeat
+    Count := GetArrayLength(Ancestors);
+    if Count >= 256 then Exit;
+    SetArrayLength(Ancestors, Count + 1);
+    Ancestors[Count] := Current;
+    Parent := ExtractFileDir(Current);
+    if (Parent = '') or (CompareText(Current, Parent) = 0) then Break;
+    Current := Parent;
+  until False;
+  { Check from the filesystem root down before reading the link: a junction in
+    the former group, Desktop or any parent must never redirect cleanup. }
+  for I := GetArrayLength(Ancestors) - 1 downto 0 do begin
+    Attributes := GetFileAttributesW(PathConvertNormalToSuper(Ancestors[I]));
+    if (Attributes = $FFFFFFFF) or ((Attributes and $400) <> 0) then Exit;
+    if (I > 0) and ((Attributes and $10) = 0) then Exit;
+  end;
+  Result := True;
+end;
+
+procedure DeleteLegacyShortcut(Path, ExpectedTarget: String);
+var
+  Shell, Shortcut: Variant;
+begin
+  if not ShortcutPathWithoutReparsePoints(Path) then Exit;
+  try
+    Shell := CreateOleObject('WScript.Shell');
+    Shortcut := Shell.CreateShortcut(Path);
+    { A familiar filename alone does not prove this installation owns the link. }
+    if CompareText(ComparableShortcutTarget(Shortcut.TargetPath), ComparableShortcutTarget(ExpectedTarget)) = 0 then begin
+      if ShortcutPathWithoutReparsePoints(Path) then begin
+        if not DeleteFile(Path) then Log('Could not remove the former product shortcut: ' + Path);
+      end;
+    end else Log('Preserved former product shortcut with another target: ' + Path);
+  except
+    Log('Could not inspect the former product shortcut: ' + Path + ': ' + GetExceptionMessage);
+  end;
+end;
+
+procedure CleanupLegacyShortcuts;
+var
+  FormerExecutable, FormerGroup, DesktopRoot: String;
+begin
+  FormerExecutable := InstallRoot('') + '\AnAnArchiver.exe';
+  if IsIntegrationTest then begin
+    { Keep shortcut migration tests inside the same private installer-data slot. }
+    FormerGroup := UninstallDataRoot('') + '\shortcut-validation\programs\AnAnArchiver';
+    DesktopRoot := UninstallDataRoot('') + '\shortcut-validation\desktop';
+  end else begin
+    FormerGroup := ExpandConstant('{autoprograms}\AnAnArchiver');
+    DesktopRoot := ExpandConstant('{autodesktop}');
+  end;
+  DeleteLegacyShortcut(FormerGroup + '\AnAnArchiver.lnk', FormerExecutable);
+  DeleteLegacyShortcut(FormerGroup + '\Uninstall AnAnArchiver.lnk', ExpandConstant('{uninstallexe}'));
+  DeleteLegacyShortcut(DesktopRoot + '\AnAnArchiver.lnk', FormerExecutable);
+  { Remove only an empty group, preserving anything the user added. }
+  if ShortcutPathWithoutReparsePoints(FormerGroup) and DirExists(FormerGroup) then RemoveDir(FormerGroup);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -889,6 +995,7 @@ begin
   if (CurStep = ssDone) and ObsoleteReadyToCommit then begin
     { ssPostInstall is too early: installation can still fail afterwards. }
     ObsoleteCommitted := True;
+    CleanupLegacyShortcuts;
     DiscardObsoleteBackups;
   end;
 end;

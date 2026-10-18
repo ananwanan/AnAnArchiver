@@ -231,7 +231,9 @@ fi
 
     def test_linux_archive_handler(self) -> None:
         entry = desktop(LINUX / f"{DESKTOP_ID}.desktop")
-        self.assertEqual(entry["Desktop Entry"]["Exec"], "AnAnArchiver %f")
+        self.assertEqual(entry["Desktop Entry"]["Name"], "LiteArc")
+        self.assertEqual(entry["Desktop Entry"]["Name[zh_CN]"], "轻匣")
+        self.assertEqual(entry["Desktop Entry"]["Exec"], "LiteArc %f")
         self.assertEqual(entry["Desktop Entry"]["Icon"], DESKTOP_ID)
         self.assertEqual(entry["Desktop Entry"]["Terminal"], "false")
         types = entry["Desktop Entry"]["MimeType"].split(";")
@@ -246,7 +248,7 @@ fi
     def test_macos_bundle_and_imported_archive_types(self) -> None:
         source = (ROOT / "packaging/macos/Info.plist.in").read_text(encoding="utf-8")
         substitutions = {
-            "MACOSX_BUNDLE_EXECUTABLE_NAME": "AnAnArchiver",
+            "MACOSX_BUNDLE_EXECUTABLE_NAME": "LiteArc",
             "MACOSX_BUNDLE_GUI_IDENTIFIER": "com.ananwanan.AnAnArchiver",
             "MACOSX_BUNDLE_ICON_FILE": "ananarchiver.icns",
             "MACOSX_BUNDLE_SHORT_VERSION_STRING": "1.0.0",
@@ -255,7 +257,9 @@ fi
         for key, value in substitutions.items():
             source = source.replace("${" + key + "}", value)
         info = plistlib.loads(source.encode("utf-8"))
-        self.assertEqual(info["CFBundleExecutable"], "AnAnArchiver")
+        self.assertEqual(info["CFBundleDisplayName"], "LiteArc")
+        self.assertEqual(info["CFBundleName"], "LiteArc")
+        self.assertEqual(info["CFBundleExecutable"], "LiteArc")
         self.assertEqual(info["CFBundlePackageType"], "APPL")
         self.assertEqual(info["CFBundleIdentifier"], DESKTOP_ID)
         self.assertTrue(info["NSHighResolutionCapable"])
@@ -309,7 +313,7 @@ fi
             for package in packages:
                 (package / "share/applications").mkdir(parents=True)
                 (package / "share/pixmaps").mkdir(parents=True)
-                for name in ["install-desktop.sh", "uninstall-desktop.sh", "AnAnArchiver.sh"]:
+                for name in ["install-desktop.sh", "uninstall-desktop.sh", "LiteArc.sh"]:
                     shutil.copy2(LINUX / name, package / name)
                     (package / name).chmod(0o755)
                 shutil.copy2(LINUX / f"{DESKTOP_ID}.desktop", package / f"share/applications/{DESKTOP_ID}.desktop")
@@ -324,7 +328,7 @@ fi
             icon = data_home / f"icons/{DESKTOP_ID}.png"
             execute(packages[0], "install-desktop.sh")
             entry = desktop(registered)
-            expected = shell_path(packages[0]) + "/AnAnArchiver.sh"
+            expected = shell_path(packages[0]) + "/LiteArc.sh"
             self.assertEqual(desktop_executable(entry["Desktop Entry"]["Exec"]), expected)
             self.assertTrue(icon.is_file())
             self.assertEqual(defaults.read_text(encoding="utf-8"), original_defaults)
@@ -344,7 +348,7 @@ fi
             execute(packages[0], "uninstall-desktop.sh")
             self.assertTrue(registered.is_file())
             self.assertEqual(desktop_executable(desktop(registered)["Desktop Entry"]["Exec"]),
-                             shell_path(packages[1]) + "/AnAnArchiver.sh")
+                             shell_path(packages[1]) + "/LiteArc.sh")
             execute(packages[1], "uninstall-desktop.sh")
             self.assertFalse(registered.exists())
             self.assertFalse(icon.exists())

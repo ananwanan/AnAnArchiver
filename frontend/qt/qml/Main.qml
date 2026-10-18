@@ -16,6 +16,7 @@ ApplicationWindow {
     property var taskController: null
     property var dragController: null
     property var buildInfo: null
+    readonly property string productName: qsTr("LiteArc")
     function showShellCompression(destination) {
         compressionDialog.suggestDestination(destination)
         compressionDialog.open()
@@ -37,8 +38,8 @@ ApplicationWindow {
     minimumHeight: 480
     visible: true
     title: window.archiveController.currentFile.length > 0
-           ? window.archiveController.currentFile.split(/[\\/]/).pop() + " — AnAnArchiver"
-           : "AnAnArchiver"
+           ? window.archiveController.currentFile.split(/[\\/]/).pop() + " — " + window.productName
+           : window.productName
 
     property int themeMode: desktopController ? desktopController.themeMode : 0
     onThemeModeChanged: {
@@ -230,7 +231,7 @@ ApplicationWindow {
             }
             MenuSeparator {}
             MenuItem {
-                text: qsTr("About AnAnArchiver")
+                text: qsTr("About LiteArc")
                 onTriggered: aboutDialog.open()
             }
         }
@@ -603,11 +604,12 @@ ApplicationWindow {
     OpenSourceDialog {
         id: openSourceDialog
         hostWindow: window
+        buildInfo: window.buildInfo
     }
     Dialog {
         id: aboutDialog
         objectName: "aboutDialog"
-        title: qsTr("About AnAnArchiver")
+        title: qsTr("About LiteArc")
         modal: true
         anchors.centerIn: Overlay.overlay
         width: Math.min(520, window.width - 48)
@@ -629,9 +631,10 @@ ApplicationWindow {
                 ColumnLayout {
                     Layout.fillWidth: true
                     Label {
+                        objectName: "aboutProductName"
                         Layout.fillWidth: true
                         textFormat: Text.PlainText
-                        text: "AnAnArchiver"
+                        text: window.productName
                         font.pixelSize: 24
                         font.bold: true
                         wrapMode: Text.WordWrap
@@ -655,6 +658,14 @@ ApplicationWindow {
                 textFormat: Text.PlainText
                 text: qsTr("Build time: %1").arg(window.buildInfo ? window.buildInfo.buildTime : qsTr("Unknown"))
                 wrapMode: Text.WordWrap
+            }
+            Label {
+                objectName: "aboutGitRevision"
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: qsTr("Git revision: %1").arg(window.buildInfo ? window.buildInfo.applicationRevision : qsTr("Unknown"))
+                    + (window.buildInfo && window.buildInfo.applicationDirty ? qsTr(" (modified working tree)") : "")
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             }
             Label {
                 Layout.fillWidth: true

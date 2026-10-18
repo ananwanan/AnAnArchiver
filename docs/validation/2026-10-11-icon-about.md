@@ -1,5 +1,8 @@
 # Application icon and About information
 
+> Historical validation: this run predates the 2026-10-18 rename to 轻匣 / LiteArc.
+> Original AnAnArchiver artifact names, build paths and results are preserved as evidence.
+
 The original transparent application icon is stored in
 `frontend/qt/resources/icons/ananarchiver.png`; its generation prompt and platform
 exports are documented alongside it. Windows embeds seven ICO frames in the EXE;

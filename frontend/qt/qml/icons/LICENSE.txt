@@ -1,8 +1,8 @@
-These SVG icons were created for AnAnArchiver. They use a 24 x 24 grid,
+These SVG icons were created for LiteArc. They use a 24 x 24 grid,
 1.7 unit strokes, round caps and round joins. The light and dark variants
 share the same geometry. No third-party artwork is included.
 
-Copyright (c) 2026 AnAnArchiver contributors
+Copyright (c) 2026 LiteArc contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

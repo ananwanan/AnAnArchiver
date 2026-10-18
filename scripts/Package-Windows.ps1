@@ -234,7 +234,7 @@ do not attest the rebuilt QtCore binary. The modification record, original and
 modified hashes, patch, source revision, compiler, and compatibility checks are
 in share/AnAnArchiver/qt-windows-longpaths.json and qt-windows-longpaths.patch.
 The mirrored build recipe is supplied for traceability. Rebuild it from a full
-AnAnArchiver source checkout with scripts/Prepare-PatchedQtKit.ps1 and the matching
+LiteArc source checkout with scripts/Prepare-PatchedQtKit.ps1 and the matching
 Qt source/build inputs recorded there. The original source is available from
 https://code.qt.io/qt/qtbase.git at the recorded qtbase_revision.
 Qt notices remain in licenses/qt-runtime or the coupled source-license directories.
@@ -309,10 +309,10 @@ $taskBuild = Resolve-TaskPath $BuildDirectory
 $taskOutput = Resolve-TaskPath $OutputDirectory
 if (-not $SkipBuild) { Invoke-Checked 'cmake' @('--build', $taskBuild, '--parallel', "$Jobs") }
 $taskApplication = $taskBuild
-if (-not (Test-Path -LiteralPath (Join-Path $taskApplication 'AnAnArchiver.exe'))) {
+if (-not (Test-Path -LiteralPath (Join-Path $taskApplication 'LiteArc.exe'))) {
     $taskApplication = Join-Path $taskBuild 'application'
 }
-$taskExecutable = Join-Path $taskApplication 'AnAnArchiver.exe'
+$taskExecutable = Join-Path $taskApplication 'LiteArc.exe'
 if (-not (Test-Path -LiteralPath $taskExecutable)) { throw "Missing release executable: $taskExecutable" }
 # Both records belong to the application build, even when a superbuild directory
 # was supplied. Validate them before staging cleanup, deployment or tool downloads.
@@ -344,7 +344,7 @@ if ($taskCache['CMAKE_SIZEOF_VOID_P'] -and $taskCache['CMAKE_SIZEOF_VOID_P'] -ne
 }
 $taskVersion = $taskProvenance.project_version
 if ($taskVersion -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw 'The project version cannot be used as an installer version.' }
-$taskName = "AnAnArchiver-$taskVersion-windows-x64"
+$taskName = "LiteArc-$taskVersion-windows-x64"
 $taskStage = Join-Path $taskOutput $taskName
 $taskZip = Join-Path $taskOutput ($taskName + '.zip')
 New-Item -ItemType Directory -Path $taskOutput -Force | Out-Null
@@ -365,7 +365,7 @@ try {
         '--compiler-runtime', '--no-opengl-sw', '--qmldir', (Join-Path $taskRepository 'frontend/qt/qml'),
         '--plugindir', (Join-Path $taskStage 'plugins'),
         '--svg', '--include-plugins', 'qsvg,qsvgicon',
-        '--qtpaths', (Join-Path $taskQtBin 'qtpaths.exe'), '--no-translations', (Join-Path $taskStage 'AnAnArchiver.exe'))
+        '--qtpaths', (Join-Path $taskQtBin 'qtpaths.exe'), '--no-translations', (Join-Path $taskStage 'LiteArc.exe'))
 } finally { $env:PATH = $taskOldPath }
 
 # The portable ZIP must run without installing the centrally deployed VC runtime.
@@ -446,7 +446,7 @@ Windows Universal CRT components are supplied by supported Windows 10/11.
 [IO.File]::WriteAllText((Join-Path $taskLicenses 'Microsoft-Visual-Cpp-runtime.txt'), $taskRuntimeNotice, [Text.UTF8Encoding]::new($false))
 Write-Json (Join-Path $taskStage 'share/AnAnArchiver/third-party-notices.json') $taskLicenseRecords
 $taskNotices = @'
-AnAnArchiver uses open source archive codecs and dynamically linked Qt libraries.
+LiteArc uses open source archive codecs and dynamically linked Qt libraries.
 Dependency versions, revisions, source URLs and license texts are included in
 share/AnAnArchiver and licenses/. Qt libraries may be replaced with compatible
 modified builds; the package does not restrict debugging those modifications.

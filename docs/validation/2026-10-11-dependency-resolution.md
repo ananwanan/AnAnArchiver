@@ -1,5 +1,8 @@
 # Dependency resolution validation — 2026-10-11
 
+> Historical validation: this run predates the 2026-10-18 rename to 轻匣 / LiteArc.
+> Original AnAnArchiver artifact names, build paths and results are preserved as evidence.
+
 历史来源说明（2026-10-17）：本记录中的 libarchive revision、PR 与后端审计来自
 当时使用的 fork。当前依赖已切换为官方
 [libarchive/libarchive](https://github.com/libarchive/libarchive) 最新稳定发布版。

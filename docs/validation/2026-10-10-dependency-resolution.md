@@ -1,5 +1,8 @@
 # Dependency resolution and desktop validation — 2026-10-10
 
+> Historical validation: this run predates the 2026-10-18 rename to 轻匣 / LiteArc.
+> Original AnAnArchiver artifact names, build paths and results are preserved as evidence.
+
 Historical source note (2026-10-17): the libarchive source and backend patch
 described here belong to the former fork. Current dependency initialization uses
 the official [libarchive/libarchive](https://github.com/libarchive/libarchive)

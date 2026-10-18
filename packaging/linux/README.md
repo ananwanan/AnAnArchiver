@@ -1,6 +1,6 @@
-# AnAnArchiver for Linux
+# LiteArc for Linux
 
-Extract the complete directory and run `./AnAnArchiver.sh`. The package contains
+Extract the complete directory and run `./LiteArc.sh`. The package contains
 Qt, QML imports and plugins from the selected build kit. The host still supplies
 glibc, its graphics drivers, X11/Wayland and other normal system libraries; build
 on the oldest distribution you intend to support.
@@ -16,7 +16,7 @@ revisions. If those trees live elsewhere, set
 `ANANARCHIVER_DEPENDENCY_SOURCE_DIRECTORY` to their repository root. Complete
 notices, source links and license hashes are in `share/licenses`.
 
-Run `./install-desktop.sh` to add AnAnArchiver to your current user's application
+Run `./install-desktop.sh` to add LiteArc to your current user's application
 menu and Open With choices. Archive associations use standard MIME types and
 preserve your existing default applications. Choose a default explicitly in your
 file manager if desired.

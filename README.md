@@ -1,6 +1,6 @@
-# AnAnArchiver
+# 轻匣 · LiteArc
 
-跨平台归档管理器，使用 C++23、Qt 6 Quick/QML 和
+轻匣（LiteArc）是跨平台归档管理器，使用 C++23、Qt 6 Quick/QML 和
 [libarchive/libarchive](https://github.com/libarchive/libarchive)。
 
 当前完成 AGENTS.md 的 M1、M2、M3 与 M4：独立 Core、libarchive RAII 适配器、
@@ -16,7 +16,17 @@ TAR.XZ、TAR.ZST 和 TAR.LZ4，创建选项由实际 writer capabilities 驱动�
 键盘快捷键，以及可复制的纯文本错误详情。主题和最多 20 条最近记录在后台
 保存；任务中心保留最多 64 条本次会话记录，支持按任务取消和清除已结束任务。
 帮助菜单中的“开源组件与许可”列出随附后端、Qt 及构建依赖的用途和许可证，
-提供项目网站、上游许可原文和 Qt 内嵌第三方组件的许可目录链接。
+显示当前应用版本和可用的 Git revision，以及各组件实际构建版本、可用的 Git
+revision 与源码仓库；这些信息来自与最终 provenance 共用的、经验证的构建身份
+和配置记录。还提供
+项目网站、上游许可原文和 Qt 内嵌第三方组件的许可目录链接。
+
+产品中文显示名为“轻匣”，英文名为“LiteArc”；可执行文件、安装器和分发包使用
+LiteArc。源码仓库地址仍为
+[ananwanan/AnAnArchiver](https://github.com/ananwanan/AnAnArchiver)。
+内部 API、构建选项/targets、应用设置及系统集成身份和 `share/AnAnArchiver`
+数据目录保留现有标识，以兼容既有构建、用户设置和升级。
+`docs/validation` 的历史记录保留当时真实的 AnAnArchiver 产物名称与测试证据。
 
 ## 目录与依赖方向
 
@@ -154,7 +164,12 @@ Windows 非 Developer Shell 可使用仓库脚本自动发现并初始化 MSVC �
 应用子构建位于 `out/build/<preset>/application`，其 CTest 可以独立运行。
 个人路径配置放到被忽略的 `CMakeUserPresets.json`，不要提交机器绝对路径。
 
-CI 先解析一次完整清单，随后 MSVC、GCC、Clang/libc++、Apple Clang 和
+GitHub CI 当前暂时停用，日常使用本地构建和测试。工作流保留全部作业及
+`workflow_dispatch` 手动入口，移除了 `push`、`pull_request` 自动触发。
+需要手动运行时，先在 GitHub Actions 中启用工作流，再选择 Run workflow；
+以后恢复自动 CI 时，将这两个触发事件加回 `.github/workflows/build.yml`。
+
+保留的 CI 作业先解析一次完整清单，随后 MSVC、GCC、Clang/libc++、Apple Clang 和
 ASan/UBSan 作业重放同一组依赖提交，防止并行作业之间发生版本漂移。
 Windows 桌面作业使用 `desktop-release` 构建所选 Qt 的完整配套源码，执行
 Core、生产 QML 解压/创建/桌面交互/拖放回归、QML lint 和应用启动 smoke。
@@ -166,7 +181,7 @@ Windows 源码构建完成后，在当前终端加入项目内 Qt 的运行时�
 
 ```powershell
 $env:PATH = (Resolve-Path out/build/desktop-release/dependencies/install/qt/bin).Path + ';' + $env:PATH
-./out/build/desktop-release/application/AnAnArchiver.exe
+./out/build/desktop-release/application/LiteArc.exe
 ```
 
 开发 Qt kit 则将 `$env:QTDIR/bin` 加入当前终端的 PATH。供最终用户使用的
@@ -206,7 +221,8 @@ cmake -DANANARCHIVER_INIT_QT=ON -P scripts/init-dependencies.cmake
 
 脚本使用 CMake 所选的同一 Qt kit 部署 DLL、QML、平台与 SVG 插件，并加入
 MSVC app-local runtime、依赖来源、许可证和逐文件 SHA-256 清单。
-`out/artifacts/windows` 生成完整 portable ZIP 和当前用户安装器。
+`out/artifacts/windows` 生成 `LiteArc-<version>-windows-x64.zip` 和
+`LiteArc-<version>-windows-x64-setup.exe` 当前用户安装器。
 portable 包必须完整解压后运行；安装器提供中英界面，无需管理员权限。
 “打开方式”注册、资源管理器右键菜单与桌面快捷方式均为可选项。
 关联注册保留 Windows 的现有默认应用；在系统设置中选择默认应用即可双击打开。
@@ -216,10 +232,10 @@ Windows 11 的传统菜单项目可能显示在“显示更多选项”中。
 系统入口使用以下参数，归档读取和写入仍由原任务系统执行：
 
 ```text
-AnAnArchiver archive.zip
-AnAnArchiver --extract-here archive.zip
-AnAnArchiver --extract-to-folder archive.tar.gz
-AnAnArchiver --compress file1 folder2
+LiteArc archive.zip
+LiteArc --extract-here archive.zip
+LiteArc --extract-to-folder archive.tar.gz
+LiteArc --compress file1 folder2
 ```
 
 解压保留覆盖询问、密码交互与安全限制。压缩入口打开已填入输入和建议输出路径的
@@ -238,11 +254,12 @@ bash scripts/Package-macOS.sh out/build/desktop-release --dmg
 ```
 
 Linux 生成 Qt/QML runtime 与启动脚本配套的 tar.gz，提供可选的当前用户
-`.desktop`/MIME 安装与卸载脚本，不覆盖默认 MIME 应用。macOS 部署 `.app`、
+`.desktop`/MIME 安装与卸载脚本，入口为 `LiteArc.sh`，不覆盖默认 MIME 应用。
+macOS 部署 `LiteArc.app`、
 归档 document types 和 Finder 打开事件，可生成 app ZIP 与 DMG。
 系统图形库、glibc 等遵循构建主机的兼容范围；macOS 分发签名与公证需发布者身份。
 详细用法见 [Linux 集成](packaging/linux/README.md) 和 [macOS 部署](packaging/macos/README.md)。
-本阶段 Windows 可交付包与安装流程已在本机验收；Linux/macOS 已验证元数据和脚本，
+历史 M5 的 Windows 可交付包与安装流程已在本机验收；Linux/macOS 已验证元数据和脚本，
 尚未进行这两个平台的原生 GUI/打包运行验收。证据见
 [M5 验收记录](docs/validation/2026-10-12-m5.md)。
 
@@ -369,6 +386,8 @@ M3 增加所有创建格式/方法的生成式往返、等级端点、C locale U
 M2 的执行证据和验证边界见 [M2 验收记录](docs/validation/2026-10-07-m2.md)。
 M3 的执行证据和验证边界见 [M3 验收记录](docs/validation/2026-10-07-m3.md)。
 M4 的执行证据和验证边界见 [M4 验收记录](docs/validation/2026-10-08-m4.md)。
+轻匣改名、组件版本显示及本机搜狗输入法的超长安装路径限制，见
+[2026-10-18 验证记录](docs/validation/2026-10-18-litearc.md)。
 
 ## 桌面操作
 
@@ -389,7 +408,7 @@ M4 的执行证据和验证边界见 [M4 验收记录](docs/validation/2026-10-0
 Windows 可把生成式测试数据放在指定的 SSD 目录，设置只影响测试子进程：
 
 ```powershell
-./scripts/Test-Desktop.ps1 -BuildDirectory out/build/m4-msvc -TemporaryRoot D:/Cache/Codex/AnAnArchiver-M4
+./scripts/Test-Desktop.ps1 -BuildDirectory out/build/m4-msvc -TemporaryRoot D:/Cache/Codex/LiteArc
 ```
 
 `-BuildDirectory` 可使用任何已配置的应用构建目录。省略 `-TemporaryRoot` 时

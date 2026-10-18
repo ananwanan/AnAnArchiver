@@ -7,7 +7,7 @@ data_home=${XDG_DATA_HOME:-"$HOME/.local/share"}
 id=com.ananwanan.AnAnArchiver
 desktop="$data_home/applications/$id.desktop"
 template="$root/share/applications/$id.desktop"
-[[ -x "$root/AnAnArchiver.sh" && -f "$template" && -f "$root/share/pixmaps/$id.png" ]] || { printf '%s\n' 'Extract the complete Linux package first.' >&2; exit 2; }
+[[ -x "$root/LiteArc.sh" && -f "$template" && -f "$root/share/pixmaps/$id.png" ]] || { printf '%s\n' 'Extract the complete Linux package first.' >&2; exit 2; }
 [[ "$root" != *$'\n'* && "$root" != *$'\r'* ]] || { printf '%s\n' 'Installation path contains a line break.' >&2; exit 2; }
 # Desktop Exec parsing has two escaping layers: the key value, then quoted
 # arguments. Field codes are escaped independently. Never evaluate a shell.
@@ -32,7 +32,7 @@ icon_temporary=$(mktemp "$data_home/icons/.$id.XXXXXXXX")
 while IFS= read -r line || [[ -n "$line" ]]; do
     case "$line" in
         '[Desktop Entry]') printf '%s\nX-AnAnArchiver-Package=%s\n' "$line" "${root//\\/\\\\}" ;;
-        'Exec=AnAnArchiver '*) printf 'Exec="%s/AnAnArchiver.sh" %s\n' "$escaped" "${line#Exec=AnAnArchiver }" ;;
+        'Exec=LiteArc '*) printf 'Exec="%s/LiteArc.sh" %s\n' "$escaped" "${line#Exec=LiteArc }" ;;
         TryExec=*) ;; # Absolute Exec remains valid even when the package is not on PATH.
         *) printf '%s\n' "$line" ;;
     esac
@@ -44,4 +44,4 @@ chmod 644 "$icon_temporary"
 mv -f -- "$icon_temporary" "$data_home/icons/$id.png"
 mv -f -- "$temporary" "$desktop"
 if command -v update-desktop-database >/dev/null; then update-desktop-database "$data_home/applications"; fi
-printf '%s\n' "Installed $desktop" 'Choose AnAnArchiver using your file manager’s Open With menu to change a default application.'
+printf '%s\n' "Installed $desktop" 'Choose LiteArc using your file manager’s Open With menu to change a default application.'

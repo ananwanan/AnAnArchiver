@@ -1,4 +1,4 @@
-# Windows release packaging
+# LiteArc Windows release packaging
 
 Run from the repository after resolving current stable dependencies and building
 the Release MSVC x64 frontend:
@@ -117,9 +117,17 @@ report and Inno logs under `out/fix-main/installer-transaction`.
 Create a version-changing fixture from the final portable directory:
 
 ```powershell
-./scripts/New-WindowsUpgradeFixture.ps1 -PortableDirectory out/artifacts/windows/AnAnArchiver-1.0.0-windows-x64
-./scripts/Test-Package.ps1 -PortableArchive out/artifacts/windows/AnAnArchiver-1.0.0-windows-x64.zip -BuildDirectory out/build/desktop-release -InstallerPath out/artifacts/windows/AnAnArchiver-0.9.0-windows-x64-upgrade-fixture-setup.exe -UpgradeInstallerPath out/artifacts/windows/AnAnArchiver-1.0.0-windows-x64-setup.exe
+./scripts/New-WindowsUpgradeFixture.ps1 -PortableDirectory out/artifacts/windows/LiteArc-1.0.0-windows-x64
+./scripts/Test-Package.ps1 -PortableArchive out/artifacts/windows/LiteArc-1.0.0-windows-x64.zip -BuildDirectory out/build/desktop-release -InstallerPath out/artifacts/windows/LiteArc-0.9.0-windows-x64-upgrade-fixture-setup.exe -UpgradeInstallerPath out/artifacts/windows/LiteArc-1.0.0-windows-x64-setup.exe
 ```
+
+The default test constructs an installation root beyond MAX_PATH. For a separately
+reported ordinary-path lifecycle, pass `-MinimumInstallPathLength 0`; this does not
+replace the long-path acceptance check. The report records the requested minimum,
+actual installation-root length and whether it exceeds MAX_PATH. On the validation
+host, a Sogou input-method DLL crashes when the GUI executable path is too long;
+see the [2026-10-18 validation record](../../docs/validation/2026-10-18-litearc.md)
+for the dump evidence and the distinction between ordinary and long-path results.
 
 The same application payload is compiled into an installer with a lower version
 and two obsolete managed-file fixtures. This verifies installer version
@@ -153,7 +161,7 @@ identity**, and copy these exact values into the required parameters:
 
 The following values are placeholders; replace all three with your product's
 identity. Names, publisher strings, capitalization and punctuation must match
-Partner Center. `-DisplayName` defaults to `AnAnArchiver`; set it to the reserved
+Partner Center. `-DisplayName` defaults to `LiteArc`; set it to the reserved
 Store display name if that differs.
 
 ```powershell
@@ -176,7 +184,7 @@ before staging; do not pass an arbitrary EXE directory or an extracted subset:
 
 ```powershell
 ./scripts/Package-MSIX.ps1 `
-    -PortableDirectory out/artifacts/windows/AnAnArchiver-1.0.0-windows-x64 `
+    -PortableDirectory out/artifacts/windows/LiteArc-1.0.0-windows-x64 `
     -IdentityName '<Package/Identity/Name from Partner Center>' `
     -Publisher '<Package/Identity/Publisher from Partner Center>' `
     -PublisherDisplayName '<Package/Properties/PublisherDisplayName from Partner Center>' `
@@ -200,9 +208,9 @@ Open with registration, Explorer context commands or desktop shortcut.
 
 By default, `out/artifacts/msix` receives:
 
-- `AnAnArchiver-<four-part-version>-windows-x64.msix`
-- `AnAnArchiver-<four-part-version>-windows-x64.AppxManifest.xml`
-- `AnAnArchiver-<four-part-version>-windows-x64-artifacts.json`, containing the
+- `LiteArc-<four-part-version>-windows-x64.msix`
+- `LiteArc-<four-part-version>-windows-x64.AppxManifest.xml`
+- `LiteArc-<four-part-version>-windows-x64-artifacts.json`, containing the
   selected identity, source provenance, packaging tool and output SHA-256 hashes.
 
 Use `-OutputDirectory` to select another artifact directory. MakeAppx's manifest

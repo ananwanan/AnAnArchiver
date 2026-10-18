@@ -117,7 +117,7 @@ class GitHub:
     def request(self, url: str, missing_ok: bool = False):
         if not url.startswith("https://api.github.com/"):
             raise ResolutionError("Unexpected GitHub metadata or pagination host")
-        headers = {"User-Agent": "AnAnArchiver-dependency-resolver", "Accept": "application/vnd.github+json"}
+        headers = {"User-Agent": "LiteArc-dependency-resolver", "Accept": "application/vnd.github+json"}
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
         try:

@@ -41,15 +41,19 @@ int main(int argc, char* argv[])
 {
     if (!ananarchiver::qt::configurePackagedRuntime()) return 6;
     DesktopApplication app(argc, argv);
+    // Keep the settings identity stable across the LiteArc product rename.
     QCoreApplication::setApplicationName(QStringLiteral("AnAnArchiver"));
     QCoreApplication::setApplicationVersion(QStringLiteral(ANANARCHIVER_PROJECT_VERSION));
     QCoreApplication::setOrganizationName(QStringLiteral("AnAnArchiver"));
+    QGuiApplication::setApplicationDisplayName(QStringLiteral("LiteArc"));
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/branding/ananarchiver.png")));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QCommandLineParser parser;
     parser.addHelpOption();
-    parser.addVersionOption();
+    const QCommandLineOption versionOption({QStringLiteral("v"), QStringLiteral("version")},
+                                           QStringLiteral("Displays version information."));
+    parser.addOption(versionOption);
     parser.addPositionalArgument(QStringLiteral("file"),
                                  QCoreApplication::translate("main", "Archive to open"));
     QCommandLineOption smokeOption(QStringLiteral("smoke-test"),
@@ -75,7 +79,18 @@ int main(int argc, char* argv[])
     parser.addOption({QStringLiteral("extract-to-folder"), QStringLiteral("Extract into a folder named after the archive")});
     parser.addOption({QStringLiteral("compress"), QStringLiteral("Add the input files or folders to the creation dialog")});
     parser.addOption({QStringLiteral("smoke-shell"), QStringLiteral("Exit after shell extraction or creation-dialog verification")});
-    parser.process(app);
+    const auto arguments = QCoreApplication::arguments();
+    if (!parser.parse(arguments))
+        QCommandLineParser::showMessageAndExit(QCommandLineParser::MessageType::Error,
+            QGuiApplication::applicationDisplayName() + QStringLiteral(": ") + parser.errorText() + QChar(u'\n'), 1);
+    // Keep Qt's help formatting and generic --help-all options. Parsing errors
+    // above use the product name while the persistent settings identity stays stable.
+    if (parser.isSet(QStringLiteral("help")) || parser.isSet(QStringLiteral("help-all")))
+        parser.process(arguments);
+    if (parser.isSet(versionOption)) {
+        std::cout << "LiteArc " << ANANARCHIVER_PROJECT_VERSION << '\n';
+        return 0;
+    }
 
     QString shellAction;
     for (const auto& action : {QStringLiteral("extract-here"), QStringLiteral("extract-to-folder"), QStringLiteral("compress")}) {
@@ -107,6 +122,7 @@ int main(int argc, char* argv[])
     if (language == QStringLiteral("zh-CN") ||
         (language.isEmpty() && QLocale().language() == QLocale::Chinese))
         app.installTranslator(&translator);
+    QGuiApplication::setApplicationDisplayName(QCoreApplication::translate("main", "LiteArc"));
 
     const auto capture = [&app, &parser] {
         if (!parser.isSet(QStringLiteral("smoke-screenshot")))
