@@ -246,8 +246,9 @@ ApplicationWindow {
     }
     FolderDialog {
         id: folderDialog
+        objectName: "localFolderDialog"
         title: qsTr("Browse folder")
-        onAccepted: window.directoryModel.loadDirectoryUrl(selectedFolder)
+        onAccepted: { window.archiveController.close(); window.directoryModel.loadDirectoryUrl(selectedFolder) }
     }
 
     HomePage {

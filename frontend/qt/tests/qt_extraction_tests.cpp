@@ -50,6 +50,18 @@ void invoke(QObject* object, const char* method) {
 QString translated(const char* text) {
     return QCoreApplication::translate("ArchiveController", text);
 }
+int entryRow(qt::ArchiveController& controller, const QString& path, bool directory = false, int occurrence = 0) {
+    auto* model = controller.entryModel();
+    for (int row = 0; row < model->rowCount(); ++row) {
+        const auto index = model->index(row, 0);
+        if (model->data(index, qt::ArchiveEntryModel::PathRole).toString() == path
+            && model->data(index, qt::ArchiveEntryModel::DirectoryRole).toBool() == directory
+            && occurrence-- == 0)
+            return row;
+    }
+    check(false, "Expected archive row missing: " + path.toStdString());
+    return -1;
+}
 
 struct View {
     qt::ArchiveController controller;
@@ -71,7 +83,7 @@ struct View {
     void open(const std::filesystem::path& archive) {
         controller.openFile(qt::fromPath(archive));
         check(waitUntil([&] { return !controller.busy(); }), "Archive indexing did not complete");
-        check(controller.canExtract(), "Indexed fixture did not enable extraction");
+        check(waitUntil([&] { return controller.canExtract(); }), "Indexed fixture did not enable extraction");
     }
 
     void begin(const std::filesystem::path& destination, const QString& password = {}, int policy = 0) {
@@ -193,19 +205,47 @@ void duplicateSelectionUi() {
         {"folder/child.txt", "child"}, {"folder/", {}, EntryType::Directory}});
     View view;
     view.open(archive);
-    view.clickRow(1);
+    view.clickRow(entryRow(view.controller, QStringLiteral("same.txt"), false, 1));
     view.begin(temp.path / "selected");
     check(named(view.root, "extractSelectedScope")->property("checked").toBool(), "Selection did not choose Selected scope");
     view.complete();
     check(readFile(temp.path / "selected" / "same.txt") == "second", "Duplicate path selected the wrong ordinal entry");
     check(!std::filesystem::exists(temp.path / "selected" / "other.txt"), "Selected extraction included an unselected file");
     check(view.controller.processedBytes() == 6, "Selected byte progress counted unselected data");
-    view.clickRow(4);
-    view.begin(temp.path / "selected-directory");
+    view.controller.navigateToFolder(QStringLiteral("folder"));
+    check(waitUntil([&] { return view.controller.canExtract() && view.controller.entryModel()->rowCount() == 1; }),
+          "Folder navigation did not expose the nested file");
+    view.clickRow(0);
+    view.begin(temp.path / "selected-nested-file");
     view.complete();
-    check(readFile(temp.path / "selected-directory" / "folder" / "child.txt") == "child",
-          "Selected directory did not include descendants before its own header");
+    check(readFile(temp.path / "selected-nested-file" / "folder" / "child.txt") == "child",
+          "Folder-scoped selection lost the nested file's original archive identity");
+    check(!std::filesystem::exists(temp.path / "selected-nested-file" / "same.txt"),
+          "Folder-scoped extraction included files from another folder");
     std::cout << "PASS production QML selected extraction keeps duplicate entry identities\n";
+}
+
+void implicitFolderSelectionUi() {
+    TemporaryDirectory temp;
+    const auto archive = temp.path / "implicit-folders.tar";
+    createFixture(archive, FixtureFormat::Tar, {{"root.txt", "root"}, {"folder/one.txt", "one"},
+        {"folder/nested/中文.txt", "nested"}});
+    View view;
+    view.open(archive);
+    view.clickRow(entryRow(view.controller, QStringLiteral("folder"), true));
+    check(view.controller.currentFolder().isEmpty() && view.controller.selectionCount() == 1,
+        "Single-click selection entered an implicit folder");
+    view.begin(temp.path / "selected-implicit-folder");
+    check(named(view.root, "extractSelectedScope")->property("checked").toBool(),
+        "Implicit directory selection did not choose selected extraction");
+    view.complete();
+    const auto output = temp.path / "selected-implicit-folder";
+    check(readFile(output / "folder/one.txt") == "one"
+        && readFile(output / pathFromUtf8("folder/nested/中文.txt")) == "nested",
+        "Implicit directory selection lost descendant contents without a directory header");
+    check(!std::filesystem::exists(output / "root.txt"), "Selected directory extraction included an unrelated root file");
+    check(view.controller.processedBytes() == 9, "Selected implicit directory progress lost descendant bytes");
+    std::cout << "PASS production QML implicit folder selection extracts its complete subtree\n";
 }
 
 void passwordExtractionUi() {
@@ -282,6 +322,7 @@ int main(int argc, char* argv[]) {
         headerPasswordUi();
         realExtractionUi();
         duplicateSelectionUi();
+        implicitFolderSelectionUi();
         passwordExtractionUi();
     } catch (const std::exception& error) {
         std::cerr << "FAIL " << error.what() << '\n';

@@ -6,16 +6,44 @@ payloads or exposing backend handles. Every operation retains its own reader.
 
 ## Metadata views
 
+Archive browsing has a folders-only tree on the left and the selected folder's
+direct files and subfolders on the right, with folders first for every sort.
+The tree includes the archive root,
+implicit parent folders derived from entry paths, and explicit empty folders.
+The list includes deduplicated implicit folders and explicit empty directories.
+Double-click or Enter enters a folder. The name column displays each basename.
+Root and parent navigation
+update the current path. The archive tree uses indexed metadata; filesystem
+directory browsing retains its separate lazy-scanning model.
+
+Folder construction runs on the managed metadata worker. It deduplicates implicit
+parents and enforces finite depth, node-count and stored-path memory budgets
+before allocating nodes. A failed metadata view is reported explicitly and
+disables extraction and selection until a valid view is available. Unchanged
+folder snapshots are reused across navigation, search, sorting and file appends,
+preserving expanded folders; retired snapshots are released on the worker.
+
 The entry model stores immutable batches of Core metadata. A managed query worker
 shares those batches, caches case-folded Unicode keys, and produces a row-position
-view. Numeric sizes, enum types and timestamps are compared as values; missing
-sizes/timestamps sort last. Ties preserve archive order. The view never changes
-the original enumeration index used by extraction, including duplicate paths.
+view scoped to the current folder's direct files and folders. Search and
+sorting run on that scoped view. Numeric sizes, enum types and timestamps are
+compared as values; missing sizes/timestamps sort last. Ties preserve archive
+order. The view never changes the original enumeration index used by extraction,
+including duplicate paths.
 
-Queries and sort changes cancel obsolete generations and clear selection. Metadata
-appends coalesce the next snapshot without repeatedly cancelling an in-flight
-query; partial views can advance during indexing. A stale archive generation or
-older source snapshot cannot replace a newer view. Selection is disabled until
+Folder rows reference immutable folder IDs rather than fabricated archive entry
+indices. Selected files keep their original indices; selected folders contribute
+directory paths to the extraction request. The backend validates those paths and
+selects directory subtrees using component boundaries on its managed operation,
+including implicit parents and explicit empty directories. The UI never expands
+an entire subtree synchronously. Drag preparation snapshots both kinds of
+selection so changing between implicit folders invalidates prepared output.
+
+Folder navigation, queries and sort changes cancel obsolete generations and clear
+selection. Metadata appends coalesce the next snapshot without repeatedly
+cancelling an in-flight query; partial views can advance during indexing. A stale
+archive generation or older source snapshot cannot replace a newer view.
+Selection is disabled until
 the latest view is ready, and select-all covers only visible rows. Extract-all
 retains complete archive totals. List rows remain virtualized and batches do not
 produce one event per entry.

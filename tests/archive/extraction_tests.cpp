@@ -178,6 +178,111 @@ int main() {
             check(filesIn(request.destination).empty(), "Stale identity creates no output");
         });
 
+        tests.run("Directory paths select implicit subtrees and empty directories with file identities", [&] {
+            const auto archive = fixtures.path / "directory-path-selection.tar";
+            createFixture(archive, FixtureFormat::Tar,
+                          {{"folder", "same-name root file"}, {"folder/before.txt", "before"},
+                           {"folder/deep/leaf.txt", "leaf"}, {"folderish/leak.txt", "unselected"},
+                           {"空目录/", {}, EntryType::Directory},
+                           {"中文/隐式/安安.txt", "unicode"}, {"other.txt", "other"}});
+            auto reader = openedReader(archive);
+            auto request = requestFor(fixtures.path / "implicit-directory-selection");
+            request.selectedDirectoryPaths = {"folder\\."};
+            succeeded(reader->extract(request), "Directory-only selection with nullopt indices");
+            check(readFile(request.destination / "folder/before.txt") == "before" &&
+                  readFile(request.destination / "folder/deep/leaf.txt") == "leaf",
+                  "Implicit parent selection includes all descendant files");
+            check(filesIn(request.destination) ==
+                  std::vector<std::string>{"folder/before.txt", "folder/deep/leaf.txt"},
+                  "Directory path selection excludes same-name files and prefix siblings");
+
+            request.destination = fixtures.path / "directory-selection-union";
+            request.selectedIndices = std::vector<std::uint64_t>{6};
+            request.selectedDirectoryPaths = {"中文/隐式/", "空目录"};
+            succeeded(reader->extract(request), "Union directory paths and original file index");
+            check(readFile(request.destination / pathFromUtf8("中文/隐式/安安.txt")) == "unicode" &&
+                  readFile(request.destination / "other.txt") == "other",
+                  "Unicode implicit subtree and selected file keep their payloads");
+            check(std::filesystem::is_directory(request.destination / pathFromUtf8("空目录")) &&
+                  filesIn(request.destination).size() == 2 &&
+                  !std::filesystem::exists(request.destination / "folderish"),
+                  "Explicit empty directories are preserved without unselected descendants");
+
+            request.destination = fixtures.path / "directory-selection-empty-indices";
+            request.selectedIndices = std::vector<std::uint64_t>{};
+            request.selectedDirectoryPaths = {"folder/deep"};
+            succeeded(reader->extract(request), "Directory paths remain selected with empty file indices");
+            check(filesIn(request.destination) == std::vector<std::string>{"folder/deep/leaf.txt"},
+                  "Empty file selection does not suppress an implicit selected subtree");
+        });
+
+        tests.run("Directory path selection validates security and bounds before creating output", [&] {
+            const auto archive = fixtures.path / "directory-selection-validation.tar";
+            createFixture(archive, FixtureFormat::Tar, {{"safe/child.txt", "safe"}});
+            auto reader = openedReader(archive);
+            const std::vector<std::string> unsafePaths{
+                "../safe", "/safe", "C:\\safe", "..\\safe", "safe/../safe",
+                "\\\\server\\share", "safe:stream", "NUL", ".", "./", std::string{"safe\0hidden", 11}
+            };
+            std::size_t attempt = 0;
+            for (const auto& pathname : unsafePaths) {
+                auto request = requestFor(fixtures.path / ("bad-selected-directory-" + std::to_string(attempt++)));
+                request.selectedDirectoryPaths = {pathname};
+                failedWith(reader->extract(request), ArchiveErrorCode::UnsafePath,
+                           "Reject unsafe selected directory " + pathname);
+                check(!std::filesystem::exists(request.destination), "Unsafe directory selection creates no output root");
+            }
+            const std::vector<std::string> invalidPaths{
+                "", std::string{"\xC3\x28", 2}
+            };
+            for (const auto& pathname : invalidPaths) {
+                auto request = requestFor(fixtures.path / ("invalid-selected-directory-" + std::to_string(attempt++)));
+                request.selectedDirectoryPaths = {pathname};
+                failedWith(reader->extract(request), ArchiveErrorCode::InvalidPathEncoding,
+                           "Reject invalid selected directory encoding");
+                check(!std::filesystem::exists(request.destination), "Invalid directory encoding creates no output root");
+            }
+
+            auto request = requestFor(fixtures.path / "selected-directory-count-limit");
+            request.limits.maxEntries = 1;
+            request.selectedIndices = std::vector<std::uint64_t>{0};
+            request.selectedDirectoryPaths = {"safe"};
+            failedWith(reader->extract(request), ArchiveErrorCode::ResourceLimitExceeded,
+                       "File and directory selection share the entry-count budget");
+            check(!std::filesystem::exists(request.destination), "Oversized selection creates no output root");
+
+            request = requestFor(fixtures.path / "selected-directory-metadata-limit");
+            request.selectedDirectoryPaths = {"safe"};
+            const auto destinationBytes = static_cast<std::uint64_t>(request.destination.native().size()) *
+                                          sizeof(std::filesystem::path::value_type);
+            const auto destinationDepth = static_cast<std::uint64_t>(std::distance(
+                request.destination.begin(), request.destination.end()));
+            request.limits.maxMetadataBytes = destinationBytes * (destinationDepth + 3U) + 2048U + 100U;
+            failedWith(reader->extract(request), ArchiveErrorCode::ResourceLimitExceeded,
+                       "Selected directory metadata obeys the retained-memory budget");
+            check(!std::filesystem::exists(request.destination), "Directory metadata exhaustion creates no output root");
+
+            request = requestFor(fixtures.path / "selected-directory-depth-limit");
+            request.limits.maxDepth = static_cast<std::size_t>(std::distance(
+                request.destination.begin(), request.destination.end())) + 1U;
+            std::string deepPath = "safe";
+            for (std::size_t depth = 0; depth < request.limits.maxDepth; ++depth) deepPath += "/child";
+            request.selectedDirectoryPaths = {deepPath};
+            failedWith(reader->extract(request), ArchiveErrorCode::ResourceLimitExceeded,
+                       "Selected directories obey the path-depth budget");
+            check(!std::filesystem::exists(request.destination), "Excessively deep directory selection creates no output root");
+
+            ArchiveReadLimits readLimits;
+            readLimits.maxPathBytes = 32;
+            auto limitedReader = makeLibArchiveReader(readLimits);
+            succeeded(limitedReader->open(archive), "Open fixture with stricter reader pathname budget");
+            request = requestFor(fixtures.path / "selected-directory-reader-path-limit");
+            request.selectedDirectoryPaths = {std::string(33, 'a')};
+            failedWith(limitedReader->extract(request), ArchiveErrorCode::ResourceLimitExceeded,
+                       "Selected directories obey the stricter reader pathname budget");
+            check(!std::filesystem::exists(request.destination), "Reader path limit creates no output root");
+        });
+
         tests.run("Unicode paths and paths beyond Windows legacy MAX_PATH", [&] {
             const auto archive = fixtures.path / pathFromUtf8("安安-こんにちは-🐈.tar");
             const std::string unicode = "中文/こんにちは/한글/可可🐄🐈/café.txt";

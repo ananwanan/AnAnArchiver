@@ -169,7 +169,13 @@ void controllerTest()
     require(waitUntil([&] { return !controller.busy() && completions == 1; }),
             "Rapid reopen did not finish the latest task");
     require(success && controller.entryCount() == 3000, "Latest task metadata incomplete");
-    require(controller.canExtract(), "A completely indexed archive cannot be extracted");
+    require(waitUntil([&] { return controller.canExtract(); }), "A completely indexed archive cannot be extracted");
+    require(controller.entryModel()->rowCount() == 1 && controller.entryModel()->data(
+        controller.entryModel()->index(0, 0), ananarchiver::qt::ArchiveEntryModel::DirectoryRole).toBool(),
+        "Archive root did not expose its direct folder without descendant files");
+    controller.navigateToFolder(QStringLiteral("latest"));
+    require(waitUntil([&] { return controller.canExtract() && controller.entryModel()->rowCount() == 3000; }),
+            "Reopened archive folder did not expose its direct files");
     controller.selectRow(1);
     controller.selectRow(3, true);
     require(controller.selectionCount() == 2, "Controller selection did not reach metadata model");

@@ -162,6 +162,7 @@ void DragController::prepareExport(QString password) {
         operation_->source = toPath(archive_.currentFile());
         exportedArchive_ = archive_.currentFile();
         exportedIndices_ = operation_->request.selectedIndices;
+        exportedDirectoryPaths_ = operation_->request.selectedDirectoryPaths;
         auto& extraction = operation_->request;
         extraction.overwrite = OverwritePolicy::Skip;
         extraction.links = LinkPolicy::Skip;
@@ -337,6 +338,7 @@ void DragController::discardExport() {
     exportUrls_.clear();
     exportedArchive_.clear();
     exportedIndices_.reset();
+    exportedDirectoryPaths_.clear();
     retained_ = false;
 }
 
@@ -344,7 +346,8 @@ void DragController::invalidateExport() {
     if (exportUrls_.isEmpty() || dragging_)
         return;
     auto current = archive_.selectedExtractionRequest({});
-    if (!current || archive_.currentFile() != exportedArchive_ || current->selectedIndices != exportedIndices_) {
+    if (!current || archive_.currentFile() != exportedArchive_ || current->selectedIndices != exportedIndices_ ||
+        current->selectedDirectoryPaths != exportedDirectoryPaths_) {
         discardExport();
         status_ = tr("Selection changed. Prepare the selected files again.");
         emit changed();

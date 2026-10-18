@@ -10,6 +10,7 @@ add_library(ananarchiver_qt STATIC
     controllers/task_controller.cpp controllers/task_controller.h
     controllers/drag_controller.cpp controllers/drag_controller.h
     models/archive_entry_model.cpp models/archive_entry_model.h
+    models/archive_folder_model.cpp models/archive_folder_model.h
     models/file_tree_model.cpp models/file_tree_model.h
     platform/path_conversion.cpp platform/path_conversion.h
     platform/packaged_runtime.cpp platform/packaged_runtime.h

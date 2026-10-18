@@ -38,9 +38,15 @@ using ConflictCallback = std::function<OverwritePolicy(const ExtractionConflict&
 struct ExtractionRequest {
     std::filesystem::path destination;
     // Zero-based enumeration identities distinguish duplicate entry names.
-    // nullopt extracts all entries; an empty vector extracts none. Selecting a
-    // directory includes its descendants, including entries before its header.
+    // nullopt with no selectedDirectoryPaths extracts all entries; an empty
+    // vector with no directory paths extracts none. Selecting a directory
+    // includes its descendants, including entries before its header.
     std::optional<std::vector<std::uint64_t>> selectedIndices;
+    // Additional directory subtrees, including implicit parents without a
+    // directory header. Paths are validated and normalized by the backend.
+    // Their descendants are combined with selectedIndices, never treated as
+    // an extract-all request when selectedIndices is nullopt.
+    std::vector<std::string> selectedDirectoryPaths;
     std::optional<std::string> password;
     OverwritePolicy overwrite = OverwritePolicy::Ask;
     LinkPolicy links = LinkPolicy::Safe;

@@ -12,6 +12,8 @@ class ArchiveController final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QAbstractItemModel* entryModel READ entryModel CONSTANT)
+    Q_PROPERTY(QAbstractItemModel* folderModel READ folderModel CONSTANT)
+    Q_PROPERTY(QString currentFolder READ currentFolder NOTIFY changed)
     Q_PROPERTY(QString currentFile READ currentFile NOTIFY changed)
     Q_PROPERTY(QString formatName READ formatName NOTIFY changed)
     Q_PROPERTY(QString status READ status NOTIFY changed)
@@ -36,16 +38,18 @@ public:
     explicit ArchiveController(application::ReaderFactory factory = {}, QObject* parent = nullptr);
     ~ArchiveController() override;
     QAbstractItemModel* entryModel() { return &entries_; }
+    QAbstractItemModel* folderModel() { return entries_.folderModel(); }
+    QString currentFolder() const { return entries_.currentFolder(); }
     QString currentFile() const { return currentFile_; }
     QString formatName() const { return formatName_; }
-    QString status() const { return status_; }
+    QString status() const { return entries_.viewValid() ? status_ : tr("Failed — the list may be incomplete"); }
     QString currentEntry() const { return currentEntry_; }
     QString errorMessage() const { return errorMessage_; }
     QString errorDetails() const { return errorDetails_; }
     bool busy() const { return active_.has_value() || !pendingFile_.isEmpty(); }
     int entryCount() const { return entries_.totalCount(); }
     qint64 elapsedMilliseconds() const { return elapsedMilliseconds_; }
-    bool canExtract() const { return indexed_ && !busy() && !entries_.querying(); }
+    bool canExtract() const { return indexed_ && !busy() && !entries_.querying() && entries_.viewValid(); }
     bool extracting() const { return extracting_; }
     int selectionCount() const { return entries_.selectionCount(); }
     double processedBytes() const { return processedBytes_; }
@@ -64,6 +68,9 @@ public:
     Q_INVOKABLE void selectRow(int row, bool toggle = false, bool range = false);
     Q_INVOKABLE void selectAll();
     Q_INVOKABLE void clearSelection();
+    Q_INVOKABLE bool navigateToRow(int row);
+    Q_INVOKABLE void navigateToFolder(const QString& path);
+    Q_INVOKABLE void navigateUp();
     Q_INVOKABLE void extract(const QString& destination, bool onlySelected, QString password,
                              int overwrite = 0, int links = 0);
     Q_INVOKABLE void resolveConflict(int overwrite, bool applyToAll);

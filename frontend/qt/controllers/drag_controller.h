@@ -77,6 +77,7 @@ class DragController final : public QObject {
     QList<QUrl> exportUrls_;
     std::filesystem::path exportRoot_;
     std::optional<std::vector<std::uint64_t>> exportedIndices_;
+    std::vector<std::string> exportedDirectoryPaths_;
     QString exportedArchive_;
     QString status_;
     QString errorMessage_;

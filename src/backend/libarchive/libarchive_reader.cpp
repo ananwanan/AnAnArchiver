@@ -506,6 +506,28 @@ Result<void> extractArchive(const std::filesystem::path& path, ArchiveReadLimits
     if (!rootBudget) return rootBudget;
     std::unordered_set<std::uint64_t> selected;
     std::unordered_set<std::string> selectedDirectories;
+    const auto selectedIndexCount = request.selectedIndices ? request.selectedIndices->size() : 0U;
+    if (request.selectedDirectoryPaths.size() > readLimits.maxEntries ||
+        selectedIndexCount > readLimits.maxEntries - request.selectedDirectoryPaths.size()) {
+        return std::unexpected(makeError(ArchiveErrorCode::ResourceLimitExceeded,
+                                         "Entry and directory selection exceeds the limit", path));
+    }
+    for (const auto& pathname : request.selectedDirectoryPaths) {
+        auto allowed = interrupted();
+        if (!allowed) return allowed;
+        auto directory = secureArchivePath(pathname, readLimits.maxPathBytes, limits.maxDepth);
+        if (!directory) return std::unexpected(std::move(directory.error()));
+        if (directory->empty()) {
+            return std::unexpected(makeError(ArchiveErrorCode::UnsafePath,
+                                             "Selected directory cannot name the extraction root", path));
+        }
+        auto space = retain(static_cast<std::uint64_t>(directory->native().size()) *
+                             sizeof(std::filesystem::path::value_type) +
+                             static_cast<std::uint64_t>(pathname.size()) + 256U);
+        if (!space) return space;
+        selectedDirectories.insert(outputKey(*directory));
+    }
+    const bool selectAll = !request.selectedIndices && request.selectedDirectoryPaths.empty();
     if (request.selectedIndices) {
         if (request.selectedIndices->size() > readLimits.maxEntries) {
             return std::unexpected(makeError(ArchiveErrorCode::ResourceLimitExceeded,
@@ -544,7 +566,7 @@ Result<void> extractArchive(const std::filesystem::path& path, ArchiveReadLimits
             }
             declaredBytes += metadata->size;
             if (selected.contains(count) && metadata->type == EntryType::Directory) {
-                auto directory = secureArchivePath(metadata->path, limits.maxPathBytes, limits.maxDepth);
+                auto directory = secureArchivePath(metadata->path, readLimits.maxPathBytes, limits.maxDepth);
                 if (!directory) return std::unexpected(std::move(directory.error()));
                 auto space = retain(static_cast<std::uint64_t>(directory->native().size()) *
                                      sizeof(std::filesystem::path::value_type) +
@@ -713,7 +735,7 @@ Result<void> extractArchive(const std::filesystem::path& path, ArchiveReadLimits
             if (!metadata) return failed(std::move(metadata.error()));
             metadata->index = count++;
             progress.currentFile = metadata->path;
-            bool chosen = !request.selectedIndices || selected.contains(metadata->index);
+            bool chosen = selectAll || selected.contains(metadata->index);
             std::filesystem::path relative;
             if (chosen || !selectedDirectories.empty()) {
                 auto normalized = secureArchivePath(metadata->path, limits.maxPathBytes, limits.maxDepth);
@@ -721,7 +743,7 @@ Result<void> extractArchive(const std::filesystem::path& path, ArchiveReadLimits
                 relative = std::move(*normalized);
                 if (!chosen) {
                     chosen = selectedDirectories.contains("");
-                    auto prefix = relative;
+                    auto prefix = metadata->type == EntryType::Directory ? relative : relative.parent_path();
                     while (!chosen && !prefix.empty()) {
                         chosen = selectedDirectories.contains(outputKey(prefix));
                         prefix = prefix.parent_path();

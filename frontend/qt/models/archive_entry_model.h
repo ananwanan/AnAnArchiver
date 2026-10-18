@@ -1,9 +1,11 @@
 #pragma once
 
 #include <ananarchiver/archive_entry.h>
+#include "archive_folder_model.h"
 #include <QAbstractListModel>
 #include <QString>
 #include <memory>
+#include <limits>
 #include <vector>
 #include <utility>
 #include <ananarchiver/extraction.h>
@@ -22,7 +24,7 @@ class ArchiveEntryModel final : public QAbstractListModel
     Q_PROPERTY(bool querying READ querying NOTIFY queryingChanged)
 
 public:
-    enum Role { PathRole = Qt::UserRole + 1, SizeRole, ModifiedRole, TypeRole, DirectoryRole, SelectedRole };
+    enum Role { PathRole = Qt::UserRole + 1, SizeRole, ModifiedRole, TypeRole, DirectoryRole, SelectedRole, NameRole };
 
     explicit ArchiveEntryModel(QObject* parent = nullptr);
     ~ArchiveEntryModel() override;
@@ -39,13 +41,22 @@ public:
     bool sortDescending() const { return sortDescending_; }
     void setSortDescending(bool descending);
     bool querying() const { return querying_; }
+    bool viewValid() const { return !viewFailed_; }
     void clear();
     void append(std::vector<ArchiveEntry> entries);
+    // Standalone adapters may retain a flat view; the archive browser enables
+    // folder navigation before receiving any metadata.
+    void setFolderNavigationEnabled(bool enabled);
+    ArchiveFolderModel* folderModel() { return &folders_; }
+    QString currentFolder() const { return currentFolder_; }
+    bool navigateToFolder(const QString& path);
+    bool navigateToRow(int row);
     int selectionCount() const { return selectionCount_; }
     void selectRow(int row, bool toggle, bool range);
     void selectAll();
     void clearSelection();
     std::vector<std::uint64_t> selectedIndices() const;
+    std::vector<std::string> selectedDirectoryPaths() const;
     void setExtractionTotals(ExtractionRequest& request, bool selected) const;
 
 signals:
@@ -56,6 +67,7 @@ signals:
     void sortChanged();
     void queryingChanged();
     void queryFailed(const QString& message);
+    void folderChanged();
 
 private:
     struct EntryBatch {
@@ -63,21 +75,33 @@ private:
         std::shared_ptr<const std::vector<ArchiveEntry>> entries;
     };
     struct QueryWorker;
+    // Source positions fit in int; the high bit identifies an immutable
+    // hierarchy node without inventing a backend enumeration identity.
+    static constexpr std::size_t folderRowMask =
+        std::size_t{1} << (std::numeric_limits<std::size_t>::digits - 1);
+    bool isFolderRow(int row) const;
+    QString directoryPathAt(int row) const;
     const ArchiveEntry& entryAt(int row) const;
     void requestView(bool configurationChanged = true);
     void setQuerying(bool querying);
-    void applyView(std::uint64_t generation, int sourceCount, std::vector<std::size_t> rows, QString error);
+    void applyView(std::uint64_t generation, int sourceCount, std::vector<std::size_t> rows,
+                   std::shared_ptr<const ArchiveFolderSnapshot> folders, QString error);
 
     // Immutable batches let the worker read metadata while the UI appends new
     // batches, without copying the metadata index or sharing mutable vectors.
     std::vector<EntryBatch> batches_;
     std::vector<std::size_t> visibleRows_;
+    std::shared_ptr<const ArchiveFolderSnapshot> viewFolders_;
     int totalCount_{};
     bool identityView_{true};
     QString query_;
     int sortColumn_{-1};
     bool sortDescending_{};
     bool querying_{};
+    bool viewFailed_{};
+    bool folderNavigation_{};
+    QString currentFolder_;
+    ArchiveFolderModel folders_;
     std::uint64_t generation_{};
     int appliedSourceCount_{};
     std::unique_ptr<QueryWorker> worker_;

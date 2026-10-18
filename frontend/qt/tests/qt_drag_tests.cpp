@@ -39,6 +39,16 @@ QString droppedPath(const std::filesystem::path& path) {
     // Windows. Retain exact path assertions after that defined conversion.
     return QDir::fromNativeSeparators(qt::fromPath(path));
 }
+int entryRow(qt::ArchiveEntryModel* model, const QString& path, bool directory = false) {
+    for (int row = 0; row < model->count(); ++row) {
+        const auto index = model->index(row);
+        if (model->data(index, qt::ArchiveEntryModel::PathRole).toString() == path
+            && model->data(index, qt::ArchiveEntryModel::DirectoryRole).toBool() == directory)
+            return row;
+    }
+    check(false, "Archive export row missing: " + path.toStdString());
+    return -1;
+}
 
 struct Controllers {
     qt::ArchiveController archive;
@@ -55,7 +65,7 @@ struct Controllers {
     void open(const std::filesystem::path& path) {
         archive.openFile(qt::fromPath(path));
         check(waitUntil([&] { return !archive.busy(); }), "Archive indexing timed out");
-        check(archive.canExtract(), "Archive did not index: " + archive.errorDetails().toStdString());
+        check(waitUntil([&] { return archive.canExtract(); }), "Archive did not index: " + archive.errorDetails().toStdString());
     }
 
     void exportSelection(const QString& password = {}) {
@@ -161,9 +171,10 @@ void exportSortedSelectionAndLinks() {
     auto* model = qobject_cast<qt::ArchiveEntryModel*>(view.archive.entryModel());
     model->setSortColumn(0);
     check(waitUntil([&] { return !model->querying(); }), "Sorting timed out");
-    check(model->data(model->index(0), qt::ArchiveEntryModel::PathRole).toString() == QStringLiteral("a.txt"),
+    const auto selectedRow = entryRow(model, QStringLiteral("a.txt"));
+    check(selectedRow > 0 && model->data(model->index(0), qt::ArchiveEntryModel::DirectoryRole).toBool(),
           "Fixture did not reorder its original enumeration identities");
-    view.archive.selectRow(0);
+    view.archive.selectRow(selectedRow);
     const auto selected = view.archive.selectedExtractionRequest({})->selectedIndices;
     check(selected && *selected == std::vector<std::uint64_t>{1},
           "Sorted selection did not retain the original index");
@@ -179,7 +190,7 @@ void exportSortedSelectionAndLinks() {
     view.archive.selectAll();
     view.exportSelection();
     const auto urls = view.drag.exportUrls();
-    check(urls.size() == 3, "Link-skipping export did not produce the expected files/folder");
+    check(urls.size() == 3, "Root selection did not export its direct folder and files");
     std::filesystem::path root;
     for (const auto& url : urls) {
         check(url.isLocalFile(), "Export generated a remote URL");
@@ -187,10 +198,70 @@ void exportSortedSelectionAndLinks() {
         root = path.parent_path();
         check(!std::filesystem::is_symlink(path), "Export retained a symlink");
     }
-    check(readFile(root / pathFromUtf8("folder/中文🐈.txt")) == "unicode", "Nested Unicode export lost contents");
+    check(readFile(root / pathFromUtf8("folder/中文🐈.txt")) == "unicode",
+          "Root selection omitted the selected implicit directory's descendants");
     check(!std::filesystem::exists(root / "link.txt"), "Export created a selected symbolic link");
     view.drag.cancel();
     check(!view.drag.ready() && waitUntil([&] { return !std::filesystem::exists(root); }), "Cancelled ready export was not cleaned");
+
+    view.archive.clearSelection();
+    view.archive.selectRow(entryRow(model, QStringLiteral("folder"), true));
+    view.exportSelection();
+    check(view.drag.exportUrls().size() == 1, "Selected implicit directory exported unrelated root files");
+    const auto exportedFolder = qt::toPath(view.drag.exportUrls().first().toLocalFile());
+    check(exportedFolder.filename() == "folder" && std::filesystem::is_directory(exportedFolder)
+        && readFile(exportedFolder / pathFromUtf8("中文🐈.txt")) == "unicode",
+        "Implicit directory export lost its directory URL or descendant content");
+    const auto folderRoot = exportedFolder.parent_path();
+    view.archive.navigateToFolder(QStringLiteral("folder"));
+    check(!view.drag.ready(), "Entering the exported directory left stale file URLs ready");
+    check(waitUntil([&] { return !std::filesystem::exists(folderRoot); }),
+        "Entering the exported directory did not clean its prepared output");
+    check(waitUntil([&] { return view.archive.canExtract() && model->count() == 1; }),
+          "Nested export folder did not become ready");
+    view.archive.selectAll();
+    view.exportSelection();
+    check(view.drag.exportUrls().size() == 1, "Nested selection exported unrelated root files");
+    const auto nestedRoot = qt::toPath(view.drag.exportUrls().first().toLocalFile()).parent_path();
+    check(readFile(nestedRoot / pathFromUtf8("folder/中文🐈.txt")) == "unicode",
+          "Nested Unicode export lost contents or its original archive identity");
+    view.archive.navigateUp();
+    check(!view.drag.ready(), "Folder navigation left a previous folder's export ready");
+    check(waitUntil([&] { return !std::filesystem::exists(nestedRoot); }),
+          "Navigation-invalidated nested export was not cleaned");
+}
+
+void implicitFolderSelectionInvalidatesExport() {
+    TemporaryDirectory temp;
+    const auto input = temp.path / "folder-selection.tar";
+    createFixture(input, FixtureFormat::Tar, {{"A/one.txt", "first folder"}, {"B/two.txt", "second folder"}});
+    Controllers view;
+    view.open(input);
+    auto* model = qobject_cast<qt::ArchiveEntryModel*>(view.archive.entryModel());
+    view.archive.selectRow(entryRow(model, QStringLiteral("A"), true));
+    check(model->selectedIndices().empty(), "Implicit directory selection fabricated a backend entry identity");
+    view.exportSelection();
+    check(view.drag.exportUrls().size() == 1, "First implicit folder export produced extra URLs");
+    const auto firstFolder = qt::toPath(view.drag.exportUrls().first().toLocalFile());
+    const auto firstRoot = firstFolder.parent_path();
+    check(firstFolder.filename() == "A" && readFile(firstFolder / "one.txt") == "first folder",
+        "First selected implicit folder export lost its content");
+
+    view.archive.selectRow(entryRow(model, QStringLiteral("B"), true));
+    check(view.archive.currentFolder().isEmpty() && model->selectedIndices().empty(),
+        "Folder selection changed the current directory or backend index selection");
+    check(!view.drag.ready(), "Changing only selected directory paths left the previous folder export ready");
+    check(waitUntil([&] { return !std::filesystem::exists(firstRoot); }),
+        "Changing only selected directory paths did not clean the previous export");
+    view.exportSelection();
+    check(view.drag.exportUrls().size() == 1, "Second implicit folder selection retained old export URLs");
+    const auto secondFolder = qt::toPath(view.drag.exportUrls().first().toLocalFile());
+    check(secondFolder.filename() == "B" && readFile(secondFolder / "two.txt") == "second folder"
+        && !std::filesystem::exists(secondFolder.parent_path() / "A"),
+        "Changing selected directory paths reused the previous folder's export");
+    const auto secondRoot = secondFolder.parent_path();
+    view.drag.cancel();
+    check(waitUntil([&] { return !std::filesystem::exists(secondRoot); }), "Second folder export was not cleaned");
 }
 
 void longPathExport() {
@@ -451,6 +522,7 @@ int main(int argc, char** argv) {
     tests.run("Local directory/multi-file input and atomic remote URL rejection", localInputsAndRemoteRejection);
     tests.run("Encrypted header drop routes to archive opening", passwordRequiredDrop);
     tests.run("Sorted original selection, Unicode export and link skipping", exportSortedSelectionAndLinks);
+    tests.run("Changing implicit directory selection invalidates prepared export", implicitFolderSelectionInvalidatesExport);
     tests.run("Native long-path file URLs and worker cleanup", longPathExport);
     tests.run("Selected hidden files remain in exported URLs", hiddenFileExport);
     tests.run("Native MIME/source boundary, nested reentry and gesture guard", nativeDragBoundaryAndNestedEvents);

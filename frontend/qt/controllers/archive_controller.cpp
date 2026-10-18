@@ -9,7 +9,9 @@ namespace ananarchiver::qt {
 ArchiveController::ArchiveController(application::ReaderFactory factory, QObject* parent)
     : QObject(parent), service_(tasks_, std::move(factory)), status_(tr("Ready"))
 {
+    entries_.setFolderNavigationEnabled(true);
     connect(&entries_, &ArchiveEntryModel::selectionChanged, this, &ArchiveController::changed);
+    connect(&entries_, &ArchiveEntryModel::folderChanged, this, &ArchiveController::changed);
     connect(&entries_, &ArchiveEntryModel::queryingChanged, this, &ArchiveController::changed);
     connect(&entries_, &ArchiveEntryModel::queryFailed, this, [this](const QString& message) {
         showError({ArchiveErrorCode::ResourceLimitExceeded, message.toStdString(), {}, {}});
@@ -137,6 +139,7 @@ Result<ExtractionRequest> ArchiveController::selectedExtractionRequest(
     ExtractionRequest request;
     request.destination = destination;
     request.selectedIndices = entries_.selectedIndices();
+    request.selectedDirectoryPaths = entries_.selectedDirectoryPaths();
     request.overwrite = OverwritePolicy::Overwrite;
     request.links = LinkPolicy::Skip;
     return request;
@@ -183,6 +186,23 @@ void ArchiveController::clearSelection()
 {
     if (!busy())
         entries_.clearSelection();
+}
+
+void ArchiveController::navigateToFolder(const QString& path)
+{
+    entries_.navigateToFolder(path);
+}
+
+bool ArchiveController::navigateToRow(int row)
+{
+    return entries_.navigateToRow(row);
+}
+
+void ArchiveController::navigateUp()
+{
+    const auto folder = currentFolder();
+    const auto slash = folder.lastIndexOf(QChar(u'/'));
+    navigateToFolder(slash < 0 ? QString() : folder.left(slash));
 }
 
 namespace {
@@ -233,8 +253,10 @@ void ArchiveController::extract(const QString& destination, bool onlySelected, Q
         }
         request.overwrite = static_cast<OverwritePolicy>(overwrite);
         request.links = static_cast<LinkPolicy>(links);
-        if (onlySelected)
+        if (onlySelected) {
             request.selectedIndices = entries_.selectedIndices();
+            request.selectedDirectoryPaths = entries_.selectedDirectoryPaths();
+        }
         entries_.setExtractionTotals(request, onlySelected);
         if (!password.isEmpty())
             request.password = takePassword(password);

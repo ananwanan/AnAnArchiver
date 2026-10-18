@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQml.Models
 
 SplitView {
     id: root
@@ -10,6 +11,7 @@ SplitView {
     property var dragController: null
     property Action extractAction: null
     property Action exportAction: null
+    readonly property bool archiveOpen: root.archiveController.currentFile.length > 0
     signal openRequested()
     orientation: Qt.Horizontal
     function focusSearch() { searchField.forceActiveFocus(); searchField.selectAll() }
@@ -46,17 +48,98 @@ SplitView {
                 leftPadding: 14
                 rightPadding: 14
                 bottomPadding: 14
-                visible: root.directoryModel.rootPath.length === 0
+                visible: !root.archiveOpen && root.directoryModel.rootPath.length === 0
                 text: qsTr("Choose Browse folder to navigate local files.")
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
                 opacity: 0.65
                 font.pixelSize: 12
             }
+            ItemDelegate {
+                id: archiveRootButton
+                objectName: "archiveRootButton"
+                Layout.fillWidth: true
+                visible: root.archiveOpen
+                text: qsTr("Archive root")
+                highlighted: root.archiveController.currentFolder.length === 0
+                background: Rectangle {
+                    color: archiveRootButton.highlighted ? archiveRootButton.palette.highlight
+                        : (archiveRootButton.hovered ? archiveRootButton.palette.alternateBase : "transparent")
+                    border.width: archiveRootButton.activeFocus ? 1 : 0
+                    border.color: archiveRootButton.palette.highlight
+                }
+                onClicked: root.archiveController.navigateToFolder("")
+                contentItem: RowLayout {
+                    spacing: 8
+                    AppIcon { name: "archive"; onDarkSurface: archiveRootButton.highlighted || root.palette.window.hslLightness < 0.5; Layout.preferredWidth: 18; Layout.preferredHeight: 18 }
+                    Label {
+                        Layout.fillWidth: true
+                        text: archiveRootButton.text
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        color: archiveRootButton.highlighted ? palette.highlightedText : palette.buttonText
+                        font.pixelSize: 13
+                    }
+                }
+                Accessible.name: text
+            }
             TreeView {
-                id: directoryTree
+                id: archiveFolderTree
+                objectName: "archiveFolderTree"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                visible: root.archiveOpen
+                clip: true
+                model: root.archiveController.folderModel
+                selectionModel: ItemSelectionModel { model: root.archiveController.folderModel }
+                function activateCurrentFolder() {
+                    const item = archiveFolderTree.itemAtCell(Qt.point(0, archiveFolderTree.currentRow)) as ArchiveFolderDelegate
+                    if (item) root.archiveController.navigateToFolder(item.folderPath)
+                }
+                Keys.onReturnPressed: archiveFolderTree.activateCurrentFolder()
+                Keys.onEnterPressed: archiveFolderTree.activateCurrentFolder()
+                Keys.onSpacePressed: archiveFolderTree.activateCurrentFolder()
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar {}
+                delegate: ArchiveFolderDelegate {}
+                component ArchiveFolderDelegate: TreeViewDelegate {
+                    id: archiveFolderRow
+                    objectName: "archiveFolderRow"
+                    required property string folderPath
+                    required property string folderName
+                    text: folderName
+                    implicitWidth: archiveFolderTree.width
+                    implicitHeight: 32
+                    highlighted: root.archiveController.currentFolder === folderPath
+                    onClicked: { root.archiveController.navigateToFolder(folderPath); archiveFolderTree.forceActiveFocus() }
+                    Accessible.name: folderPath
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "transparent"
+                        border.width: archiveFolderTree.activeFocus && archiveFolderRow.current ? 1 : 0
+                        border.color: archiveFolderRow.palette.highlight
+                    }
+                    PlainToolTip { visible: archiveFolderRow.hovered; text: archiveFolderRow.folderPath }
+                    contentItem: RowLayout {
+                        spacing: 8
+                        AppIcon { name: "folder"; onDarkSurface: archiveFolderRow.highlighted || root.palette.window.hslLightness < 0.5; Layout.preferredWidth: 17; Layout.preferredHeight: 17 }
+                        Label {
+                            Layout.fillWidth: true
+                            text: archiveFolderRow.folderName
+                            textFormat: Text.PlainText
+                            elide: Text.ElideRight
+                            color: archiveFolderRow.highlighted ? palette.highlightedText : palette.buttonText
+                            font.pixelSize: 13
+                        }
+                    }
+                }
+            }
+            TreeView {
+                id: directoryTree
+                objectName: "localDirectoryTree"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: !root.archiveOpen
                 clip: true
                 model: root.directoryModel
                 boundsBehavior: Flickable.StopAtBounds
@@ -94,6 +177,36 @@ SplitView {
             spacing: 0
             RowLayout {
                 Layout.fillWidth: true
+                Layout.leftMargin: 10
+                Layout.rightMargin: 14
+                spacing: 8
+                visible: root.archiveOpen
+                ToolButton {
+                    id: archiveUpButton
+                    objectName: "archiveUpButton"
+                    text: qsTr("Up one folder")
+                    enabled: root.archiveController.currentFolder.length > 0
+                    onClicked: root.archiveController.navigateUp()
+                    contentItem: AppIcon { name: "chevron"; implicitWidth: 18; implicitHeight: 18 }
+                    Accessible.name: text
+                    PlainToolTip { visible: archiveUpButton.hovered; text: archiveUpButton.text }
+                }
+                Label {
+                    id: currentArchiveFolder
+                    objectName: "currentArchiveFolder"
+                    Layout.fillWidth: true
+                    text: root.archiveController.currentFolder.length > 0
+                        ? "/" + root.archiveController.currentFolder : qsTr("Archive root")
+                    textFormat: Text.PlainText
+                    elide: Text.ElideMiddle
+                    font.pixelSize: 13
+                    Accessible.name: qsTr("Current folder")
+                    HoverHandler { id: folderPathHover }
+                    PlainToolTip { visible: folderPathHover.hovered; text: currentArchiveFolder.text }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
                 Layout.margins: 10
                 spacing: 8
                 AppIcon { name: "search"; Layout.preferredWidth: 18; Layout.preferredHeight: 18 }
@@ -101,11 +214,11 @@ SplitView {
                     id: searchField
                     objectName: "archiveSearch"
                     Layout.fillWidth: true
-                    placeholderText: qsTr("Search files and folders…")
+                    placeholderText: qsTr("Search files and folders in this folder…")
                     text: root.archiveController.entryModel.query
                     enabled: root.archiveController.currentFile.length > 0 && !root.archiveController.busy
                     selectByMouse: true
-                    Accessible.name: qsTr("Search archive")
+                    Accessible.name: qsTr("Search current folder")
                     onTextEdited: searchDelay.restart()
                     Keys.onEscapePressed: function(event) {
                         searchDelay.stop()
@@ -171,7 +284,16 @@ SplitView {
                 reuseItems: true
                 focus: true
                 keyNavigationEnabled: false
+                Connections {
+                    target: root.archiveController.entryModel
+                    function onCountChanged() { entries.currentIndex = -1; entries.positionViewAtBeginning() }
+                }
                 Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Backspace && root.archiveOpen) {
+                        root.archiveController.navigateUp()
+                        event.accepted = true
+                        return
+                    }
                     if (!root.archiveController.canExtract || count === 0)
                         return
                     const ctrl = (event.modifiers & Qt.ControlModifier) !== 0
@@ -189,7 +311,8 @@ SplitView {
                     } else if (event.key === Qt.Key_Space) {
                         root.archiveController.selectRow(Math.max(0, currentIndex), true, shift)
                     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                        if (root.extractAction) root.extractAction.trigger()
+                        if (!root.archiveController.navigateToRow(Math.max(0, currentIndex)) && root.extractAction)
+                            root.extractAction.trigger()
                     } else if (event.key === Qt.Key_Escape) {
                         root.archiveController.clearSelection()
                     } else {
@@ -204,6 +327,7 @@ SplitView {
                     objectName: "archiveEntryRow"
                     required property int index
                     required property string entryPath
+                    required property string entryName
                     required property string entrySize
                     required property string entryType
                     required property string entryModified
@@ -227,6 +351,12 @@ SplitView {
                             root.archiveController.selectRow(entryRow.index,
                                 (point.modifiers & Qt.ControlModifier) !== 0,
                                 (point.modifiers & Qt.ShiftModifier) !== 0)
+                        }
+                        onDoubleTapped: {
+                            if (entryRow.entryDirectory) {
+                                root.archiveController.navigateToRow(entryRow.index)
+                                entries.forceActiveFocus()
+                            }
                         }
                     }
                     TapHandler {
@@ -257,7 +387,7 @@ SplitView {
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: entryRow.entryPath
+                            text: entryRow.entryName
                             textFormat: Text.PlainText
                             elide: Text.ElideRight
                             color: entryRow.highlighted ? palette.highlightedText : palette.text
@@ -282,7 +412,7 @@ SplitView {
                     anchors.centerIn: parent
                     visible: root.archiveController.currentFile.length > 0 && entries.count === 0 && !root.archiveController.busy && !root.archiveController.entryModel.querying
                     text: root.archiveController.errorMessage.length > 0 ? qsTr("Unable to display archive contents")
-                        : root.archiveController.entryModel.query.length > 0 ? qsTr("No matching entries") : qsTr("No entries")
+                        : root.archiveController.entryModel.query.length > 0 ? qsTr("No matching files or folders") : qsTr("No files or folders in this folder")
                     textFormat: Text.PlainText
                     opacity: 0.65
                 }
