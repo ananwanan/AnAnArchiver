@@ -45,6 +45,12 @@ docs/architecture/        分层与线程决策
 依赖方向是 QML → Qt Controller → Application → Core/Backend → libarchive。
 Core 和 Application 使用标准 C++，支持不安装 Qt 时独立编译和测试。
 
+Windows 读取未标注 Unicode 编码的旧式 ZIP 时，由 libarchive 按本机 OEM 代码页
+解码文件名（例如简体中文系统上的 GBK）；ZIP 的 UTF-8 标记和 Unicode 路径字段
+仍优先。归档操作使用线程内的 UTF-8 区域设置并在结束后恢复，不修改全局设置。
+缺少编码标记且来自其他代码页的 ZIP 仍可能需要指定来源编码；当前尚未提供
+手动编码选择。
+
 ## 构建依赖
 
 依赖方案统一采用指定上游的最新稳定发布版，不固定历史版本号、tag 或 commit。

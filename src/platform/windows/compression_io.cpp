@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <clocale>
 #include <cstdio>
 #include <limits>
 #include <random>
@@ -233,11 +234,37 @@ Result<std::optional<std::filesystem::path>> CompressionDirectoryCursor::next() 
     return std::optional<std::filesystem::path>{};
 }
 
-struct ArchiveUnicodeScope::Impl {};
+struct ArchiveUnicodeScope::Impl {
+    std::string previousLocale;
+    int previousMode = -1;
+    ~Impl() {
+        if (previousMode != -1) {
+            std::setlocale(LC_CTYPE, previousLocale.c_str());
+            _configthreadlocale(previousMode);
+        }
+    }
+};
 ArchiveUnicodeScope::ArchiveUnicodeScope(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 ArchiveUnicodeScope::~ArchiveUnicodeScope() = default;
 Result<std::unique_ptr<ArchiveUnicodeScope>> ArchiveUnicodeScope::enter() {
-    return std::make_unique<ArchiveUnicodeScope>(std::make_unique<Impl>());
+    auto impl = std::make_unique<Impl>();
+    const auto* previous = std::setlocale(LC_CTYPE, nullptr);
+    if (previous == nullptr) {
+        return std::unexpected(ArchiveError{ArchiveErrorCode::UnsupportedOperation,
+                                            "Could not inspect the archive worker locale", {}, {}});
+    }
+    impl->previousLocale = previous;
+    impl->previousMode = _configthreadlocale(_ENABLE_PER_THREAD_LOCALE);
+    if (impl->previousMode == -1 || std::setlocale(LC_CTYPE, ".UTF-8") == nullptr) {
+        return std::unexpected(ArchiveError{ArchiveErrorCode::UnsupportedOperation,
+                                            "Could not enter the UTF-8 archive worker locale", {}, {}});
+    }
+    // Under the CRT's initial C locale, libarchive widens legacy ZIP bytes
+    // without decoding their OEM code page, producing valid UTF-8 mojibake.
+    // A private UTF-8 locale enables its native OEM conversion while keeping
+    // UTF-8 flags and Unicode extra fields authoritative. Do not force a
+    // particular ZIP charset or change the process-global locale.
+    return std::make_unique<ArchiveUnicodeScope>(std::move(impl));
 }
 
 std::filesystem::path compressionNativePath(const std::filesystem::path& path) { return extended(path); }

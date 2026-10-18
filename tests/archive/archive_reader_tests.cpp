@@ -5,16 +5,24 @@
 #include <archive_entry.h>
 #include <clocale>
 
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cerrno>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -86,7 +94,8 @@ struct FixtureEntry {
 enum class FixtureFormat { Zip, Tar, SevenZip, Gzip };
 
 void createFixture(const std::filesystem::path& path, FixtureFormat format,
-                   const std::vector<FixtureEntry>& entries, bool encrypted = false) {
+                   const std::vector<FixtureEntry>& entries, bool encrypted = false,
+                   const char* headerCharset = nullptr) {
     std::ofstream output{path, std::ios::binary};
     check(output.is_open(), "Open test fixture output");
     std::unique_ptr<archive, WriteArchiveDeleter> writer{archive_write_new()};
@@ -102,6 +111,10 @@ void createFixture(const std::filesystem::path& path, FixtureFormat format,
         break;
     }
     check(configured == ARCHIVE_OK, "Configure fixture archive format");
+    if (headerCharset != nullptr) {
+        check(archive_write_set_format_option(writer.get(), "zip", "hdrcharset", headerCharset) == ARCHIVE_OK,
+              "Configure ZIP fixture pathname encoding");
+    }
     if (encrypted) {
         check(archive_write_set_options(writer.get(), "zip:encryption=aes256") == ARCHIVE_OK,
               "Configure AES fixture encryption");
@@ -153,6 +166,72 @@ std::vector<ArchiveEntry> entriesIn(ArchiveReader& reader) {
     succeeded(result, "Enumerate fixture");
     return entries;
 }
+
+#ifdef _WIN32
+class WindowsThreadLocale {
+public:
+    explicit WindowsThreadLocale(const char* name)
+        : previousMode_(_configthreadlocale(0)),
+          previousLocale_(std::setlocale(LC_CTYPE, nullptr)) {
+        check(_configthreadlocale(_ENABLE_PER_THREAD_LOCALE) != -1,
+              "Enable private test thread locale");
+        if (std::setlocale(LC_CTYPE, name) == nullptr) {
+            _configthreadlocale(previousMode_);
+            throw std::runtime_error("Select private test thread locale");
+        }
+    }
+
+    ~WindowsThreadLocale() {
+        std::setlocale(LC_CTYPE, previousLocale_.c_str());
+        _configthreadlocale(previousMode_);
+    }
+
+    WindowsThreadLocale(const WindowsThreadLocale&) = delete;
+    WindowsThreadLocale& operator=(const WindowsThreadLocale&) = delete;
+
+private:
+    int previousMode_;
+    std::string previousLocale_;
+};
+
+std::string nativeOemFixturePath() {
+    // Choose an exactly representable non-ASCII name instead of assuming the
+    // test machine uses GBK. These cover common East Asian and OEM codepages.
+    const auto codepage = GetOEMCP();
+    for (const std::wstring candidate : {L"资料/安安.txt", L"資料/名前.txt", L"자료/이름.txt",
+                                         L"данные/имя.txt", L"café/élève.txt", L"Α/α.txt",
+                                         L"נתונים/שם.txt", L"بيانات/اسم.txt"}) {
+        const auto byteCount = WideCharToMultiByte(codepage, 0, candidate.data(),
+                                                   static_cast<int>(candidate.size()),
+                                                   nullptr, 0, nullptr, nullptr);
+        if (byteCount == 0) continue;
+        std::string encoded(static_cast<std::size_t>(byteCount), '\0');
+        check(WideCharToMultiByte(codepage, 0, candidate.data(), static_cast<int>(candidate.size()),
+                                  encoded.data(), byteCount, nullptr, nullptr) == byteCount,
+              "Encode native OEM fixture filename");
+        const auto characterCount = MultiByteToWideChar(codepage, 0, encoded.data(), byteCount,
+                                                        nullptr, 0);
+        if (characterCount == 0) continue;
+        std::wstring decoded(static_cast<std::size_t>(characterCount), L'\0');
+        check(MultiByteToWideChar(codepage, 0, encoded.data(), byteCount,
+                                  decoded.data(), characterCount) == characterCount,
+              "Decode native OEM fixture filename");
+        if (decoded == candidate) return pathToUtf8(std::filesystem::path{candidate});
+    }
+    throw std::runtime_error("No regression filename is representable in OEM codepage " +
+                             std::to_string(codepage));
+}
+
+void checkZipUtf8Flag(const std::filesystem::path& path, bool expected) {
+    std::ifstream input{path, std::ios::binary};
+    std::array<unsigned char, 8> header{};
+    input.read(reinterpret_cast<char*>(header.data()), static_cast<std::streamsize>(header.size()));
+    check(input.good() && header[0] == 'P' && header[1] == 'K' && header[2] == 3 && header[3] == 4,
+          "Read generated ZIP local header");
+    check(((header[7] & 0x08) != 0) == expected,
+          "Generated ZIP has the requested Unicode filename flag");
+}
+#endif
 
 class Tests {
 public:
@@ -282,6 +361,136 @@ int main() {
             check(entries[1].path == expected, "Decomposed Unicode metadata has the backend's native representation");
             check(entries[0].size == 7 && entries[1].size == 18, "Unicode entries retain independent payload metadata");
         });
+
+#ifdef _WIN32
+        tests.run("Windows legacy OEM and UTF-8 ZIP names survive caller locales", [&] {
+            const auto legacyZip = fixtures.path / "legacy-oem.zip";
+            const auto unicodeZip = fixtures.path / "flagged-utf8.zip";
+            const auto legacyName = nativeOemFixturePath();
+            const std::string unicodeName = "中文/こんにちは/한글/可可🐈.txt";
+            {
+                WindowsThreadLocale locale{".UTF-8"};
+                createFixture(legacyZip, FixtureFormat::Zip,
+                              {{legacyName, "legacy payload"}, {"unselected.txt", "leave behind"}},
+                              false, "CP_OEMCP");
+                createFixture(unicodeZip, FixtureFormat::Zip,
+                              {{unicodeName, "unicode payload"}, {"unselected.txt", "leave behind"}},
+                              false, "UTF-8");
+            }
+            checkZipUtf8Flag(legacyZip, false);
+            checkZipUtf8Flag(unicodeZip, true);
+            std::size_t outputIndex = 0;
+            for (const auto* callerLocale : {"C", ".UTF-8"}) {
+                WindowsThreadLocale locale{callerLocale};
+                const std::string expectedLocale = std::setlocale(LC_CTYPE, nullptr);
+                const auto checkLocale = [&] {
+                    check(std::string{std::setlocale(LC_CTYPE, nullptr)} == expectedLocale,
+                          "Archive operation restores caller LC_CTYPE");
+                    check(_configthreadlocale(0) == _ENABLE_PER_THREAD_LOCALE,
+                          "Archive operation restores caller locale mode");
+                };
+                for (const bool legacy : {true, false}) {
+                    auto reader = makeLibArchiveReader();
+                    succeeded(reader->open(legacy ? legacyZip : unicodeZip), "Open encoded ZIP fixture");
+                    checkLocale();
+                    const auto& expectedName = legacy ? legacyName : unicodeName;
+                    for (int repeat = 0; repeat < 2; ++repeat) {
+                        const auto entries = entriesIn(*reader);
+                        checkLocale();
+                        check(entries.size() == 2 && entries[0].path == expectedName &&
+                              entries[1].path == "unselected.txt",
+                              "Repeated enumeration preserves exact ZIP filenames");
+                        ExtractionRequest request;
+                        request.destination = fixtures.path / ("encoded-out-" + std::to_string(outputIndex++));
+                        request.selectedIndices = std::vector<std::uint64_t>{0};
+                        request.overwrite = OverwritePolicy::Overwrite;
+                        succeeded(reader->extract(request), "Extract selected encoded filename");
+                        checkLocale();
+                        std::ifstream payload{request.destination / pathFromUtf8(expectedName), std::ios::binary};
+                        check(payload.is_open(), "Selected output has its exact Unicode filename");
+                        const std::string actual{std::istreambuf_iterator<char>{payload},
+                                                 std::istreambuf_iterator<char>{}};
+                        check(actual == (legacy ? "legacy payload" : "unicode payload"),
+                              "Selected output retains exact payload");
+                        check(!std::filesystem::exists(request.destination / "unselected.txt"),
+                              "Index selection does not extract other entries");
+                    }
+                }
+            }
+        });
+
+        tests.run("Windows archive locale scope restores success, failure and cancellation", [&] {
+            std::atomic<bool> observerReady{false};
+            std::atomic<bool> observerUnchanged{true};
+            std::jthread observer{[&](std::stop_token stop) {
+                try {
+                    WindowsThreadLocale locale{"C"};
+                    const std::string expected = std::setlocale(LC_CTYPE, nullptr);
+                    observerReady = true;
+                    while (!stop.stop_requested()) {
+                        if (std::string{std::setlocale(LC_CTYPE, nullptr)} != expected ||
+                            _configthreadlocale(0) != _ENABLE_PER_THREAD_LOCALE) {
+                            observerUnchanged = false;
+                        }
+                        std::this_thread::yield();
+                    }
+                } catch (...) {
+                    observerUnchanged = false;
+                    observerReady = true;
+                }
+            }};
+            while (!observerReady.load()) std::this_thread::yield();
+            const auto invalid = fixtures.path / "locale-invalid.zip";
+            std::ofstream{invalid, std::ios::binary} << "not an archive";
+            const auto exercise = [&] {
+                const std::string expectedLocale = std::setlocale(LC_CTYPE, nullptr);
+                const auto expectedMode = _configthreadlocale(0);
+                const auto unchanged = [&] {
+                    check(std::string{std::setlocale(LC_CTYPE, nullptr)} == expectedLocale,
+                          "Restore LC_CTYPE on every exit path");
+                    check(_configthreadlocale(0) == expectedMode,
+                          "Restore enabled or disabled caller locale mode");
+                };
+                auto reader = makeLibArchiveReader();
+                check(!reader->open(invalid), "Invalid archive fails inside locale scope");
+                unchanged();
+                succeeded(reader->open(zip), "Open after failed format detection");
+                unchanged();
+                check(entriesIn(*reader).size() == 3, "Successful enumeration after failure");
+                unchanged();
+                auto result = reader->enumerate([](const auto&) -> bool {
+                    throw std::runtime_error("locale regression callback failure");
+                });
+                check(!result && result.error().code == ArchiveErrorCode::BackendError,
+                      "Callback exception fails inside locale scope");
+                unchanged();
+                result = reader->enumerate([](const auto&) { return false; });
+                check(!result && result.error().code == ArchiveErrorCode::Cancelled,
+                      "Callback cancellation exits active locale scope");
+                unchanged();
+                std::stop_source stopped;
+                stopped.request_stop();
+                auto opened = reader->open(zip, stopped.get_token());
+                check(!opened && opened.error().code == ArchiveErrorCode::Cancelled, "Cancelled open");
+                unchanged();
+                succeeded(reader->open(zip), "Reopen after cancelled operation");
+                ExtractionRequest request;
+                request.destination = fixtures.path / "locale-cancelled-output";
+                result = reader->extract(request, {}, stopped.get_token());
+                check(!result && result.error().code == ArchiveErrorCode::Cancelled, "Cancelled extraction");
+                unchanged();
+            };
+            // Also exercise the default disabled mode inherited from main().
+            exercise();
+            for (const auto* callerLocale : {"C", ".UTF-8"}) {
+                WindowsThreadLocale locale{callerLocale};
+                exercise();
+            }
+            observer.request_stop();
+            observer.join();
+            check(observerUnchanged.load(), "Concurrent thread retains its independent C locale");
+        });
+#endif
 
         tests.run("7z format and enumeration", [&] {
             const auto sevenZip = fixtures.path / "fixture.7z";

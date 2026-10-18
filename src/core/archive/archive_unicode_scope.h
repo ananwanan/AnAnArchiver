@@ -7,9 +7,9 @@
 namespace ananarchiver::detail {
 
 // libarchive performs some pathname conversions through the caller's native
-// LC_CTYPE. A POSIX operation uses a private UTF-8 locale on its worker thread;
+// LC_CTYPE. Each operation uses a private UTF-8 locale on its worker thread;
 // the process-global locale is never changed and the previous locale is restored.
-// Windows uses native wide entry names and therefore needs no locale mutation.
+// On Windows this also enables native OEM decoding of legacy ZIP entry names.
 class ArchiveUnicodeScope {
 public:
     struct Impl;
