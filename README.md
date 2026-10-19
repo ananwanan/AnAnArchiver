@@ -209,6 +209,9 @@ Windows Release MSVC x64 构建完成后：
 ./scripts/Package-Windows.ps1 -BuildDirectory out/build/desktop-release -SkipBuild -BootstrapInstaller
 ```
 
+去掉 `-SkipBuild` 可先编译再打包；脚本会自动初始化 MSVC x64 环境，也会重新检测
+之前因编译环境缺失而失败并被 CMake 缓存的 C++ 能力检查。
+
 `-SkipBuild` 仅适用于已用当前依赖追踪流程完整构建的 Release 目录；应用构建目录
 必须同时包含 `dependency-provenance.json` 和 `resolved-dependencies.json`。
 superbuild 的记录位于其 `application/` 子目录，直接应用构建的记录位于构建目录根。
@@ -305,6 +308,10 @@ Windows 上可用同版本的 Qt Android kit 与宿主 Qt kit 构建测试 APK�
 ./scripts/Build-Android.ps1 -QtAndroidDir $env:QT_ANDROID_DIR -QtHostDir $env:QT_HOST_PATH `
     -AndroidNdkDir $env:ANDROID_NDK_ROOT -AndroidSdkDir $env:ANDROID_HOME -JavaHome $env:JAVA_HOME
 ```
+
+脚本会将路径转为绝对路径并统一使用正斜杠，避免 Windows 反斜杠被依赖构建的
+CMake 日志脚本当作转义字符；相对路径按当前 PowerShell 工作目录解析。
+开始编译前会检查 Android 与宿主 Qt kit 版本一致，并匹配当前依赖解析记录中的 Qt 版本。
 
 默认构建 `arm64-v8a`，最低 Android 9 / API 28、目标 API 36。脚本使用 Release
 原生代码和 Android debug key，产物位于 `out/artifacts/android`；同时验证签名、

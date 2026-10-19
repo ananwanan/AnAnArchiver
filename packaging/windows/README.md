@@ -7,6 +7,11 @@ the Release MSVC x64 frontend:
 ./scripts/Package-Windows.ps1 -BuildDirectory out/build/desktop-release -BootstrapInstaller
 ```
 
+The build automatically initializes the MSVC x64 environment, so this command can
+run from ordinary PowerShell. Failed cached C++ capability checks are retried in
+that environment before building; successful checks and other cache settings are
+preserved. `-SkipBuild` skips both this recovery and compilation.
+
 The script derives the Qt kit from the application CMake cache. It deploys QML
 imports and plugins with that kit's `windeployqt --force --qmldir`, deploys the
 licensed MSVC redistributable CRT DLLs app-locally, compares every deployed Qt DLL

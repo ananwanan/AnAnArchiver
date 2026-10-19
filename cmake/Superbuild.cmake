@@ -29,20 +29,33 @@ set(dependency_arguments
     "-DCMAKE_INSTALL_LIBDIR:STRING=lib"
     "-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}"
     "-DCMAKE_CXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER}"
-    "-DCMAKE_C_FLAGS:STRING=${CMAKE_C_FLAGS}"
-    "-DCMAKE_CXX_FLAGS:STRING=${CMAKE_CXX_FLAGS}"
     "-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON"
     "-DBUILD_SHARED_LIBS:BOOL=OFF"
     "-DBUILD_TESTING:BOOL=OFF"
     "-DCMAKE_POLICY_VERSION_MINIMUM:STRING=3.5")
-foreach(variable IN ITEMS CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE
+foreach(variable IN ITEMS CMAKE_C_FLAGS CMAKE_CXX_FLAGS
+        CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE
         CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG
         CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_RELWITHDEBINFO
-        CMAKE_C_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_MSVC_RUNTIME_LIBRARY)
+        CMAKE_C_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_MINSIZEREL)
     if(DEFINED ${variable})
-        list(APPEND dependency_arguments "-D${variable}:STRING=${${variable}}")
+        if(ANDROID AND DEFINED CACHE{${variable}})
+            # NDK adds platform flags to the normal variable without modifying
+            # its cached user value. A child toolchain adds those flags again,
+            # so forward only the cache value, including an explicit empty one.
+            get_property(dependency_flags CACHE "${variable}" PROPERTY VALUE)
+        else()
+            set(dependency_flags "${${variable}}")
+        endif()
+        list(APPEND dependency_arguments "-D${variable}:STRING=${dependency_flags}")
+        if(variable STREQUAL "CMAKE_C_FLAGS")
+            set(dependency_c_flags "${dependency_flags}")
+        endif()
     endif()
 endforeach()
+if(DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+    list(APPEND dependency_arguments "-DCMAKE_MSVC_RUNTIME_LIBRARY:STRING=${CMAKE_MSVC_RUNTIME_LIBRARY}")
+endif()
 if(CMAKE_TOOLCHAIN_FILE)
     list(APPEND dependency_arguments "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}")
 endif()
@@ -144,7 +157,7 @@ if(NOT ANANARCHIVER_USE_SYSTEM_LIBARCHIVE)
         -DENABLE_MBEDTLS=ON "-DENABLE_CNG:BOOL=${ANANARCHIVER_LIBARCHIVE_USE_CNG}" -DENABLE_LIBB2=OFF -DENABLE_LZO=OFF
         -DENABLE_PCREPOSIX=OFF -DENABLE_PCRE2POSIX=OFF -DENABLE_ACL=OFF
         -DENABLE_XATTR=OFF -DENABLE_ICONV=ON -DZLIB_USE_STATIC_LIBS=ON
-        -DEXPAT_USE_STATIC_LIBS=ON "-DCMAKE_C_FLAGS:STRING=${CMAKE_C_FLAGS} -DXML_STATIC"
+        -DEXPAT_USE_STATIC_LIBS=ON "-DCMAKE_C_FLAGS:STRING=${dependency_c_flags} -DXML_STATIC"
         DEPENDS ${codec_dependencies})
     list(APPEND archive_dependencies dependency_libarchive)
 endif()

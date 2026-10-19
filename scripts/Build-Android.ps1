@@ -17,6 +17,20 @@ $sourceDirectory = Split-Path -Parent $PSScriptRoot
 if (-not $AndroidSdkDir) { $AndroidSdkDir = $env:ANDROID_SDK_ROOT }
 if (-not $BuildDirectory) { $BuildDirectory = Join-Path $sourceDirectory "out/build/android-$Abi-release" }
 if (-not $ArtifactDirectory) { $ArtifactDirectory = Join-Path $sourceDirectory 'out/artifacts/android' }
+function ConvertTo-CMakePath([string] $Path) {
+    # Resolve relative paths against PowerShell's location, including directories
+    # that do not exist yet. ExternalProject log scripts must not contain raw
+    # Windows backslashes, which CMake would parse as escape sequences.
+    return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path).Replace('\', '/')
+}
+$sourceDirectory = ConvertTo-CMakePath $sourceDirectory
+$QtAndroidDir = ConvertTo-CMakePath $QtAndroidDir
+$QtHostDir = ConvertTo-CMakePath $QtHostDir
+$AndroidNdkDir = ConvertTo-CMakePath $AndroidNdkDir
+$AndroidSdkDir = ConvertTo-CMakePath $AndroidSdkDir
+$JavaHome = ConvertTo-CMakePath $JavaHome
+$BuildDirectory = ConvertTo-CMakePath $BuildDirectory
+$ArtifactDirectory = ConvertTo-CMakePath $ArtifactDirectory
 foreach ($requiredPath in @(
     (Join-Path $QtAndroidDir 'lib/cmake/Qt6/qt.toolchain.cmake'),
     (Join-Path $QtHostDir 'bin/androiddeployqt.exe'),
@@ -25,6 +39,34 @@ foreach ($requiredPath in @(
     (Join-Path $JavaHome 'bin/java.exe'))) {
     if (-not (Test-Path -LiteralPath $requiredPath)) { throw "Required toolchain file is missing: $requiredPath" }
 }
+
+function Get-QtKitVersion([string] $KitDirectory) {
+    $versionFile = Join-Path $KitDirectory 'mkspecs/qconfig.pri'
+    if (-not (Test-Path -LiteralPath $versionFile -PathType Leaf)) {
+        throw "Qt kit version metadata is missing: $versionFile"
+    }
+    $versionMatch = [regex]::Match((Get-Content -LiteralPath $versionFile -Raw -Encoding UTF8),
+        '(?m)^\s*QT_VERSION\s*=\s*(\d+\.\d+\.\d+)\s*$')
+    if (-not $versionMatch.Success) { throw "Cannot identify the Qt kit version in: $versionFile" }
+    return $versionMatch.Groups[1].Value
+}
+$androidQtVersion = Get-QtKitVersion $QtAndroidDir
+$hostQtVersion = Get-QtKitVersion $QtHostDir
+if ($androidQtVersion -ne $hostQtVersion) {
+    throw "Qt Android kit $androidQtVersion does not match host kit $hostQtVersion. Select matching Qt kits before building."
+}
+$dependencyManifest = Join-Path $sourceDirectory 'out/dependencies/resolved-dependencies.json'
+if (Test-Path -LiteralPath $dependencyManifest -PathType Leaf) {
+    $resolution = Get-Content -LiteralPath $dependencyManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    $resolvedQt = @($resolution.dependencies | Where-Object { $_.name -eq 'qt' })
+    if ($resolvedQt.Count -gt 1 -or ($resolvedQt.Count -eq 1 -and -not $resolvedQt[0].version)) {
+        throw "The dependency manifest has no unique Qt version: $dependencyManifest"
+    }
+    if ($resolvedQt.Count -eq 1 -and $androidQtVersion -ne $resolvedQt[0].version) {
+        throw "Qt kit $androidQtVersion does not match resolved Qt $($resolvedQt[0].version). Install matching Android and host kits before building."
+    }
+}
+Write-Host "Qt Android/host kit: $androidQtVersion"
 
 function Invoke-BuildCommand([string] $Executable, [string[]] $Arguments) {
     & $Executable @Arguments
@@ -65,9 +107,9 @@ try {
         '-S', $sourceDirectory, '-B', $BuildDirectory, '-G', 'Ninja',
         '-DCMAKE_BUILD_TYPE=Release', '-DBUILD_TESTING=OFF',
         '-DANANARCHIVER_BUILD_QT=ON', '-DANANARCHIVER_USE_SYSTEM_QT=ON',
-        "-DCMAKE_TOOLCHAIN_FILE=$QtAndroidDir/lib/cmake/Qt6/qt.toolchain.cmake",
-        "-DCMAKE_PREFIX_PATH=$QtAndroidDir", "-DQT_HOST_PATH=$QtHostDir",
-        "-DANDROID_SDK_ROOT=$AndroidSdkDir", "-DANDROID_NDK_ROOT=$AndroidNdkDir",
+        "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=$QtAndroidDir/lib/cmake/Qt6/qt.toolchain.cmake",
+        "-DCMAKE_PREFIX_PATH:PATH=$QtAndroidDir", "-DQT_HOST_PATH:PATH=$QtHostDir",
+        "-DANDROID_SDK_ROOT:PATH=$AndroidSdkDir", "-DANDROID_NDK_ROOT:PATH=$AndroidNdkDir",
         "-DANDROID_ABI=$Abi", '-DANDROID_PLATFORM=android-28',
         '-DQT_ANDROID_DEPLOYMENT_TYPE=DEBUG', "-DANANARCHIVER_DEPENDENCY_JOBS=$Jobs")
     Invoke-BuildCommand $CMakeCommand @('--build', $BuildDirectory, '--parallel', '2')

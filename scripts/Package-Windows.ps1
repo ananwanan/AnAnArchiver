@@ -19,7 +19,7 @@ function Resolve-TaskPath([string] $Path) {
 }
 function Read-Cache([string] $Path) {
     $values = @{}
-    foreach ($line in Get-Content -LiteralPath $Path) {
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
         if ($line -match '^([^/#][^:]*):[^=]+=(.*)$') { $values[$Matches[1]] = $Matches[2] }
     }
     return $values
@@ -27,6 +27,26 @@ function Read-Cache([string] $Path) {
 function Invoke-Checked([string] $Program, [string[]] $Arguments) {
     & $Program @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "$Program exited with code $LASTEXITCODE" }
+}
+function Repair-FailedToolchainChecks([string] $BuildPath) {
+    $cachePath = Join-Path $BuildPath 'CMakeCache.txt'
+    if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) { return }
+    $cache = Read-Cache $cachePath
+    $arguments = @('cmake')
+    foreach ($probe in @('ANANARCHIVER_HAS_CXX23_EXPECTED', 'ANANARCHIVER_HAS_STD_JTHREAD')) {
+        # A configure run without MSVC's INCLUDE/LIB can cache a false failure.
+        # Recheck it in the initialized environment; never force it to succeed.
+        if ($cache.ContainsKey($probe) -and $cache[$probe] -match '^(|0|OFF|NO|FALSE|N|IGNORE|NOTFOUND|.*-NOTFOUND)$') {
+            $arguments += @('-U', $probe)
+        }
+    }
+    if ($arguments.Count -eq 1) { return }
+    if (-not $cache.ContainsKey('CMAKE_HOME_DIRECTORY') -or -not $cache['CMAKE_HOME_DIRECTORY']) {
+        throw "Cannot retry toolchain checks: CMAKE_HOME_DIRECTORY is missing from '$cachePath'."
+    }
+    Write-Host "Retrying failed C++ toolchain checks with the MSVC x64 environment: $BuildPath"
+    $arguments += @('-S', $cache['CMAKE_HOME_DIRECTORY'], '-B', $BuildPath)
+    Invoke-Checked (Join-Path $PSScriptRoot 'Invoke-Msvc.ps1') $arguments
 }
 function Write-Json([string] $Path, $Value) {
     [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 20) + "`n", [Text.UTF8Encoding]::new($false))
@@ -307,7 +327,11 @@ function Get-InnoCompiler {
 
 $taskBuild = Resolve-TaskPath $BuildDirectory
 $taskOutput = Resolve-TaskPath $OutputDirectory
-if (-not $SkipBuild) { Invoke-Checked 'cmake' @('--build', $taskBuild, '--parallel', "$Jobs") }
+if (-not $SkipBuild) {
+    Repair-FailedToolchainChecks $taskBuild
+    Repair-FailedToolchainChecks (Join-Path $taskBuild 'application')
+    Invoke-Checked (Join-Path $PSScriptRoot 'Invoke-Msvc.ps1') @('cmake', '--build', $taskBuild, '--parallel', "$Jobs")
+}
 $taskApplication = $taskBuild
 if (-not (Test-Path -LiteralPath (Join-Path $taskApplication 'LiteArc.exe'))) {
     $taskApplication = Join-Path $taskBuild 'application'
