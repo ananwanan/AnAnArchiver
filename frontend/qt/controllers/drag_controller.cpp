@@ -1,6 +1,7 @@
 #include "drag_controller.h"
 #include "archive_controller.h"
 #include "compression_controller.h"
+#include "platform/archive_error_details.h"
 #include "platform/path_conversion.h"
 #include "platform/temp_file_manager.h"
 
@@ -365,11 +366,7 @@ void DragController::showError(const ArchiveError& error) {
                     error.code == ArchiveErrorCode::WrongPassword
                         ? tr("The selected files require the correct archive password.")
                         : tr("The drag and drop operation could not be completed.");
-    errorDetails_ = fromUtf8(error.message);
-    if (!error.backendMessage.empty())
-        errorDetails_ += QStringLiteral("\n") + fromUtf8(error.backendMessage);
-    if (!error.path.empty())
-        errorDetails_ += QStringLiteral("\n") + fromPath(error.path);
+    errorDetails_ = formatArchiveErrorDetails(error);
     emit changed();
 }
 

@@ -1,4 +1,5 @@
 #include "task_controller.h"
+#include "platform/archive_error_details.h"
 #include "platform/path_conversion.h"
 #include <QLocale>
 #include <algorithm>
@@ -80,12 +81,8 @@ QVariant TaskController::data(const QModelIndex& index, int role) const {
     case RemainingRole: return task.estimatedRemaining ? duration(*task.estimatedRemaining) : QString();
     case ErrorRole: return task.error && task.state == TaskState::Failed ? tr("The archive operation failed.") : QString();
     case DetailsRole:
-        if (task.error) {
-            auto details = fromUtf8(task.error->message);
-            if (!task.error->backendMessage.empty()) details += QChar(u'\n') + fromUtf8(task.error->backendMessage);
-            if (!task.error->path.empty()) details += QChar(u'\n') + fromPath(task.error->path);
-            return details;
-        }
+        if (task.error)
+            return formatArchiveErrorDetails(*task.error);
         return QString();
     case CanCancelRole: return !terminal(task.state) && task.state != TaskState::Cancelling;
     default: return {};

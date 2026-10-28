@@ -18,10 +18,50 @@ ColumnLayout {
     property var desktopController: null
     property var taskController: null
     property var dragController: null
+    property bool mobile: false
+    property var storageAccessController: null
     readonly property bool browsing: root.archiveController.currentFile.length > 0 || root.directoryModel.rootPath.length > 0
     signal browseFolder()
+    signal moreRequested()
     spacing: 0
     function focusSearch() { if (browsing) fileTable.focusSearch() }
+
+    Pane {
+        id: storageNotice
+        objectName: "storageAccessNotice"
+        Layout.fillWidth: true
+        visible: root.storageAccessController && root.storageAccessController.available
+            && !root.storageAccessController.granted
+        padding: 12
+        background: Rectangle { color: storageNotice.palette.alternateBase }
+        contentItem: ColumnLayout {
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    objectName: "storageAccessNoticeText"
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: qsTr("File access is needed for shared storage.")
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                }
+                Button {
+                    objectName: "requestStorageAccess"
+                    Layout.minimumHeight: root.mobile ? 48 : 0
+                    text: qsTr("Allow access")
+                    enabled: root.storageAccessController && !root.storageAccessController.requestInProgress
+                    onClicked: root.storageAccessController.showPrompt()
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: root.storageAccessController ? root.storageAccessController.error : ""
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
 
     Toolbar {
         Layout.fillWidth: true
@@ -35,12 +75,14 @@ ColumnLayout {
         taskAction: root.taskAction
         taskController: root.taskController
         dragController: root.dragController
+        mobile: root.mobile
         onBrowseFolder: root.browseFolder()
+        onMoreRequested: root.moreRequested()
     }
     ToolBar {
         id: navigationBar
         Layout.fillWidth: true
-        implicitHeight: 44
+        implicitHeight: root.mobile ? 52 : 44
         background: Rectangle { color: navigationBar.palette.window }
         RowLayout {
             anchors.fill: parent
@@ -54,6 +96,8 @@ ColumnLayout {
                 display: AbstractButton.IconOnly
                 icon.source: "../icons/home.svg"
                 icon.color: palette.buttonText
+                Layout.minimumWidth: root.mobile ? 48 : 0
+                Layout.minimumHeight: root.mobile ? 48 : 0
                 enabled: root.browsing
                 onClicked: { root.archiveController.close(); root.directoryModel.clear() }
                 Accessible.name: text
@@ -91,6 +135,7 @@ ColumnLayout {
             archiveController: root.archiveController
             directoryModel: root.directoryModel
             dragController: root.dragController
+            mobile: root.mobile
             extractAction: root.extractAction
             exportAction: root.exportAction
             onOpenRequested: root.openAction.trigger()
@@ -101,6 +146,7 @@ ColumnLayout {
             openAction: root.openAction
             compressAction: root.compressAction
             desktopController: root.desktopController
+            mobile: root.mobile
         }
     }
     StatusBar {
@@ -108,5 +154,6 @@ ColumnLayout {
         archiveController: root.archiveController
         compressionController: root.compressionController
         dragController: root.dragController
+        mobile: root.mobile
     }
 }

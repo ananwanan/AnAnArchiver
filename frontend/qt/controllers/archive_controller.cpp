@@ -1,4 +1,5 @@
 #include "archive_controller.h"
+#include "platform/archive_error_details.h"
 #include "platform/path_conversion.h"
 
 #include <algorithm>
@@ -367,11 +368,7 @@ void ArchiveController::showError(const ArchiveError& error)
     case ArchiveErrorCode::BackendError:
     case ArchiveErrorCode::Unknown: errorMessage_ = tr("The archive operation failed."); break;
     }
-    errorDetails_ = fromUtf8(error.message);
-    if (!error.backendMessage.empty())
-        errorDetails_ += QStringLiteral("\n") + fromUtf8(error.backendMessage);
-    if (!error.path.empty())
-        errorDetails_ += QStringLiteral("\n") + fromPath(error.path);
+    errorDetails_ = formatArchiveErrorDetails(error);
     emit changed();
 }
 

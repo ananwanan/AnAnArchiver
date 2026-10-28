@@ -9,18 +9,29 @@ Pane {
     required property Action openAction
     required property Action compressAction
     property var desktopController: null
+    property bool mobile: false
     readonly property bool compact: height < 420 || width < 820
+    readonly property bool narrow: width < 520
+    objectName: "welcomePage"
     implicitWidth: 600
     implicitHeight: 400
     padding: compact ? 14 : Math.min(width * 0.04, 40)
     background: Rectangle { color: root.palette.base }
-    ColumnLayout {
+    ScrollView {
+        id: welcomeScroll
+        objectName: "welcomeScroll"
         anchors.fill: parent
+        clip: true
+        contentWidth: availableWidth
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ColumnLayout {
+        width: welcomeScroll.availableWidth
+        height: Math.max(welcomeScroll.availableHeight, implicitHeight)
         spacing: root.compact ? 8 : 16
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: root.compact ? 0 : 16
-            spacing: 18
+            spacing: root.narrow ? 12 : 18
             Rectangle {
                 Layout.preferredWidth: root.compact ? 44 : 56
                 Layout.preferredHeight: root.compact ? 44 : 56
@@ -31,7 +42,16 @@ Pane {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 5
-                Label { text: qsTr("Your archives, organized."); textFormat: Text.PlainText; font.pixelSize: root.compact ? 22 : 30; font.weight: Font.DemiBold }
+                Label {
+                    objectName: "welcomeTitle"
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: qsTr("Your archives, organized.")
+                    textFormat: Text.PlainText
+                    font.pixelSize: root.compact ? 22 : 30
+                    font.weight: Font.DemiBold
+                    wrapMode: Text.WordWrap
+                }
                 Label {
                     visible: !root.compact
                     Layout.fillWidth: true
@@ -42,15 +62,33 @@ Pane {
                 }
             }
         }
-        RowLayout {
+        GridLayout {
             Layout.fillWidth: true
             Layout.topMargin: root.compact ? 0 : 8
-            spacing: 10
-            Button { action: root.openAction; highlighted: true; icon.source: "../icons/open.svg"; icon.color: palette.highlightedText }
-            Button { action: root.compressAction; icon.source: "../icons/create.svg"; icon.color: palette.buttonText }
-            Item { Layout.fillWidth: true }
+            columns: root.narrow ? 1 : 3
+            columnSpacing: 10
+            rowSpacing: 8
+            Button {
+                objectName: "welcomeOpenButton"
+                Layout.fillWidth: root.narrow
+                Layout.minimumHeight: root.mobile ? 48 : 0
+                action: root.openAction
+                highlighted: true
+                icon.source: "../icons/open.svg"
+                icon.color: palette.highlightedText
+            }
+            Button {
+                objectName: "welcomeCreateButton"
+                Layout.fillWidth: root.narrow
+                Layout.minimumHeight: root.mobile ? 48 : 0
+                action: root.compressAction
+                icon.source: "../icons/create.svg"
+                icon.color: palette.buttonText
+            }
+            Item { Layout.fillWidth: true; visible: !root.narrow }
         }
         Label {
+            visible: !root.mobile
             text: qsTr("Drop an archive to open it, or drop files and folders to create one.")
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
@@ -61,10 +99,11 @@ Pane {
         Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; Layout.topMargin: root.compact ? 0 : 10; color: root.palette.mid; opacity: 0.2 }
         RowLayout {
             Layout.fillWidth: true
-            Label { text: qsTr("Recent archives"); textFormat: Text.PlainText; font.weight: Font.DemiBold; Layout.fillWidth: true }
+            Label { text: qsTr("Recent archives"); textFormat: Text.PlainText; font.weight: Font.DemiBold; Layout.fillWidth: true; Layout.minimumWidth: 0; wrapMode: Text.WordWrap }
             ToolButton {
                 objectName: "clearRecentArchives"
                 text: qsTr("Clear history")
+                Layout.minimumHeight: root.mobile ? 48 : 0
                 enabled: recent.count > 0
                 onClicked: root.desktopController.clearRecent()
             }
@@ -74,7 +113,7 @@ Pane {
             objectName: "recentArchives"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumHeight: 60
+            Layout.minimumHeight: root.mobile ? 120 : 60
             clip: true
             spacing: 4
             reuseItems: true
@@ -114,19 +153,25 @@ Pane {
             }
             Label {
                 anchors.centerIn: parent
+                width: Math.max(0, parent.width - 24)
                 visible: recent.count === 0
                 text: qsTr("Recently opened archives will appear here.")
                 textFormat: Text.PlainText
                 opacity: 0.6
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
             }
         }
         Label {
+            objectName: "welcomeShortcutHints"
+            visible: !root.mobile
             Layout.fillWidth: true
             text: qsTr("Open  Ctrl+O     Create  Ctrl+N     Search  Ctrl+F     Tasks  Ctrl+J")
             textFormat: Text.PlainText
             font.pixelSize: 12
             opacity: 0.55
             wrapMode: Text.WordWrap
+        }
         }
     }
 }

@@ -18,6 +18,12 @@ small desktop icon sizes. The artwork contains no text or third-party branding.
   128 and 256 pixels, embedded into the executable's native resources.
 - `ananarchiver.icns`: macOS icon frames at 16 through 1024 pixels, including
   Retina representations, copied into the app bundle's Resources directory.
+- `../../android/res/`: Android adaptive launcher icon and five fallback bitmap
+  densities, exported from the same artwork with `scripts/export_android_icons.py`
+  (Pillow required only to refresh exports). The adaptive foreground uses a
+  108 dp layer with the artwork inside the central 66 dp safe area so launcher
+  masks do not cut off the archive box or zipper. The manifest's icon and round
+  icon both reference this resource.
 
 Platform exports only resize the generated artwork and preserve transparency.
 The committed exports are consumed directly; building the application does not

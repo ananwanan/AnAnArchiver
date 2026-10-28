@@ -11,9 +11,11 @@ SplitView {
     property var dragController: null
     property Action extractAction: null
     property Action exportAction: null
+    property bool mobile: false
+    readonly property bool compact: width < 600
     readonly property bool archiveOpen: root.archiveController.currentFile.length > 0
     signal openRequested()
-    orientation: Qt.Horizontal
+    orientation: compact ? Qt.Vertical : Qt.Horizontal
     function focusSearch() { searchField.forceActiveFocus(); searchField.selectAll() }
     function sortBy(column) {
         const metadata = root.archiveController.entryModel
@@ -30,6 +32,9 @@ SplitView {
         SplitView.preferredWidth: 220
         SplitView.minimumWidth: 145
         SplitView.maximumWidth: 380
+        SplitView.preferredHeight: root.mobile ? 160 : 120
+        SplitView.minimumHeight: 80
+        SplitView.maximumHeight: 180
         padding: 0
         background: Rectangle { color: navigation.palette.window }
         ColumnLayout {
@@ -109,7 +114,7 @@ SplitView {
                     required property string folderName
                     text: folderName
                     implicitWidth: archiveFolderTree.width
-                    implicitHeight: 32
+                    implicitHeight: root.mobile ? 48 : 32
                     highlighted: root.archiveController.currentFolder === folderPath
                     onClicked: { root.archiveController.navigateToFolder(folderPath); archiveFolderTree.forceActiveFocus() }
                     Accessible.name: folderPath
@@ -150,7 +155,7 @@ SplitView {
                     required property bool isDirectory
                     text: treeRow.model.display
                     implicitWidth: directoryTree.width
-                    implicitHeight: 32
+                    implicitHeight: root.mobile ? 48 : 32
                     icon.source: isDirectory ? "../icons/folder.svg" : "../icons/file.svg"
                     icon.color: treeRow.highlighted ? palette.highlightedText : palette.buttonText
                     PlainToolTip { visible: treeRow.hovered; text: treeRow.fullPath }
@@ -170,6 +175,7 @@ SplitView {
     Pane {
         id: archivePane
         SplitView.fillWidth: true
+        SplitView.fillHeight: true
         padding: 0
         background: Rectangle { color: archivePane.palette.base }
         ColumnLayout {
@@ -334,7 +340,7 @@ SplitView {
                     required property bool entrySelected
                     required property bool entryDirectory
                     width: entries.width
-                    height: 36
+                    height: root.mobile ? 48 : 36
                     leftPadding: 16
                     rightPadding: 16
                     highlighted: entrySelected

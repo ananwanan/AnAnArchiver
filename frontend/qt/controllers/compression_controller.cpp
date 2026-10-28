@@ -1,4 +1,5 @@
 #include "compression_controller.h"
+#include "platform/archive_error_details.h"
 #include "platform/path_conversion.h"
 #include <QCoreApplication>
 #include <QSet>
@@ -225,11 +226,7 @@ void CompressionController::showError(const ArchiveError& error) {
         errorMessage_ = tr("Archive creation failed.");
         break;
     }
-    errorDetails_ = fromUtf8(error.message);
-    if (!error.backendMessage.empty())
-        errorDetails_ += QStringLiteral("\n") + fromUtf8(error.backendMessage);
-    if (!error.path.empty())
-        errorDetails_ += QStringLiteral("\n") + fromPath(error.path);
+    errorDetails_ = formatArchiveErrorDetails(error);
     emit changed();
 }
 

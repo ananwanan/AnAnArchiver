@@ -79,6 +79,10 @@ codec 版本。方案要求在依赖初始化或更新时解析最新版本，�
 版本、ref、实际 commit 和 UTC 解析时间。CMake 验证源码与清单一致，构建目录
 另存 `resolved-dependencies.json` 和 `dependency-provenance.json`，记录实际
 backend、Qt 和编译器信息；安装时复制到 `share/AnAnArchiver`。
+删除 `out` 后，必须先重新执行依赖初始化，或从保存在该目录之外的历史清单重放，
+再运行配置和编译命令；保留 `third_party` 源码本身不能替代解析清单。
+`dist` 仅保存打包输出，删除它不影响编译。恢复最近一次已验证源码集的离线命令见
+[2026-10-28 依赖记录](docs/validation/2026-10-28-dependency-update.md)。
 构建前再次纯本地验证源码，并将依赖源码、工具链、编译选项和构建适配器绑定到
 构建目录及安装 prefix。版本或构建参数变化时使用新的目录，防止旧库误标新版本；
 只有解析时间改变而源码与构建参数未改变时可以复用原目录。最终 provenance 在

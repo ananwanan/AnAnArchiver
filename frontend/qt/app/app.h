@@ -5,6 +5,7 @@
 #include "controllers/compression_controller.h"
 #include "controllers/desktop_controller.h"
 #include "controllers/task_controller.h"
+#include "controllers/storage_access_controller.h"
 #include "models/file_tree_model.h"
 #include <QObject>
 #include <memory>
@@ -38,6 +39,7 @@ private:
     FileTreeModel directories_;
     DesktopController desktop_;
     TaskController taskCenter_;
+    StorageAccessController storageAccess_;
     QString shellArchive_;
     QString shellDestination_;
     QString shellRetryDestination_;

@@ -16,6 +16,10 @@ ApplicationWindow {
     property var taskController: null
     property var dragController: null
     property var buildInfo: null
+    property var storageAccessController: null
+    readonly property url sharedStorageFolder: storageAccessController && storageAccessController.available
+        ? storageAccessController.sharedStorageFolder : ""
+    property bool mobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
     readonly property string productName: qsTr("LiteArc")
     function showShellCompression(destination) {
         compressionDialog.suggestDestination(destination)
@@ -34,8 +38,8 @@ ApplicationWindow {
     }
     width: 1180
     height: 740
-    minimumWidth: 760
-    minimumHeight: 480
+    minimumWidth: mobile ? 320 : 760
+    minimumHeight: mobile ? 320 : 480
     visible: true
     title: window.archiveController.currentFile.length > 0
            ? window.archiveController.currentFile.split(/[\\/]/).pop() + " — " + window.productName
@@ -164,6 +168,8 @@ ApplicationWindow {
     }
 
     menuBar: MenuBar {
+        objectName: "desktopMenuBar"
+        visible: !window.mobile
         Menu {
             title: qsTr("File")
             MenuItem { action: openAction }
@@ -237,8 +243,68 @@ ApplicationWindow {
         }
     }
 
+    Menu {
+        id: mobileMenu
+        objectName: "mobileMenu"
+        popupType: Popup.Item
+        parent: Overlay.overlay
+        x: Math.max(8, window.width - width - 8)
+        y: 56
+        width: Math.min(320, window.width - 16)
+        height: Math.min(implicitHeight, window.height - 72)
+        delegate: MenuItem { implicitHeight: 48 }
+        MenuItem { implicitHeight: 48; action: openAction }
+        MenuItem { implicitHeight: 48; action: compressAction }
+        MenuItem { implicitHeight: 48; action: extractAction }
+        MenuItem { implicitHeight: 48; action: closeAction }
+        MenuItem { implicitHeight: 48;
+            objectName: "mobileBrowseFolder"
+            text: qsTr("Browse folder…")
+            onTriggered: folderDialog.open()
+        }
+        MenuItem { implicitHeight: 48;
+            text: qsTr("Select all")
+            enabled: window.archiveController.canExtract
+            onTriggered: window.archiveController.selectAll()
+        }
+        MenuItem { implicitHeight: 48;
+            text: qsTr("Clear selection")
+            enabled: window.archiveController.selectionCount > 0
+            onTriggered: window.archiveController.clearSelection()
+        }
+        MenuItem { implicitHeight: 48; action: cancelAction }
+        MenuItem { implicitHeight: 48; action: exportAction; visible: window.dragController !== null }
+        MenuItem { implicitHeight: 48; action: taskAction }
+        MenuItem { implicitHeight: 48; action: searchAction }
+        MenuItem { implicitHeight: 48;
+            objectName: "mobileStorageAccess"
+            text: qsTr("File access")
+            visible: window.storageAccessController && window.storageAccessController.available
+            onTriggered: window.storageAccessController.showPrompt()
+        }
+        MenuSeparator {}
+        Menu {
+            title: qsTr("Appearance")
+            MenuItem { implicitHeight: 48; text: qsTr("Follow system"); checkable: true; checked: window.themeMode === 0; onTriggered: window.themeMode = 0 }
+            MenuItem { implicitHeight: 48; text: qsTr("Light"); checkable: true; checked: window.themeMode === 1; onTriggered: window.themeMode = 1 }
+            MenuItem { implicitHeight: 48; text: qsTr("Dark"); checkable: true; checked: window.themeMode === 2; onTriggered: window.themeMode = 2 }
+        }
+        MenuItem { implicitHeight: 48; text: qsTr("Open-source components and licenses"); onTriggered: openSourceDialog.open() }
+        MenuItem { implicitHeight: 48; objectName: "mobileAbout"; text: qsTr("About LiteArc"); onTriggered: aboutDialog.open() }
+    }
+
+    StorageAccessDialog {
+        hostWindow: window
+        controller: window.storageAccessController
+    }
+
     FileDialog {
         id: archiveDialog
+        objectName: "openArchiveDialog"
+        Binding on currentFolder {
+            when: window.sharedStorageFolder.toString().length > 0
+            value: window.sharedStorageFolder
+        }
         title: qsTr("Open archive")
         nameFilters: [qsTr("Archives (*.zip *.zipx *.7z *.rar *.tar *.gz *.tgz *.bz2 *.xz *.zst *.lz4 *.cab *.cpio *.ar *.iso *.lha *.lzh *.xar)"),
                       qsTr("All files (*)")]
@@ -246,6 +312,10 @@ ApplicationWindow {
     }
     FolderDialog {
         id: folderDialog
+        Binding on currentFolder {
+            when: window.sharedStorageFolder.toString().length > 0
+            value: window.sharedStorageFolder
+        }
         objectName: "localFolderDialog"
         title: qsTr("Browse folder")
         onAccepted: { window.archiveController.close(); window.directoryModel.loadDirectoryUrl(selectedFolder) }
@@ -266,7 +336,10 @@ ApplicationWindow {
         desktopController: window.desktopController
         taskController: window.taskController
         dragController: window.dragController
+        mobile: window.mobile
+        storageAccessController: window.storageAccessController
         onBrowseFolder: folderDialog.open()
+        onMoreRequested: mobileMenu.open()
     }
 
     TaskCenter { id: taskCenter; hostWindow: window; controller: window.taskController }
@@ -357,6 +430,7 @@ ApplicationWindow {
         id: compressionDialog
         controller: window.compressionController
         hostWindow: window
+        initialFolder: window.sharedStorageFolder
     }
     ErrorDetailsDialog {
         id: compressionErrorDialog
@@ -400,6 +474,11 @@ ApplicationWindow {
     }
     FolderDialog {
         id: destinationDialog
+        objectName: "extractionDestinationDialog"
+        Binding on currentFolder {
+            when: window.sharedStorageFolder.toString().length > 0
+            value: window.sharedStorageFolder
+        }
         title: qsTr("Choose extraction destination")
         onAccepted: destinationField.text = window.archiveController.localPath(selectedFolder)
     }
@@ -413,24 +492,13 @@ ApplicationWindow {
         height: Math.min(450, window.height - 48)
         onOpened: destinationField.forceActiveFocus()
         onClosed: extractionPassword.clear()
-        contentItem: ScrollView {
+        contentItem: FocusScrollView {
             id: extractionForm
+            hostWindow: window
             clip: true
             contentWidth: availableWidth
             rightPadding: effectiveScrollBarWidth + 4
             ScrollBar.vertical.policy: ScrollBar.AsNeeded
-            function revealFocusedControl() {
-                const control = window.activeFocusItem
-                const viewport = contentItem as Flickable
-                if (!control || !viewport) return
-                let ancestor = control
-                while (ancestor && ancestor !== viewport.contentItem) ancestor = ancestor.parent
-                if (!ancestor) return
-                const top = control.mapToItem(viewport.contentItem, 0, 0).y
-                if (top < viewport.contentY) viewport.contentY = top
-                else if (top + control.height > viewport.contentY + viewport.height)
-                    viewport.contentY = Math.max(0, top + control.height - viewport.height)
-            }
             ColumnLayout {
             width: parent.width
             spacing: 12

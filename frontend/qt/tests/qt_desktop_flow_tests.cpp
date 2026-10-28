@@ -20,6 +20,7 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -27,6 +28,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <iostream>
+#include <memory>
 
 using namespace ananarchiver;
 using namespace extraction_tests;
@@ -108,7 +110,7 @@ struct View {
     qt::BuildInfo buildInfo;
     QQmlApplicationEngine engine;
     QQuickWindow* window{};
-    View() {
+    explicit View(bool mobile = false, QObject* storageAccess = nullptr) {
         QObject::connect(&archive, &qt::ArchiveController::archiveIndexed, &desktop, &qt::DesktopController::rememberArchive);
         QObject::connect(&desktop, &qt::DesktopController::openRequested, &archive, &qt::ArchiveController::openFile);
         QObject::connect(&drag, &qt::DragController::openRequested, &archive, &qt::ArchiveController::openFile);
@@ -117,6 +119,8 @@ struct View {
                 tasks.observe(QStringLiteral("archive"), snapshot, path, [this](auto id) { archive.cancelTask(id); });
             });
         engine.setInitialProperties({
+            {QStringLiteral("mobile"), mobile},
+            {QStringLiteral("storageAccessController"), QVariant::fromValue(storageAccess)},
             {QStringLiteral("buildInfo"), QVariant::fromValue(&buildInfo)},
             {QStringLiteral("archiveController"), QVariant::fromValue(&archive)},
             {QStringLiteral("compressionController"), QVariant::fromValue(&compression)},
@@ -191,6 +195,167 @@ struct View {
         check(event.isAccepted(), "Production DropArea rejected the drop");
     }
 };
+void mobileHome(const QString& language) {
+    QQmlEngine mockEngine;
+    QQmlComponent mockComponent(&mockEngine);
+    mockComponent.setData(R"qml(
+        import QtQml
+        QtObject {
+            property bool available: true
+            property bool granted: false
+            property bool requiresAllFilesAccess: true
+            property bool requestInProgress: false
+            property bool promptVisible: true
+            property string error: ""
+            property url sharedStorageFolder
+            property int requests: 0
+            function showPrompt() { promptVisible = true }
+            function dismissPrompt() { promptVisible = false }
+            function requestAccess() { ++requests; promptVisible = false }
+        }
+    )qml", QUrl());
+    std::unique_ptr<QObject> storage(mockComponent.create());
+    check(storage != nullptr, "Cannot create storage permission UI fixture");
+    QTemporaryDir sharedStorage;
+    const auto sharedFolder = QUrl::fromLocalFile(sharedStorage.path());
+    storage->setProperty("sharedStorageFolder", sharedFolder);
+    View view(true, storage.get());
+    const auto fits = [&](const char* name, bool touchTarget = false) {
+        auto* item = qobject_cast<QQuickItem*>(named(view.window, name));
+        check(item && item->isVisible(), std::string("Mobile item is hidden: ") + name);
+        const auto bounds = item->mapRectToScene(item->boundingRect());
+        check(bounds.left() >= -1 && bounds.right() <= view.window->width() + 1,
+            std::string("Mobile item extends outside the phone: ") + name);
+        if (touchTarget)
+            check(item->width() >= 48 && item->height() >= 48,
+                std::string("Mobile action is smaller than a touch target: ") + name);
+    };
+    view.window->setHeight(780);
+    for (const auto width : {320, 393}) {
+        view.window->setWidth(width);
+        settle();
+        auto* dialog = named(view.window, "storageAccessDialog");
+        check(dialog->property("opened").toBool(),
+            "Android storage access explanation did not appear on first launch");
+        check(dialog->property("width").toReal() <= width - 16
+            && dialog->property("height").toReal() <= view.window->height() - 16,
+            "Android storage explanation exceeded the phone viewport");
+        fits("grantStorageAccess", true);
+        fits("deferStorageAccess", true);
+        auto* explanation = named(view.window, "storageAccessExplanation");
+        check(explanation->property("contentWidth").toReal() <= explanation->property("width").toReal() + 1,
+            "Android storage explanation did not wrap on a narrow phone");
+        view.capture(language + QStringLiteral("-mobile-file-access-") + QString::number(width));
+    }
+    view.click(qobject_cast<QQuickItem*>(named(view.window, "grantStorageAccess")));
+    check(storage->property("requests").toInt() == 1,
+        "Storage permission action did not request Android settings");
+    check(named(view.window, "storageAccessNotice")->property("visible").toBool(),
+        "Denied storage access did not leave a retry action");
+    view.click(qobject_cast<QQuickItem*>(named(view.window, "requestStorageAccess")));
+    check(named(view.window, "storageAccessDialog")->property("opened").toBool(),
+        "Storage access retry did not reopen the explanation");
+    view.click(qobject_cast<QQuickItem*>(named(view.window, "deferStorageAccess")));
+    check(!storage->property("promptVisible").toBool(), "Deferring storage permission did not dismiss the explanation");
+    for (const auto* name : {"openArchiveDialog", "localFolderDialog", "extractionDestinationDialog",
+                             "compressionSourceFiles", "compressionSourceFolder", "compressionSaveDialog"})
+        check(named(view.window, name)->property("currentFolder").toUrl() == sharedFolder,
+            std::string("Android file selector did not start in shared storage: ") + name);
+    check(!named(view.window, "desktopMenuBar")->property("visible").toBool(),
+        "Mobile window kept the desktop menu bar");
+    check(!named(view.window, "welcomeShortcutHints")->property("visible").toBool(),
+        "Mobile home kept keyboard shortcut instructions");
+    for (const auto width : {320, 360, 393, 440}) {
+        view.window->setWidth(width);
+        settle();
+        check(view.window->width() == width, "Desktop minimum width forced the phone window wider");
+        for (const auto* name : {"openButton", "compressButton", "extractButton", "taskCenterButton", "moreButton",
+                                 "welcomeOpenButton", "welcomeCreateButton"})
+            fits(name, true);
+        fits("storageAccessNotice");
+        fits("requestStorageAccess", true);
+        auto* notice = named(view.window, "storageAccessNoticeText");
+        check(notice->property("contentWidth").toReal() <= notice->property("width").toReal() + 1
+            && notice->property("contentHeight").toReal() <= notice->property("height").toReal() + 1,
+            "Mobile permission notice did not wrap inside its available space");
+        // Exercise the extra button's worst-case width independently of worker timing.
+        named(view.window, "cancelAction")->setProperty("enabled", true);
+        settle();
+        for (const auto* name : {"openButton", "compressButton", "extractButton", "taskCenterButton", "cancelTaskButton", "moreButton"})
+            fits(name, true);
+        named(view.window, "cancelAction")->setProperty("enabled", false);
+        fits("welcomeTitle");
+        auto* title = named(view.window, "welcomeTitle");
+        check(title->property("contentWidth").toReal() <= title->property("width").toReal() + 1
+            && title->property("contentHeight").toReal() <= title->property("height").toReal() + 1,
+            "Mobile welcome heading did not wrap inside its available space");
+        auto* open = qobject_cast<QQuickItem*>(named(view.window, "welcomeOpenButton"));
+        auto* create = qobject_cast<QQuickItem*>(named(view.window, "welcomeCreateButton"));
+        check(open->mapToScene(QPointF()).y() + open->height() <= create->mapToScene(QPointF()).y(),
+            "Mobile home actions did not stack vertically");
+        view.capture(language + QStringLiteral("-mobile-home-") + QString::number(width));
+        view.click(qobject_cast<QQuickItem*>(named(view.window, "moreButton")));
+        auto* menu = named(view.window, "mobileMenu");
+        check(menu->property("opened").toBool(), "Mobile overflow menu did not open");
+        auto* menuItem = qobject_cast<QQuickItem*>(named(view.window, "mobileBrowseFolder"));
+        view.click(menuItem);
+        check(named(view.window, "localFolderDialog")->property("visible").toBool(),
+            "Mobile overflow menu did not expose folder browsing");
+        invoke(named(view.window, "localFolderDialog"), "close");
+        view.click(qobject_cast<QQuickItem*>(named(view.window, "taskCenterButton")));
+        check(named(view.window, "taskCenter")->property("opened").toBool(),
+            "Mobile task center was not reachable");
+        invoke(named(view.window, "taskCenter"), "close");
+        view.click(qobject_cast<QQuickItem*>(named(view.window, "moreButton")));
+        auto* menuList = menu->property("contentItem").value<QQuickItem*>();
+        check(menuList && QMetaObject::invokeMethod(menuList, "positionViewAtEnd"),
+            "Mobile overflow menu did not provide scrolling to later actions");
+        settle();
+        auto* aboutItem = qobject_cast<QQuickItem*>(named(view.window, "mobileAbout"));
+        view.click(aboutItem);
+        check(named(view.window, "aboutDialog")->property("opened").toBool(),
+            "Mobile overflow menu did not make its last action reachable");
+        invoke(named(view.window, "aboutDialog"), "close");
+    }
+    storage->setProperty("granted", true);
+    settle();
+    check(!named(view.window, "storageAccessNotice")->property("visible").toBool(),
+        "Storage access retry stayed visible after permission was granted");
+    // A short landscape viewport must keep home content scrollable.
+    view.window->setWidth(640);
+    view.window->setHeight(360);
+    settle();
+    auto* scroll = named(view.window, "welcomeScroll");
+    auto* viewport = scroll->property("contentItem").value<QQuickItem*>();
+    check(viewport && viewport->property("contentHeight").toReal() > viewport->height(),
+        "Short mobile home did not provide scrolling for its content");
+    view.capture(language + QStringLiteral("-mobile-home-landscape"));
+    view.window->setWidth(393);
+    view.window->setHeight(780);
+    TemporaryDirectory archiveFixture;
+    const auto archiveFile = archiveFixture.path / "mobile.zip";
+    createFixture(archiveFile, FixtureFormat::Zip, {{"root.txt", "root"},
+        {"folder/dup.txt", "one"}, {"folder/dup.txt", "second payload"}});
+    view.archive.openFile(qt::fromPath(archiveFile));
+    auto* model = qobject_cast<qt::ArchiveEntryModel*>(view.archive.entryModel());
+    check(waitUntil([&] { return view.archive.canExtract() && !model->querying() && model->count() == 2; }),
+        "Mobile archive browser did not show its direct children");
+    auto* entries = qobject_cast<QQuickItem*>(named(view.window, "archiveEntries"));
+    check(entries && entries->width() >= 390 && entries->height() >= 180,
+        "Mobile archive folder tree squeezed the file list into a desktop column");
+    view.archive.navigateToFolder(QStringLiteral("folder"));
+    check(waitUntil([&] { return !model->querying() && model->count() == 2; }),
+        "Mobile folder navigation did not scope direct children");
+    model->setSortColumn(1);
+    model->setSortDescending(true);
+    check(waitUntil([&] { return !model->querying(); }), "Mobile sorted file query did not settle");
+    view.archive.selectRow(0);
+    check(model->selectedIndices() == std::vector<std::uint64_t>{2},
+        "Mobile sorted duplicate selection lost the original archive index");
+    view.capture(language + QStringLiteral("-mobile-browser-393"));
+    view.archive.navigateUp();
+    check(view.archive.selectionCount() == 0, "Mobile folder navigation retained a hidden selection");
+}
 void archiveFolders(View& view, const QString& language) {
     auto* model = qobject_cast<qt::ArchiveEntryModel*>(view.archive.entryModel());
     auto* tree = qobject_cast<QQuickItem*>(named(view.window, "archiveFolderTree"));
@@ -462,6 +627,7 @@ int main(int argc, char** argv) {
     if (language == QStringLiteral("zh-CN")) app.installTranslator(&translator);
     try {
         flow(language);
+        mobileHome(language);
         for (const auto& message : messages)
             check(!message.contains(QStringLiteral("Binding loop")) && !message.contains(QStringLiteral("Unable to assign"))
                 && !message.contains(QStringLiteral("TypeError")) && !message.contains(QStringLiteral("Cannot open")),

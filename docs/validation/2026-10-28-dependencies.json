@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "resolved_at": "2026-10-28T15:46:45.521277+00:00",
+  "includes_qt": true,
+  "dependencies": [
+    {
+      "name": "libarchive",
+      "path": "third_party/libarchive",
+      "url": "https://github.com/libarchive/libarchive.git",
+      "version": "3.8.10",
+      "ref": "refs/tags/v3.8.10",
+      "revision": "0c48412be2d94afe1859a807ea7896a18d8900bd",
+      "selection": "release",
+      "metadata_source": "https://github.com/libarchive/libarchive/releases/tag/v3.8.10",
+      "version_source": "libarchive/archive.h:ARCHIVE_VERSION_ONLY_STRING"
+    },
+    {
+      "name": "zlib",
+      "path": "third_party/zlib",
+      "url": "https://github.com/madler/zlib.git",
+      "version": "1.3.2",
+      "ref": "refs/tags/v1.3.2",
+      "revision": "da607da739fa6047df13e66a2af6b8bec7c2a498",
+      "selection": "release",
+      "metadata_source": "https://github.com/madler/zlib/releases/tag/v1.3.2"
+    },
+    {
+      "name": "bzip2",
+      "path": "third_party/bzip2",
+      "url": "https://github.com/libarchive/bzip2.git",
+      "version": "1.0.8",
+      "ref": "refs/tags/bzip2-1.0.8",
+      "revision": "6a8690fc8d26c815e798c588f796eabe9d684cf0",
+      "selection": "stable-tag",
+      "metadata_source": "https://github.com/libarchive/bzip2/tags"
+    },
+    {
+      "name": "xz",
+      "path": "third_party/xz",
+      "url": "https://github.com/tukaani-project/xz.git",
+      "version": "5.8.4",
+      "ref": "refs/tags/v5.8.4",
+      "revision": "d3e650e63c110e830fd5391e7f8b45df0b91d3da",
+      "selection": "release",
+      "metadata_source": "https://github.com/tukaani-project/xz/releases/tag/v5.8.4"
+    },
+    {
+      "name": "zstd",
+      "path": "third_party/zstd",
+      "url": "https://github.com/facebook/zstd.git",
+      "version": "1.5.7",
+      "ref": "refs/tags/v1.5.7",
+      "revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "selection": "release",
+      "metadata_source": "https://github.com/facebook/zstd/releases/tag/v1.5.7"
+    },
+    {
+      "name": "lz4",
+      "path": "third_party/lz4",
+      "url": "https://github.com/lz4/lz4.git",
+      "version": "1.10.0",
+      "ref": "refs/tags/v1.10.0",
+      "revision": "ebb370ca83af193212df4dcbadcc5d87bc0de2f0",
+      "selection": "release",
+      "metadata_source": "https://github.com/lz4/lz4/releases/tag/v1.10.0"
+    },
+    {
+      "name": "expat",
+      "path": "third_party/expat",
+      "url": "https://github.com/libexpat/libexpat.git",
+      "version": "2.9.0",
+      "ref": "refs/tags/R_2_9_0",
+      "revision": "a76b1174c1ea52abb639a4c69d52b630a8a106a2",
+      "selection": "release",
+      "metadata_source": "https://github.com/libexpat/libexpat/releases/tag/R_2_9_0"
+    },
+    {
+      "name": "mbedtls",
+      "path": "third_party/mbedtls",
+      "url": "https://github.com/Mbed-TLS/mbedtls.git",
+      "version": "4.2.0",
+      "ref": "refs/tags/v4.2.0",
+      "revision": "ece41aa84d7879d7e55c59e955a5884b541f7f3b",
+      "selection": "release",
+      "metadata_source": "https://github.com/Mbed-TLS/mbedtls/releases/tag/v4.2.0"
+    },
+    {
+      "name": "mbedtls/framework",
+      "path": "third_party/mbedtls/framework",
+      "url": "https://github.com/Mbed-TLS/mbedtls-framework",
+      "version": "git-dde0c4a0e448",
+      "ref": "dde0c4a0e448a0552f18817dcea633bb851fd288",
+      "revision": "dde0c4a0e448a0552f18817dcea633bb851fd288",
+      "selection": "coupled-gitlink",
+      "coupled_to": "mbedtls",
+      "metadata_source": "https://github.com/Mbed-TLS/mbedtls/tree/ece41aa84d7879d7e55c59e955a5884b541f7f3b/framework"
+    },
+    {
+      "name": "mbedtls/tf-psa-crypto",
+      "path": "third_party/mbedtls/tf-psa-crypto",
+      "url": "https://github.com/Mbed-TLS/TF-PSA-Crypto.git",
+      "version": "1.2.0",
+      "ref": "73c5da561c8e5253db7b1fb440eda86fde8d8024",
+      "revision": "73c5da561c8e5253db7b1fb440eda86fde8d8024",
+      "selection": "coupled-gitlink",
+      "coupled_to": "mbedtls",
+      "metadata_source": "https://github.com/Mbed-TLS/mbedtls/tree/ece41aa84d7879d7e55c59e955a5884b541f7f3b/tf-psa-crypto",
+      "version_source": "include/tf-psa-crypto/build_info.h:TF_PSA_CRYPTO_VERSION_STRING"
+    },
+    {
+      "name": "mbedtls/tf-psa-crypto/framework",
+      "path": "third_party/mbedtls/tf-psa-crypto/framework",
+      "url": "https://github.com/Mbed-TLS/mbedtls-framework",
+      "version": "git-dde0c4a0e448",
+      "ref": "dde0c4a0e448a0552f18817dcea633bb851fd288",
+      "revision": "dde0c4a0e448a0552f18817dcea633bb851fd288",
+      "selection": "coupled-gitlink",
+      "coupled_to": "mbedtls/tf-psa-crypto",
+      "metadata_source": "https://github.com/Mbed-TLS/TF-PSA-Crypto/tree/73c5da561c8e5253db7b1fb440eda86fde8d8024/framework"
+    },
+    {
+      "name": "mbedtls/tf-psa-crypto/drivers/pqcp/mldsa-native",
+      "path": "third_party/mbedtls/tf-psa-crypto/drivers/pqcp/mldsa-native",
+      "url": "https://github.com/Mbed-TLS/mldsa-native",
+      "version": "git-5772b4f4a010",
+      "ref": "5772b4f4a0105694b1203abb582273f78fa951b7",
+      "revision": "5772b4f4a0105694b1203abb582273f78fa951b7",
+      "selection": "coupled-gitlink",
+      "coupled_to": "mbedtls/tf-psa-crypto",
+      "metadata_source": "https://github.com/Mbed-TLS/TF-PSA-Crypto/tree/73c5da561c8e5253db7b1fb440eda86fde8d8024/drivers/pqcp/mldsa-native"
+    },
+    {
+      "name": "qt",
+      "path": "third_party/qt",
+      "url": "https://github.com/qt/qt5.git",
+      "version": "6.12.0",
+      "ref": "refs/tags/v6.12.0",
+      "revision": "ef25002ed292b132d1ed3246bfcee1d24a9cd966",
+      "selection": "stable-tag",
+      "metadata_source": "https://github.com/qt/qt5/tags"
+    },
+    {
+      "name": "qt/qtbase",
+      "path": "third_party/qt/qtbase",
+      "url": "https://github.com/qt/qtbase.git",
+      "version": "git-025bdad181de",
+      "ref": "025bdad181de241e81bf853c8a2d7bf3d19261a9",
+      "revision": "025bdad181de241e81bf853c8a2d7bf3d19261a9",
+      "selection": "coupled-gitlink",
+      "coupled_to": "qt",
+      "metadata_source": "https://github.com/qt/qt5/tree/ef25002ed292b132d1ed3246bfcee1d24a9cd966/qtbase"
+    },
+    {
+      "name": "qt/qtsvg",
+      "path": "third_party/qt/qtsvg",
+      "url": "https://github.com/qt/qtsvg.git",
+      "version": "git-883a58532078",
+      "ref": "883a58532078d003cefef0a549bfe9f885ce41f5",
+      "revision": "883a58532078d003cefef0a549bfe9f885ce41f5",
+      "selection": "coupled-gitlink",
+      "coupled_to": "qt",
+      "metadata_source": "https://github.com/qt/qt5/tree/ef25002ed292b132d1ed3246bfcee1d24a9cd966/qtsvg"
+    },
+    {
+      "name": "qt/qtdeclarative",
+      "path": "third_party/qt/qtdeclarative",
+      "url": "https://github.com/qt/qtdeclarative.git",
+      "version": "git-4332fbbb4c34",
+      "ref": "4332fbbb4c340463dc8cee36dda0c85d932122d8",
+      "revision": "4332fbbb4c340463dc8cee36dda0c85d932122d8",
+      "selection": "coupled-gitlink",
+      "coupled_to": "qt",
+      "metadata_source": "https://github.com/qt/qt5/tree/ef25002ed292b132d1ed3246bfcee1d24a9cd966/qtdeclarative"
+    },
+    {
+      "name": "qt/qtdeclarative/tests/auto/qml/ecmascripttests/test262",
+      "path": "third_party/qt/qtdeclarative/tests/auto/qml/ecmascripttests/test262",
+      "url": "https://github.com/qt/qtdeclarative-testsuites.git",
+      "version": "git-a0efb7e1ab1c",
+      "ref": "a0efb7e1ab1cee24c387abe1897ff18fa116c17d",
+      "revision": "a0efb7e1ab1cee24c387abe1897ff18fa116c17d",
+      "selection": "coupled-gitlink",
+      "coupled_to": "qt/qtdeclarative",
+      "metadata_source": "https://github.com/qt/qtdeclarative/tree/4332fbbb4c340463dc8cee36dda0c85d932122d8/tests/auto/qml/ecmascripttests/test262"
+    },
+    {
+      "name": "qt/qtshadertools",
+      "path": "third_party/qt/qtshadertools",
+      "url": "https://github.com/qt/qtshadertools.git",
+      "version": "git-bccd516b990a",
+      "ref": "bccd516b990a6396900051470ac86cc27a7042ea",
+      "revision": "bccd516b990a6396900051470ac86cc27a7042ea",
+      "selection": "coupled-gitlink",
+      "coupled_to": "qt",
+      "metadata_source": "https://github.com/qt/qt5/tree/ef25002ed292b132d1ed3246bfcee1d24a9cd966/qtshadertools"
+    },
+    {
+      "name": "vulkan-headers",
+      "path": "third_party/vulkan-headers",
+      "url": "https://github.com/KhronosGroup/Vulkan-Headers.git",
+      "version": "1.4.366",
+      "ref": "refs/tags/v1.4.366",
+      "revision": "73814d006638aa00bd553215b054f0f02e457e22",
+      "selection": "stable-tag",
+      "metadata_source": "https://github.com/KhronosGroup/Vulkan-Headers/tags"
+    }
+  ]
+}

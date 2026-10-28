@@ -83,11 +83,13 @@ bool App::initialize(const QString& file, const QUrl& mainQml)
         {QStringLiteral("directoryModel"), QVariant::fromValue(&directories_)},
         {QStringLiteral("desktopController"), QVariant::fromValue(&desktop_)},
         {QStringLiteral("taskController"), QVariant::fromValue(&taskCenter_)},
+        {QStringLiteral("storageAccessController"), QVariant::fromValue(&storageAccess_)},
         {QStringLiteral("dragController"), QVariant::fromValue(drag_.get())}});
     if (mainQml.isEmpty()) engine_->loadFromModule("AnAnArchiver", "Main");
     else engine_->load(mainQml);
     if (engine_->rootObjects().isEmpty())
         return false;
+    QTimer::singleShot(0, &storageAccess_, &StorageAccessController::initialize);
     if (!file.isEmpty())
         QTimer::singleShot(0, this, [this, file] { openArchive(file); });
     return true;

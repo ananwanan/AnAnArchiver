@@ -15,15 +15,23 @@ ToolBar {
     property Action taskAction: null
     property var taskController: null
     property var dragController: null
+    property bool mobile: false
+    readonly property bool compact: mobile || width < 700
     signal browseFolder()
-    padding: 8
-    implicitHeight: 54
+    signal moreRequested()
+    objectName: "archiveToolbar"
+    padding: compact ? 4 : 8
+    implicitHeight: compact ? 56 : 54
     background: Rectangle { color: root.palette.base; Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.palette.mid; opacity: 0.2 } }
     RowLayout {
         anchors.fill: parent
-        spacing: 4
+        spacing: root.compact ? 0 : 4
         ToolButton {
             id: openButton
+            objectName: "openButton"
+            Layout.minimumWidth: root.compact ? 48 : 0
+            Layout.minimumHeight: root.compact ? 48 : 0
+            display: root.compact ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
             opacity: enabled ? 1 : 0.45
             action: root.openAction
             text: qsTr("Open")
@@ -34,6 +42,9 @@ ToolBar {
         }
         ToolButton {
             id: createButton
+            Layout.minimumWidth: root.compact ? 48 : 0
+            Layout.minimumHeight: root.compact ? 48 : 0
+            display: root.compact ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
             opacity: enabled ? 1 : 0.45
             objectName: "compressButton"
             action: root.compressAction
@@ -45,6 +56,9 @@ ToolBar {
         }
         ToolButton {
             id: extractButton
+            Layout.minimumWidth: root.compact ? 48 : 0
+            Layout.minimumHeight: root.compact ? 48 : 0
+            display: root.compact ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
             opacity: enabled ? 1 : 0.45
             objectName: "extractButton"
             action: root.extractAction
@@ -58,7 +72,7 @@ ToolBar {
             id: exportButton
             opacity: enabled ? 1 : 0.45
             objectName: "exportButton"
-            visible: root.exportAction !== null
+            visible: root.exportAction !== null && !root.compact
             action: root.exportAction
             text: root.dragController && root.dragController.ready ? qsTr("Drag out") : qsTr("Export")
             display: root.width < 820 ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
@@ -72,9 +86,10 @@ ToolBar {
                 onActiveChanged: { if (active) root.dragController.startDrag() }
             }
         }
-        ToolSeparator {}
+        ToolSeparator { visible: !root.compact }
         ToolButton {
             id: foldersButton
+            visible: !root.compact
             text: qsTr("Folders")
             display: root.width < 820 ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
             icon.source: "../icons/folder.svg"
@@ -86,6 +101,9 @@ ToolBar {
         Item { Layout.fillWidth: true }
         ToolButton {
             id: tasksButton
+            Layout.minimumWidth: root.compact ? 48 : 0
+            Layout.minimumHeight: root.compact ? 48 : 0
+            display: root.compact ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
             objectName: "taskCenterButton"
             visible: root.taskAction !== null
             action: root.taskAction
@@ -97,11 +115,24 @@ ToolBar {
             PlainToolTip { visible: tasksButton.hovered; text: qsTr("Task center") + " (Ctrl+J)" }
         }
         ToolButton {
+            objectName: "cancelTaskButton"
+            Layout.minimumWidth: root.compact ? 48 : 0
+            Layout.minimumHeight: root.compact ? 48 : 0
+            display: root.compact ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
             action: root.cancelAction
             visible: root.cancelAction.enabled
             icon.source: "../icons/close.svg"
             icon.color: palette.buttonText
             Accessible.name: text
+        }
+        ToolButton {
+            objectName: "moreButton"
+            visible: root.compact
+            Layout.minimumWidth: 48
+            Layout.minimumHeight: 48
+            text: qsTr("More")
+            Accessible.name: text
+            onClicked: root.moreRequested()
         }
     }
 }

@@ -10,6 +10,7 @@ Dialog {
     objectName: "compressionDialog"
     required property var controller
     required property var hostWindow
+    property url initialFolder: ""
     readonly property var format: formatChoice.currentIndex >= 0 ? controller.formats[formatChoice.currentIndex] : null
     readonly property var method: format && methodChoice.currentIndex >= 0 ? format.methods[methodChoice.currentIndex] : null
     function suggestDestination(path) { destination.text = path }
@@ -34,6 +35,10 @@ Dialog {
     FileDialog {
         id: sourceFiles
         objectName: "compressionSourceFiles"
+        Binding on currentFolder {
+            when: root.initialFolder.toString().length > 0
+            value: root.initialFolder
+        }
         title: qsTr("Add files")
         fileMode: FileDialog.OpenFiles
         onAccepted: root.controller.addUrls(selectedFiles)
@@ -41,12 +46,20 @@ Dialog {
     FolderDialog {
         id: sourceFolder
         objectName: "compressionSourceFolder"
+        Binding on currentFolder {
+            when: root.initialFolder.toString().length > 0
+            value: root.initialFolder
+        }
         title: qsTr("Add folder")
         onAccepted: root.controller.addUrls([selectedFolder])
     }
     FileDialog {
         id: destinationDialog
         objectName: "compressionSaveDialog"
+        Binding on currentFolder {
+            when: root.initialFolder.toString().length > 0
+            value: root.initialFolder
+        }
         title: qsTr("Save archive")
         fileMode: FileDialog.SaveFile
         defaultSuffix: root.format ? root.format.extension : ""
@@ -54,31 +67,14 @@ Dialog {
         onAccepted: destination.text = root.controller.localPath(selectedFile)
     }
 
-    contentItem: ScrollView {
+    contentItem: FocusScrollView {
         id: formScroll
         objectName: "compressionFormScroll"
+        hostWindow: root.hostWindow
         clip: true
         rightPadding: effectiveScrollBarWidth + 4
         contentWidth: availableWidth
         ScrollBar.vertical.policy: ScrollBar.AlwaysOn
-        function revealFocusedControl() {
-            const control = root.hostWindow.activeFocusItem;
-            if (!control)
-                return;
-            const viewport = contentItem as Flickable;
-            if (!viewport)
-                return;
-            let ancestor = control;
-            while (ancestor && ancestor !== viewport.contentItem)
-                ancestor = ancestor.parent;
-            if (!ancestor)
-                return;
-            const top = control.mapToItem(viewport.contentItem, 0, 0).y;
-            if (top < viewport.contentY)
-                viewport.contentY = top;
-            else if (top + control.height > viewport.contentY + viewport.height)
-                viewport.contentY = Math.max(0, top + control.height - viewport.height);
-        }
         ColumnLayout {
             width: parent.width
             spacing: 10

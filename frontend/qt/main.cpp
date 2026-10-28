@@ -40,6 +40,11 @@ protected:
 int main(int argc, char* argv[])
 {
     if (!ananarchiver::qt::configurePackagedRuntime()) return 6;
+#ifdef Q_OS_ANDROID
+    // Core consumes filesystem paths. Android's SAF picker returns content:
+    // URLs, so use Qt's local-file dialogs with the requested storage access.
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+#endif
     DesktopApplication app(argc, argv);
     // Keep the settings identity stable across the LiteArc product rename.
     QCoreApplication::setApplicationName(QStringLiteral("AnAnArchiver"));
