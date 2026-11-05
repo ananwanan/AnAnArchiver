@@ -7,6 +7,10 @@ Application/Core 和 libarchive。迁移前的 Qt 版本保存在
 不能据此宣称 Flutter 已实现或通过验收。迁移方案见
 [Flutter 前端决策](docs/architecture/0007-flutter-frontend.md)。
 
+开发进度：F1 C ABI v1 已实现，并完成 Windows x64 Release 的 C 消费者及
+Core/C ABI 回归；Flutter/Dart 和 F2 公共 metadata 浏览尚未实现。证据见
+[F1 验证记录](docs/validation/2026-11-05-c-api.md)。
+
 ## 1. Project Overview
 
 项目名称：**轻匣（LiteArc）**
@@ -227,12 +231,12 @@ LiteArc/
 ├── cmake/
 ├── include/ananarchiver/
 │   ├── application/
-│   └── c_api/                 # 规划：稳定 C 头文件
+│   └── c_api/                 # 已实现：ABI v1 C 头文件
 ├── src/
 │   ├── core/
 │   ├── backend/libarchive/
 │   ├── application/           # 现有服务 + 待抽离 metadata 查询
-│   ├── c_api/                 # 规划：C ABI 实现
+│   ├── c_api/                 # 已实现：C ABI、结果所有权与异步清理
 │   └── platform/              # OS 归档 IO / 公共平台服务
 ├── frontend/
 │   ├── flutter/               # 规划：主线 Flutter app
@@ -250,7 +254,7 @@ LiteArc/
 │   ├── archive/
 │   ├── security/
 │   ├── application/
-│   └── c_api/                 # 规划：C ABI 生命周期 / 错误 / 取消
+│   └── c_api/                 # 已实现：C 消费者 / 生命周期 / 错误 / 取消
 ├── benchmarks/                # 规划：两种 Release 前端对比
 ├── docs/
 │   ├── architecture/
@@ -1676,7 +1680,7 @@ ananarchiver_c_api → ananarchiver_application → Core / Backend
 ```
 
 保留 `ananarchiver_core`、`ananarchiver_libarchive`、`ananarchiver_application`
-等现有标识；新增 `ananarchiver_c_api`。平台独立构建它时不搜索 Qt/Flutter SDK。
+等现有标识；已新增 `ananarchiver_c_api`。平台独立构建它时不搜索 Qt/Flutter SDK。
 共享库导出、PIC、MSVC CRT 和架构配置必须匹配，C ABI 导出的内存由同一库释放。
 Flutter 集成通过 build hooks 或平台 runner 调用既有 CMake pipeline，不另建一套
 backend/codec 依赖解析。`ANANARCHIVER_BUILD_QT` 在旧构建兼容期间保留。
@@ -2916,7 +2920,8 @@ Qt 基线分支不跟随 Flutter 重写，现有主线 Qt 文件只为迁移对�
 
 # 100. Immediate Technical Direction
 
-下一步实现 F1，不先重写 backend、不先做复杂动画或新的产品功能。
+F1 原生 C ABI 已完成首轮实现与 Windows x64 Release 验证。下一步实现 F2，
+从 Qt 抽离公共 metadata 浏览；不先重写 backend、不先做复杂动画或新的产品功能。
 第一条 Flutter 纵向链路为：
 
 ```text

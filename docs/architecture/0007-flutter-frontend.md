@@ -1,7 +1,7 @@
 # Flutter frontend decision and migration contract
 
 - Decision date: 2026-11-05.
-- Status: accepted requirements; implementation pending.
+- Status: accepted; F1 C ABI implemented, Windows x64 validated; F2–F6 pending.
 - Development branch: `main`.
 - Preserved Qt branch: [`codex/qt-baseline-2026-11-05`](https://github.com/ananwanan/AnAnArchiver/tree/codex/qt-baseline-2026-11-05).
 - Qt baseline commit: `53185742ad1e640b24da397cfa3544507af4edef`.
@@ -13,8 +13,10 @@ Flutter/Dart replaces Qt Quick/QML as the frontend development direction on
 frontend choice in ADR 0001. C++23, CMake, the Application/Core boundaries and
 official libarchive remain the archive implementation.
 
-This decision changes requirements and documentation first. There is currently
-no Flutter app, Dart binding or `ananarchiver_c_api` implementation. Existing
+The initial decision changed requirements and documentation first. F1 now adds
+`ananarchiver_c_api` over the existing Application services, with a pure C
+consumer and lifecycle/operation tests. There is currently no Flutter app or
+Dart binding; shared metadata browsing remains F2. Existing
 `frontend/qt`, desktop presets, packaging scripts and the manual Core/Qt CI
 workflow remain operational baseline code until their migration stages are
 implemented. Old Qt validation does not establish Flutter completion.
@@ -43,10 +45,18 @@ adapters. They invoke the same Application operations as the regular UI.
 
 ## Stable C ABI
 
-Add public C headers under `include/ananarchiver/c_api`, implementation under
-`src/c_api`, and the `ananarchiver_c_api` CMake target. These are planned paths,
-not existing build targets. Generate the Dart binding from that C interface
+Public C headers are under `include/ananarchiver/c_api`, implementation under
+`src/c_api`, with the `ananarchiver_c_api` shared CMake target. ABI v1 and its
+current evidence/limits are documented in [C ABI development](../development/c-api.md).
+Generate the Dart binding from that C interface
 with `ffigen` or an equivalent reviewed generator.
+
+F1 exposes engine-scoped task IDs and bounded metadata streams. Archive/query
+handles and generation-aware current-folder pages belong to F2; the stream is
+not permission to duplicate the complete metadata index in Dart. Cleanup is
+owned by an engine worker. Final engine destruction is explicitly blocking and
+must run off the UI isolate. Existing backend extraction/compression limits are
+retained; ABI request arrays add their own finite input budgets.
 
 The ABI must define:
 

@@ -20,8 +20,9 @@ Application/Core 和官方 libarchive 实现。需求变更不等于 Flutter 已
 
 ## 开发与发布说明
 
-以下现有命令服务于 Qt 基线；Flutter 构建与打包入口在实现、验证后补充。
+C ABI 可独立于 GUI 构建；Flutter 构建与打包入口在实现、验证后补充。
 
+- [C ABI v1：接口、所有权、线程、限制与独立构建](development/c-api.md)
 - [Qt 基线开发、操作与构建说明](development/qt-baseline.md)
 - [Windows 基线打包与 Flutter 发布待办](../packaging/windows/README.md)
 - [Linux 基线打包与 Flutter 发布待办](../packaging/linux/README.md)
@@ -54,3 +55,4 @@ Application/Core 和官方 libarchive 实现。需求变更不等于 Flutter 已
 ## 本次需求变更记录
 
 - [2026-11-05 Flutter 需求与文档切换](validation/2026-11-05-flutter-requirements.md)
+- [2026-11-05 F1 C ABI 开发与验证](validation/2026-11-05-c-api.md)

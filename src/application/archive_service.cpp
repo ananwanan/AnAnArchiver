@@ -7,6 +7,14 @@
 
 namespace ananarchiver::application {
 namespace {
+struct PasswordGuard {
+    std::string* password{};
+    ~PasswordGuard() {
+        if (password)
+            scrubPassword(*password);
+    }
+};
+
 struct ArchiveOperation {
     std::string password;
     ExtractionRequest extraction;
@@ -45,6 +53,7 @@ Result<TaskId> ArchiveService::probe(const std::filesystem::path& path) {
 }
 
 Result<TaskId> ArchiveService::open(const std::filesystem::path& path, std::string password) {
+    const PasswordGuard guard{&password};
     auto secret = std::make_shared<ArchiveOperation>();
     secret->password = std::move(password);
     return tasks_.start(
@@ -106,6 +115,7 @@ Result<TaskId> ArchiveService::open(const std::filesystem::path& path, std::stri
 
 Result<TaskId> ArchiveService::extract(const std::filesystem::path& path,
                                       ExtractionRequest request) {
+    const PasswordGuard guard{request.password ? &*request.password : nullptr};
     auto owned = std::make_shared<ArchiveOperation>();
     owned->extraction = std::move(request);
     return tasks_.start(TaskType::ExtractArchive,
@@ -141,6 +151,7 @@ std::vector<ArchiveCapabilities> ArchiveService::compressionCapabilities() const
 }
 
 Result<TaskId> ArchiveService::compress(CompressionRequest request) {
+    const PasswordGuard guard{request.password ? &*request.password : nullptr};
     auto owned = std::make_shared<ArchiveOperation>();
     owned->compression = std::move(request);
     return tasks_.start(TaskType::CompressArchive,

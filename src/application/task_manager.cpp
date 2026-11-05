@@ -315,6 +315,17 @@ bool TaskManager::cancel(TaskId id) {
     return true;
 }
 
+void TaskManager::discardEntries(TaskId id) {
+    std::lock_guard lock(impl_->mutex);
+    const auto it = impl_->tasks.find(id);
+    if (it == impl_->tasks.end())
+        return;
+    const auto& state = it->second->state;
+    std::lock_guard stateLock(state->mutex);
+    state->batches.clear();
+    state->space.notify_all();
+}
+
 bool TaskManager::resolveConflict(TaskId id, std::uint64_t conflictId,
                                   ConflictResolution resolution) {
     if (resolution.policy == OverwritePolicy::Ask)

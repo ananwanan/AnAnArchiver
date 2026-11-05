@@ -38,6 +38,7 @@ set(CMAKE_REQUIRED_LIBRARIES "${ananarchiver_saved_required_libraries}")
 include(CTest)
 option(ANANARCHIVER_SUPERBUILD "Build resolved dependencies before the application" ON)
 option(ANANARCHIVER_BUILD_QT "Build the Qt Quick desktop frontend" ON)
+option(ANANARCHIVER_BUILD_C_API "Build the frontend-independent shared C ABI" ON)
 option(ANANARCHIVER_USE_SYSTEM_QT "Use an explicitly selected developer Qt kit" OFF)
 option(ANANARCHIVER_USE_SYSTEM_LIBARCHIVE "Use a developer-provided libarchive" OFF)
 option(ANANARCHIVER_ENABLE_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
@@ -97,6 +98,42 @@ target_link_libraries(ananarchiver_application PUBLIC ananarchiver_core Threads:
     PRIVATE ananarchiver_libarchive)
 ananarchiver_project_options(ananarchiver_application)
 add_dependencies(ananarchiver_build_info ananarchiver_application)
+
+if(ANANARCHIVER_BUILD_C_API)
+    # The whole static dependency chain is linked into a shared FFI library.
+    set_target_properties(ananarchiver_core ananarchiver_libarchive ananarchiver_application
+        PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    add_library(ananarchiver_c_api SHARED
+        src/c_api/ananarchiver.cpp
+        src/c_api/engine.cpp
+        src/c_api/results.cpp)
+    target_link_libraries(ananarchiver_c_api PRIVATE ananarchiver_application)
+    target_include_directories(ananarchiver_c_api PUBLIC
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+        "$<INSTALL_INTERFACE:include>")
+    target_compile_definitions(ananarchiver_c_api PRIVATE ANANARCHIVER_C_API_BUILD)
+    set_target_properties(ananarchiver_c_api PROPERTIES
+        CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES
+        VERSION 1.0.0 SOVERSION 1)
+    # Static backend/codec objects must not accidentally become a second public
+    # ABI when linked into the shared library on ELF or Mach-O platforms.
+    if(APPLE)
+        target_link_options(ananarchiver_c_api PRIVATE
+            "LINKER:-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_api.exports.macos")
+        set_property(TARGET ananarchiver_c_api APPEND PROPERTY LINK_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_api.exports.macos")
+    elseif(UNIX)
+        target_link_options(ananarchiver_c_api PRIVATE
+            "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_api.exports.map")
+        set_property(TARGET ananarchiver_c_api APPEND PROPERTY LINK_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/c_api.exports.map")
+    endif()
+    ananarchiver_project_options(ananarchiver_c_api)
+    add_dependencies(ananarchiver_build_info ananarchiver_c_api)
+    install(TARGETS ananarchiver_c_api
+        RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
+    install(FILES include/ananarchiver/c_api/ananarchiver.h DESTINATION include/ananarchiver/c_api)
+endif()
 
 if(BUILD_TESTING)
     add_subdirectory(tests)

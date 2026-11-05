@@ -77,6 +77,8 @@ class TaskManager {
     Result<TaskId> start(TaskType type, TaskWork work);
     std::optional<TaskSnapshot> snapshot(TaskId id) const;
     std::vector<ArchiveEntry> takeEntries(TaskId id, std::size_t maxBatches = 4);
+    // Background cleanup can discard queued metadata without allocating a copy.
+    void discardEntries(TaskId id);
     bool cancel(TaskId id);
     bool resolveConflict(TaskId id, std::uint64_t conflictId, ConflictResolution resolution);
     // Only terminal tasks with drained entries can be released. Joins take

@@ -1,0 +1,4 @@
+ANANARCHIVER_1 {
+    global: aa_*;
+    local: *;
+};

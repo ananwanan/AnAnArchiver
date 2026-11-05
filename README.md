@@ -10,8 +10,9 @@
 [`codex/qt-baseline-2026-11-05`](https://github.com/ananwanan/AnAnArchiver/tree/codex/qt-baseline-2026-11-05)，
 基线提交为 `53185742ad1e640b24da397cfa3544507af4edef`。
 
-本次变更确定需求、架构和迁移计划。**现有可运行前端仍是 `frontend/qt`，
-`frontend/flutter` 与 `ananarchiver_c_api` 尚未实现。** 现有 Qt 源码、CMake 预设、
+F1 已加入独立共享库 `ananarchiver_c_api`，包装现有异步打开、解压、创建与任务服务，
+并提供纯 C 消费者和生命周期测试。**现有可运行前端仍是 `frontend/qt`，
+`frontend/flutter` 和 Dart binding 尚未实现；公共 metadata 浏览属于下一阶段 F2。** 现有 Qt 源码、CMake 预设、
 打包脚本和历史测试暂留作对照，不能作为 Flutter 的完成或验收证据。
 
 完整需求见 [AGENTS.md](AGENTS.md)，决策与验收见
@@ -31,11 +32,11 @@ include/ananarchiver/      现有、独立于 GUI 的 Core / Application API
 src/core/                 元数据、格式、Unicode、安全路径
 src/backend/libarchive/   唯一调用 libarchive C API 的生产代码
 src/application/          归档服务、任务、按需扫描；待加入公共 metadata 查询
-include/ananarchiver/c_api/ 规划：稳定 C ABI 头文件
-src/c_api/                规划：C ABI 实现
+include/ananarchiver/c_api/ ABI v1 公共 C 头文件
+src/c_api/                C ABI、结果所有权与异步清理
 frontend/flutter/         规划：Flutter app、绑定、平台 adapter 与测试
 frontend/qt/              现有 Qt 基线，迁移期保留
-tests/                    Core / Archive / Application / Security 回归
+tests/                    Core / Archive / Application / Security / C ABI 回归
 third_party/              原生依赖源码与来源记录
 docs/                     架构、开发说明、分平台发布与历史证据
 ```
@@ -60,7 +61,7 @@ Flutter 必须对齐现有归档目录树与当前目录列表、隐式父目录
 
 迁移阶段：
 
-1. F1：稳定 C ABI、任务与所有权测试。
+1. F1：已实现 C ABI v1、任务与所有权测试；已验证 Windows x64 Release。
 2. F2：从 Qt 抽离公共目录索引、查询、分页和选择解析。
 3. F3：Flutter Home、内容检测打开、目录树和虚拟化浏览。
 4. F4：复用现有解压、压缩、密码、覆盖、进度与取消。
@@ -94,6 +95,9 @@ ctest --preset core-release
 ```
 
 Windows 非 Developer Shell 可通过 `scripts/Invoke-Msvc.ps1` 执行 CMake/CTest。
+Core 构建默认同时生成 `ananarchiver_c_api`；可通过
+`ANANARCHIVER_BUILD_C_API=OFF` 关闭。接口、线程规则、限制和消费示例见
+[C ABI 开发说明](docs/development/c-api.md)。此共享库无需 Qt、Flutter 或 Dart SDK。
 完整 Qt 构建、依赖重放、桌面操作、Android APK 与历史限制统一见
 [Qt 基线开发说明](docs/development/qt-baseline.md)。现有 `desktop-release`、
 `desktop-developer`、`Package-*` 和 `Build-Android.ps1` 仍服务 Qt；Flutter 的
