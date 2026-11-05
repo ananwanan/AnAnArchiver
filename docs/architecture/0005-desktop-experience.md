@@ -1,8 +1,14 @@
 # Desktop experience (M4)
 
-The Qt frontend continues to depend on the Application API. Content probing is
-an `ArchiveService` task: it opens a reader on a managed worker without enumerating
-payloads or exposing backend handles. Every operation retains its own reader.
+> Frontend update (2026-11-05): these behaviors define the parity contract for
+> Flutter on `main`. The Qt implementation is preserved in
+> `codex/qt-baseline-2026-11-05`. Flutter/C ABI work is pending; the acceptance
+> stages and state are recorded in [ADR 0007](0007-flutter-frontend.md).
+
+Flutter will depend on the Application API through the stable C ABI; the Qt
+baseline already uses Application directly. Content probing is an `ArchiveService`
+task: it opens a reader on a managed worker without enumerating payloads or
+exposing backend handles. Every operation retains its own reader.
 
 ## Metadata views
 
@@ -23,7 +29,10 @@ disables extraction and selection until a valid view is available. Unchanged
 folder snapshots are reused across navigation, search, sorting and file appends,
 preserving expanded folders; retired snapshots are released on the worker.
 
-The entry model stores immutable batches of Core metadata. A managed query worker
+The existing Qt entry model stores immutable batches of Core metadata. Its
+directory/index/query behavior must move to the Qt-free Application service;
+Flutter consumes bounded pages and the visible tree with finite caches, without
+retaining the complete index in Dart. A managed query worker
 shares those batches, caches case-folded Unicode keys, and produces a row-position
 view scoped to the current folder's direct files and folders. Search and
 sorting run on that scoped view. Numeric sizes, enum types and timestamps are
@@ -55,12 +64,17 @@ does not stat recent files, which may reside on unavailable drives. Successful
 indexing and creation add records; reopening uses the normal asynchronous error
 path. A dedicated persistence worker owns its QSettings instance and coalesces
 pending writes. It reports the latest revision's save errors and flushes the last
-snapshot on shutdown. Passwords are never part of preferences or history.
+snapshot on shutdown. Flutter must define a compatible persistence adapter and
+one-time migration/read policy for existing QSettings data, preserving app
+identities and these asynchronous/error behaviors. Passwords are never part of
+preferences, history or migrated data.
 
 The task-center model observes actual Application snapshots from the archive,
 compression and drag controllers. Source-prefixed ids avoid collisions between
 their managers. Cancellation routes back to the original owner. Its session
-history keeps sixty-four records and never evicts active tasks. Opening stays
+history keeps sixty-four records and never evicts active tasks. Flutter must
+carry stable task identities through the C ABI and route cancel/conflict answers
+to the correct owner, independently of widget lifetime. Opening stays
 active until all queued metadata has been drained, even if its backend has
 finished. Unknown totals/finalization do not acquire invented byte progress,
 speed or ETA. There is no pause action.
@@ -78,7 +92,10 @@ with link skipping and finite byte/time limits; another worker lists immediate
 children and builds bounded file URLs. There is no synchronous extraction inside
 a mouse handler. An explicit subsequent held-mouse gesture starts QDrag with
 copy-only text/uri-list MIME data. A released-button activation only explains the
-gesture, avoiding Windows native drag waiting for a later mouse event.
+gesture, avoiding Windows native drag waiting for a later mouse event. This is
+existing Qt behavior. Flutter must use a native desktop transfer adapter/plugin;
+in-app Draggable/DragTarget widgets alone do not implement system file dragging.
+Validate actual Explorer/Finder/Linux file-manager copies, not only widget drags.
 
 The temporary manager caps owned roots, reserves creation slots and runs deletion
 on a worker. Active native drag holds its source root; after return the source is
@@ -90,8 +107,10 @@ with a final shutdown attempt. A long copy can exceed the grace period, and abru
 termination can leave temporary files; this is not a filesystem transaction or a
 crash-recovery journal.
 
-Native adapter work remains under `frontend/qt/platform`. UI text, file paths and
-backend details are plain text. The icon set is original SVG artwork with its
+Existing Qt adapters remain under `frontend/qt/platform`. New Flutter desktop
+adapters belong with the Flutter frontend; reusable temporary-file ownership and
+cleanup services must lose Qt dependencies. UI text, file paths and backend
+details are plain text. The icon set is original SVG artwork with its
 license alongside the assets. Existing Core security policies are unchanged.
 
 ## Product name and component provenance
@@ -108,3 +127,13 @@ the verified `dependency-build.json` and `build-trace-config.json` inputs shared
 with the final provenance record; current dependency checkout revisions and
 example versions must not be substituted for the recorded build. Missing source
 metadata is explicitly unavailable. License and upstream links remain accessible.
+
+## Flutter acceptance
+
+Port Home, dialogs, selection, task center, theme/recent settings, keyboard focus,
+zh-CN/en localization, accessibility and 100%/125%/150%/200% scaling. Reuse original
+icons with notices. Preserve settings/application identities; QML resource URLs
+remain a Qt compatibility detail rather than a new runtime requirement.
+Measure both rendering and data memory: virtualized widgets do not justify
+duplicating all metadata. Stale generations, invalid/budget-exceeded folder views,
+implicit/empty folders and duplicate filenames require independent Flutter tests.

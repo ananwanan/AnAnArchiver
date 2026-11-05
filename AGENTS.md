@@ -1,5 +1,12 @@
 # AGENTS.md
 
+2026-11-05 前端决策：`main` 使用 Flutter/Dart 开展后续前端开发，复用现有 C++23
+Application/Core 和 libarchive。迁移前的 Qt 版本保存在
+`codex/qt-baseline-2026-11-05`（`53185742ad1e640b24da397cfa3544507af4edef`）。
+本次先切换需求与文档；现存 Qt 源码、构建入口和历史验收仍属于迁移基线，
+不能据此宣称 Flutter 已实现或通过验收。迁移方案见
+[Flutter 前端决策](docs/architecture/0007-flutter-frontend.md)。
+
 ## 1. Project Overview
 
 项目名称：**轻匣（LiteArc）**
@@ -42,78 +49,29 @@
 
 整个项目必须遵守以下原则：
 
-> Archive Core 与 GUI 必须完全解耦。
-
-GUI 不得直接调用 libarchive C API。
+> Archive Core、Application 与 GUI 完全解耦。
 
 正确依赖方向：
 
 ```text
-┌──────────────────────────────────────────────┐
-│                    UI                        │
-│                                              │
-│ Qt Quick / Flutter / other frontend          │
-└─────────────────────┬────────────────────────┘
-                      │
-                      ▼
-┌──────────────────────────────────────────────┐
-│            Application / Controller           │
-│                                              │
-│ OpenArchive                                  │
-│ ExtractTask                                  │
-│ CompressTask                                 │
-│ TestArchiveTask                              │
-│ TaskManager                                  │
-│ Settings                                     │
-└─────────────────────┬────────────────────────┘
-                      │
-                      ▼
-┌──────────────────────────────────────────────┐
-│                  Core                        │
-│                                              │
-│ ArchiveReader                                │
-│ ArchiveWriter                                │
-│ ArchiveEntry                                 │
-│ ArchiveFormat                                │
-│ ArchiveCapabilities                         │
-│ ExtractionPolicy                            │
-│ Progress / Cancellation                     │
-└─────────────────────┬────────────────────────┘
-                      │
-                      ▼
-┌──────────────────────────────────────────────┐
-│            libarchive adapter                │
-│                                              │
-│ LibArchiveReader                             │
-│ LibArchiveWriter                             │
-│ RAII wrappers                                │
-└─────────────────────┬────────────────────────┘
-                      │
-                      ▼
-              libarchive/libarchive
+Flutter UI / Dart Controller / ViewModel
+    ↓
+Dart FFI binding
+    ↓
+ananarchiver_c_api（稳定 C ABI）
+    ↓
+C++ Application（ArchiveService / TaskManager / metadata queries）
+    ↓
+C++ Core（Reader / Writer / policies / errors / cancellation）
+    ↓
+libarchive adapter（RAII）
+    ↓
+libarchive/libarchive
 ```
 
-禁止：
-
-```text
-QML
- ↓
-AppContext
- ↓
-archive_read_new()
-```
-
-或者：
-
-```text
-Flutter
- ↓
-FFI
- ↓
-libarchive
-```
-
-UI 永远只能访问 Application/API 层。
+GUI 和 Dart FFI 不得直接调用 libarchive，也不得持有 `archive*` 或 `archive_entry*`。
+旧 Qt 基线仍通过 Qt Controller → Application 访问归档功能；它不进入 Flutter 依赖链。
+平台窗口、文件选择、系统拖放和文件打开事件由 frontend/platform adapter 处理。
 
 ---
 
@@ -150,6 +108,10 @@ macOS x86_64
 macOS arm64
 ```
 
+macOS x86_64 仍是兼容目标。Flutter 官方已公布 Intel Mac 弃用规划，迁移时必须
+检查最新稳定 SDK 的实际支持，并提供对应构建与原生运行证据；不支持时明确报告
+平台范围决策，未解决前不能宣称全平台迁移完成，也不能静默固定旧 SDK。
+
 后续可以扩展：
 
 ```text
@@ -174,54 +136,26 @@ Windows ARM64
 
 # 4. UI Technology Decision
 
-当前项目已经使用：
+主线前端方案为：
 
 ```text
-Qt 6
-Qt Quick
-QML
-C++23
+Flutter（官方最新稳定版）
+Dart（随所选 Flutter SDK 配套版本）
+dart:ffi + ananarchiver_c_api
+C++23 + CMake + libarchive
 ```
 
-因此 **第一阶段默认继续使用 Qt 6 Quick/QML**。
+`main` 承载 Flutter 开发。Qt Quick/QML 是保留在 `codex/qt-baseline-2026-11-05`
+的现有版本，不再作为新功能的默认前端。迁移期间允许现有 Qt 代码和构建继续存在，
+用于行为对照和回归；Flutter 达到功能、性能及平台验收前不机械删除它们。
 
-这是当前首选方案，而不是永久绑定。
+迁移复用压缩、解压、流式 IO、安全策略、任务、取消和结构化错误；不能用 Dart
+重新实现这些核心功能。界面美观、压缩性能、内存、启动和包体积都必须实际验证，
+不得仅依据框架选择作更快、更小的承诺。
 
-理由：
-
-- 当前代码已经使用 Qt Quick
-- libarchive 与 C++ Core 可以直接集成
-- 无额外语言运行时
-- FFI 成本最低
-- 桌面文件系统集成成熟
-- 原生 Drag & Drop、Clipboard、File Dialog 等支持较好
-- C++ 调试链路简单
-- Release 包相对容易控制
-
-但是必须保证：
-
-```text
-Archive Core
-Application Core
-```
-
-完全不依赖 Qt。
-
-Core 中禁止：
-
-```cpp
-QString
-QVector
-QObject
-QFile
-QDir
-QDateTime
-QThread
-QFuture
-QAbstractItemModel
-```
-
-Core 使用：
+Archive Core、Application 和 C ABI 不依赖 Qt、Flutter 或 Dart runtime。
+Core 中禁止 `QString`、`QVector`、`QObject`、`QFile`、`QDir`、`QDateTime`、
+`QThread`、`QFuture`、`QAbstractItemModel`，继续使用标准 C++ 类型：
 
 ```cpp
 std::string
@@ -229,9 +163,7 @@ std::u8string
 std::filesystem::path
 std::vector
 std::chrono
-std::thread
 std::jthread
-std::future
 std::expected
 std::span
 std::optional
@@ -239,193 +171,96 @@ std::unique_ptr
 std::shared_ptr
 ```
 
-Qt 只能存在于：
-
-```text
-frontend/qt/
-platform/qt/
-```
-
-等适配层。
+Qt 依赖仅允许留在旧 `frontend/qt/` 或明确的 Qt adapter 中。
 
 ---
 
 # 5. Flutter Policy
 
-未来允许把 GUI 替换为 Flutter。
+Flutter 是已确定的主线前端，必须提供稳定的 `ananarchiver_c_api` C ABI。
 
-如果采用 Flutter，不允许重新实现 Archive Core。
+- C ABI 包装 Application；仅暴露 opaque handles、固定宽度数值、长度明确的
+  UTF-8 数据和结构化错误，不导出 STL、C++ 类或 libarchive 指针。
+- 明确 ABI 版本、调用约定、结构大小、对象所有权、字符串/批次释放接口及线程规则；
+  C++ 异常不得越过 ABI。跨库分配的数据由提供方释放。
+- 打开、索引、查询、压缩、解压和清理由受管理 worker 执行；FFI 提交返回任务 ID，
+  UI isolate 不等待 IO、排序、线程 join 或完整解压。
+- 任务快照、条目页和事件均有界；轮询或异步通知必须合并、限流并可取消。
+  如使用跨线程 Dart callback，必须处理回调关闭、资源寿命和退出次序。
+- 完整 metadata 索引留在 C++；Flutter 获取当前目录的分页/窗口结果和有限缓存。
+  不向 Dart 复制完整百万条目索引，不逐条 FFI 获取字段。
+- 从 Qt Model 抽离目录构建、查询、原始条目身份和选择解析，复用至 Application；
+  保留 Unicode 搜索语义、隐式目录和资源预算，禁止两套业务逻辑长期分叉。
+- Flutter widgets、系统文件拖放、文件选择和窗口集成通过 frontend/platform adapter
+  接入。原生插件不能绕过 Application 直接操作 backend。
 
-结构应该变成：
-
-```text
-Flutter UI
-    │
-    ▼
-Dart FFI
-    │
-    ▼
-ananarchiver_c_api
-    │
-    ▼
-C++ Core
-    │
-    ▼
-libarchive
-```
-
-如果创建 Flutter frontend，必须提供稳定的 C ABI：
-
-```text
-ananarchiver_c_api
-```
-
-禁止 Dart FFI 直接操作：
-
-```c
-struct archive *
-struct archive_entry *
-```
-
-所有 libarchive 生命周期仍然由 C++ Core 管理。
-
-除非用户明确要求，否则不要在当前阶段主动将整个 Qt frontend 重写为 Flutter。
+绑定可由 `ffigen` 从 C 头文件生成；Flutter SDK、配套 Dart、插件和构建工具遵循
+最新稳定依赖与实际构建可追踪策略。实施顺序与验收见第 99 节和 Flutter ADR。
 
 ---
 
 # 6. Other UI Frameworks
 
-可以研究：
-
 ```text
-Slint
-Flutter
-Qt Quick
-Tauri
-Avalonia
-Dear ImGui
-```
-
-但对于本项目：
-
-```text
-Qt Quick/QML = 默认桌面 UI
-Flutter      = 未来主要备选
+Flutter      = 主线正式前端
+Qt Quick/QML = 已保存的旧版与迁移对照基线
 Slint        = 可研究
 Tauri        = 不作为默认方案
-Dear ImGui   = 不作为最终用户 GUI
+Avalonia     = 可研究
+Dear ImGui   = 仅用于内部调试、benchmark 或诊断
 ```
 
-Dear ImGui 可以用于：
-
-```text
-debug tools
-benchmark tools
-internal diagnostics
-```
-
-但不作为正式 LiteArc GUI。
-
-不要因为“换技术栈看起来更现代”而无理由重写 frontend。
+不同时推进多套正式 frontend；Qt 基线的存在不改变 `main` 的 Flutter 开发方向。
 
 ---
 
 # 7. Repository Architecture
 
-重构后的推荐目录：
+迁移后的目标目录（尚未实现的目录不能当作现有功能）：
 
 ```text
 LiteArc/
-│
 ├── AGENTS.md
 ├── README.md
 ├── CMakeLists.txt
 ├── CMakePresets.json
-│
 ├── cmake/
-│   ├── CompilerWarnings.cmake
-│   ├── Dependencies.cmake
-│   └── Sanitizers.cmake
-│
-├── include/
-│   └── ananarchiver/
-│       ├── archive.h
-│       ├── archive_entry.h
-│       ├── archive_format.h
-│       ├── archive_reader.h
-│       ├── archive_writer.h
-│       ├── archive_capabilities.h
-│       ├── archive_error.h
-│       ├── progress.h
-│       └── cancellation.h
-│
-├── src/
-│   │
-│   ├── core/
-│   │   ├── archive/
-│   │   ├── filesystem/
-│   │   ├── tasks/
-│   │   └── util/
-│   │
-│   ├── backend/
-│   │   └── libarchive/
-│   │       ├── libarchive_reader.cpp
-│   │       ├── libarchive_writer.cpp
-│   │       ├── libarchive_handle.cpp
-│   │       ├── libarchive_error.cpp
-│   │       └── libarchive_capabilities.cpp
-│   │
+├── include/ananarchiver/
 │   ├── application/
-│   │   ├── archive_service.cpp
-│   │   ├── task_manager.cpp
-│   │   ├── extract_task.cpp
-│   │   ├── compress_task.cpp
-│   │   ├── test_task.cpp
-│   │   └── settings_service.cpp
-│   │
-│   └── platform/
-│       ├── common/
-│       ├── windows/
-│       ├── linux/
-│       └── macos/
-│
+│   └── c_api/                 # 规划：稳定 C 头文件
+├── src/
+│   ├── core/
+│   ├── backend/libarchive/
+│   ├── application/           # 现有服务 + 待抽离 metadata 查询
+│   ├── c_api/                 # 规划：C ABI 实现
+│   └── platform/              # OS 归档 IO / 公共平台服务
 ├── frontend/
-│   └── qt/
-│       ├── main.cpp
-│       ├── app/
-│       ├── controllers/
-│       ├── models/
-│       ├── qml/
-│       │   ├── Main.qml
-│       │   ├── pages/
-│       │   ├── components/
-│       │   ├── dialogs/
-│       │   ├── theme/
-│       │   └── icons/
-│       └── resources/
-│
+│   ├── flutter/               # 规划：主线 Flutter app
+│   │   ├── lib/               # pages / widgets / controllers / models / l10n
+│   │   ├── packages/          # FFI binding / 桌面平台 adapter
+│   │   ├── assets/
+│   │   ├── test/
+│   │   ├── integration_test/
+│   │   ├── windows/
+│   │   ├── linux/
+│   │   └── macos/
+│   └── qt/                    # 迁移期间保留的旧实现
 ├── tests/
 │   ├── core/
 │   ├── archive/
 │   ├── security/
-│   └── integration/
-│
-├── benchmarks/
-│
+│   ├── application/
+│   └── c_api/                 # 规划：C ABI 生命周期 / 错误 / 取消
+├── benchmarks/                # 规划：两种 Release 前端对比
+├── docs/
+│   ├── architecture/
+│   ├── development/
+│   └── validation/
 └── third_party/
 ```
 
-目录不必一次性机械重构完成。
-
-按照功能逐步迁移。
-
-任何提交都应尽可能保持：
-
-```text
-能够编译
-能够启动
-已有测试不回归
-```
+不一次性机械搬迁全部目录；每阶段保持 Core 可独立构建、已有测试不回归。
+Flutter app 通过自己的构建入口集成 CMake 产出的 C ABI，不能将 Qt 带入新运行时。
 
 ---
 
@@ -601,7 +436,7 @@ public:
 ```text
 UI 不知道 libarchive
 Application 不知道 archive*
-ArchiveReader 不知道 QML
+ArchiveReader 不知道 Flutter、Dart 或 QML
 ```
 
 ---
@@ -1398,197 +1233,70 @@ Release 默认不要产生海量 Trace 日志。
 
 # 34. Existing Project Migration
 
-当前仓库中已有：
+当前已有 `include/ananarchiver`、`src/core`、`src/backend/libarchive`、
+`src/application` 和 `frontend/qt`。Core/Application 已不依赖 Qt。
+旧 `AppContext` 阶段的结构不再作为当前目录现状描述。
 
-```text
-src/app
-src/context
-src/models
-ui/
-```
-
-以及：
-
-```text
-App
-AppContext
-FileTreeItem
-FileTreeModel
-```
-
-不要无脑全部删除。
-
-先判断：
-
-```text
-可以保留
-需要迁移
-需要替换
-```
-
-当前 `FileTreeModel` 主要用于真实目录扫描。
-
-它不能成为 Archive Core。
-
-应逐渐变成：
-
-```text
-Qt model adapter
-```
-
-数据来源应该来自 Application/Core。
+迁移先区分可复用的 C++ 服务、需抽离的 metadata/选择逻辑和需重写的 UI adapter。
+保留现有安全与 Core 测试；不重写 libarchive parser、解压事务或压缩管线。
+`ArchiveEntryModel` / `ArchiveFolderModel` 的公共目录索引与查询行为移至 Application，
+Qt Model 和 Dart ViewModel 都只适配数据。`FileTreeModel` 属于独立文件系统浏览。
 
 ---
 
-# 35. Remove Current Hardcoded Test Path
+# 35. No Hardcoded Test Path
 
-当前应用中存在类似：
-
-```cpp
-_file = "S:/Folder";
-```
-
-这只是开发阶段测试逻辑。
-
-正式重构时必须删除。
-
-没有命令行输入文件时，应：
-
-```text
-打开 Home 页面
-```
-
-而不是自动扫描某个开发者目录。
+现有 Qt 基线不传文件时显示 Home，Flutter 必须保持该行为。
+生产代码禁止自动扫描开发者路径；测试目录由 fixture 或显式参数提供。
 
 ---
 
-# 36. Existing FileTreeModel
+# 36. Filesystem Directory Browsing
 
-当前 `FileTreeModel` 会递归扫描整个目录。
-
-这种做法不能继续作为大型目录浏览的最终实现。
-
-例如：
-
-```cpp
-scanDirectory(path, item);
-```
-
-会递归遍历整个树。
-
-大型目录可能造成：
-
-```text
-启动缓慢
-内存增加
-UI 卡顿
-深度递归
-```
-
-未来目录树应使用：
-
-```text
-lazy loading
-```
-
-只有展开目录时才扫描其 children。
+现有 `FileTreeModel` 通过 `DirectoryService` 在 worker 按需获取直接子节点。
+Flutter 沿用 lazy loading，只在加载/展开目录时请求 children；禁止为显示树而
+在 UI isolate 递归扫描整个磁盘。真实文件系统树与归档 metadata 目录树必须独立。
 
 ---
 
 # 37. Remove Fake UI Data
 
-生产 QML 中禁止：
-
-```qml
-model: 1024
-```
-
-以及：
-
-```qml
-text: "test" + index + ".zip"
-```
-
-这种占位数据。
-
-Mock data 应放入：
-
-```text
-tests
-demo
-preview
-development-only model
-```
-
-不能混入正式业务 UI。
+Flutter 和保留的 Qt 生产 UI 均禁止固定条目数量、伪造文件名或假进度。
+Mock data 只允许放在 tests、demo、preview 或显式 development-only model 中。
+界面必须呈现实际 Application 状态；未实现功能不能以成功结果占位。
 
 ---
 
-# 38. Qt Architecture
-
-Qt frontend 推荐：
+# 38. Flutter Frontend Architecture
 
 ```text
-QML
- ↓
-Controller / ViewModel
- ↓
-Application Service
- ↓
-Core
+Flutter Widget
+    ↓
+Dart Controller / ViewModel
+    ↓
+Dart FFI binding
+    ↓
+ananarchiver_c_api
+    ↓
+C++ Application Service
+    ↓
+Core / Backend
 ```
 
-不要制造一个万能：
-
-```text
-AppContext
-```
-
-把所有功能都塞进去。
-
-按职责拆分，例如：
-
-```text
-ApplicationController
-ArchiveController
-TaskController
-SettingsController
-
-ArchiveEntryModel
-TaskListModel
-DirectoryTreeModel
-```
+按归档、压缩、任务、设置和平台集成拆分职责，禁止万能 AppContext 或单个巨型
+ViewModel。UI 状态与 C++ 对象生命周期分离；页面 dispose 不得留下失效 callback，
+也不得令任务输出越过清理策略。错误本地化与数值格式化在前端完成。
 
 ---
 
-# 39. Qt Model Rules
+# 39. Flutter Model and Large View Rules
 
-大量 archive entries 不要逐条：
-
-```text
-beginInsertRows()
-endInsertRows()
-```
-
-几十万次。
-
-必须使用：
-
-```text
-batch insertion
-```
-
-或者适当的：
-
-```text
-model reset
-pagination
-incremental window
-```
-
-View 必须使用虚拟化组件。
-
-不得为列表每一行永久创建复杂 QObject tree。
+使用按需构建的虚拟化列表、TableView/TreeView 或等价组件。
+按当前目录分页/窗口读取，维护有界缓存和稳定 row identity；批量通知并局部刷新。
+不能一次性构建所有行，不逐条发送百万次状态通知，不在 build() 中排序或 IO。
+完整 C++ 索引不得在 Dart 再常驻一份；视图虚拟化不能替代数据内存预算。
+在 100k / 1M metadata 场景验证滚动、导航、搜索、排序、选择和峰值内存。
+旧 Qt adapter 的批量插入规则仍适用于迁移期回归。
 
 ---
 
@@ -1955,63 +1663,32 @@ accented characters
 
 ---
 
-# 51. CMake
+# 51. CMake and Flutter Build
 
-CMake 必须 target-based。
+C++ 构建继续使用 target-based CMake：`target_link_libraries()`、
+`target_include_directories()`、`target_compile_features()`、
+`target_compile_definitions()`，避免全局 include/link/definitions。
 
-使用：
-
-```cmake
-target_link_libraries()
-target_include_directories()
-target_compile_features()
-target_compile_definitions()
-```
-
-避免全局：
-
-```cmake
-include_directories()
-link_directories()
-add_definitions()
-```
-
-除非确实无法避免。
-
-推荐 target：
+目标依赖：
 
 ```text
-ananarchiver_core
-ananarchiver_libarchive
-ananarchiver_application
-ananarchiver_platform
-ananarchiver_qt
-AnAnArchiver
+ananarchiver_c_api → ananarchiver_application → Core / Backend
 ```
 
-依赖方向必须单向。
+保留 `ananarchiver_core`、`ananarchiver_libarchive`、`ananarchiver_application`
+等现有标识；新增 `ananarchiver_c_api`。平台独立构建它时不搜索 Qt/Flutter SDK。
+共享库导出、PIC、MSVC CRT 和架构配置必须匹配，C ABI 导出的内存由同一库释放。
+Flutter 集成通过 build hooks 或平台 runner 调用既有 CMake pipeline，不另建一套
+backend/codec 依赖解析。`ANANARCHIVER_BUILD_QT` 在旧构建兼容期间保留。
 
 ---
 
-# 52. Qt Dependency
+# 52. Frontend Runtime Dependencies
 
-如果 Qt frontend 只需要：
-
-```text
-Qt Quick
-Qt Quick Controls
-Qt Quick Dialogs
-```
-
-不要无理由链接：
-
-```text
-Qt6::Widgets
-```
-
-只有确实使用 QWidget / native Widget API 时才能添加。
-
-减少没有必要的依赖。
+Flutter 发布包只携带实际需要的 Flutter engine、Dart AOT 产物、应用资源、
+C ABI/backend、平台插件及许可。Core-only 不要求任何 GUI SDK。
+Qt 仅供旧基线构建；迁移期间不得无理由增加 Qt Widgets 或把 Qt 引入 Flutter 包。
+现有 Qt 打包脚本与 desktop presets 在明确改造前仍只适用于 Qt 基线。
 
 ---
 
@@ -2031,7 +1708,11 @@ Qt6::Widgets
 
 默认不选择 alpha、beta、RC 或 nightly；没有正式发布版的项目使用约定上游默认分支的最新提交。
 
-Qt 模块及其内嵌依赖应使用最新 Qt 正式发布版配套的源码，Mbed TLS framework 同样跟随所选 Mbed TLS 发布版，不能单独混用不配套版本。
+Flutter 使用官方最新 stable channel，Dart 使用同一 SDK 配套版本；插件选择支持目标平台
+的最新稳定版。提交应用 pubspec.lock 以记录本次解析，后续更新重新解析最新兼容稳定版。
+若有不兼容必须明确修复/报告，不能静默降级。构建记录包括 SDK/engine revision、Dart、
+插件版本和原生依赖来源。Mbed TLS framework 跟随所选 Mbed TLS 发布版。
+维护旧 Qt 基线时，其模块及内嵌依赖仍跟随对应 Qt 正式发布版，不能混用。
 
 编译器、CMake、Ninja、Python 和平台 SDK 优先使用满足目标平台与 C++23 要求的最新稳定工具链；最低兼容版本声明不是固定版本要求。
 
@@ -2084,6 +1765,9 @@ overwrite
 ```
 
 GUI 测试不能替代 Core 测试。
+Flutter 迁移另需 C ABI 版本/所有权/错误边界、批次释放、取消/退出、过期查询、
+覆盖冲突回答和密码寿命测试；Dart binding、widget 与真实归档集成测试分别验证。
+既有 Qt 测试是基线证据，不能替代 Flutter 原生平台验收。
 
 ---
 
@@ -2373,7 +2057,9 @@ CMake project 名称使用 `LiteArc`。
 
 - `ananarchiver` namespace、`include/ananarchiver/` 和已有 API 名称。
 - `ananarchiver_*` / `AnAnArchiver` CMake targets 与 `ANANARCHIVER_*` 选项。
-- 已有 QML URI、资源路径、应用组织/设置标识、registry keys、bundle/application IDs。
+- 应用组织/设置标识、registry keys、bundle/application IDs。
+- 旧 Qt 基线的 QML URI 和资源路径；Flutter 复用品牌资产，明确迁移用户设置，
+  不要求新运行时实现 QML URI。
 - `share/AnAnArchiver` 安装数据目录。
 - GitHub 仓库 `https://github.com/ananwanan/AnAnArchiver`。
 
@@ -2394,6 +2080,7 @@ zh-CN
 en
 ```
 
+Flutter 使用可生成的本地化资源（如 ARB / gen-l10n）管理 zh-CN / en 文案。
 不要在业务 C++ 中散落用户文案。
 
 Core error 使用 machine-readable code。
@@ -2453,6 +2140,8 @@ recent files
 ```
 
 不要把 settings 与 Archive Core 强耦合。
+Flutter 必须明确旧 QSettings 中主题和最近记录的读取/一次性迁移策略，保留应用身份；
+持久化仍在后台执行，密码不得加入设置或迁移数据。
 
 ---
 
@@ -2604,7 +2293,7 @@ Icon、颜色、display name 属于 frontend。
 
 # 76. Icons
 
-不要在 QML 里大量使用：
+不要在 Flutter 或旧 QML 里大量使用：
 
 ```text
 📂
@@ -2648,7 +2337,10 @@ Drag & Drop 不能在 UI thread 同步执行完整 extraction。
 prepare temp extraction asynchronously
 ```
 
-具体平台行为通过 platform adapter 实现。
+具体平台行为通过 Flutter 平台 adapter/插件实现；普通 Draggable/DragTarget 不等于
+系统文件拖放。必须分别在 Explorer、Finder 和目标 Linux 文件管理器验证。
+复用 C++ 安全解压与统一 TempFileManager 策略，提取旧 Qt 临时文件管理依赖，
+明确拖动、异步复制、取消、退出和清理失败时的资源寿命。
 
 ---
 
@@ -2699,7 +2391,8 @@ macOS：
 但初期首先保证：
 
 ```text
-clean CMake build
+clean Core/C ABI CMake build
+Flutter release build
 ```
 
 不要在 Archive Core 尚未稳定时过度投入安装器。
@@ -2708,6 +2401,9 @@ clean CMake build
 
 # 80. CI
 
+现有 workflow 暂停自动触发，保留的 Qt 作业属于旧基线；本次文档决策不声称已改造 CI。
+Flutter 迁移需增加 Dart format/analyze、binding/widget/integration tests、C ABI 与
+各平台 Release 构建，复用 Core/compiler/sanitizer 检查和单次依赖解析记录。
 GitHub Actions 最终至少覆盖：
 
 ```text
@@ -2751,9 +2447,14 @@ CMake：
 
 保持现有可读风格。
 
-QML：
+Dart：
 
-保持一致缩进。
+```text
+dart format
+flutter analyze
+```
+
+旧 QML 保持一致缩进。
 
 不要为了格式化而在功能 PR 中修改几千行无关代码。
 
@@ -2761,27 +2462,12 @@ QML：
 
 # 82. Documentation
 
-重要设计决策写入：
-
-```text
-docs/architecture/
-```
-
-推荐 ADR：
-
-```text
-0001-ui-framework.md
-
-0002-libarchive-integration.md
-
-0003-threading-model.md
-
-0004-archive-security.md
-
-0005-task-system.md
-```
-
-只有真正需要长期记录的架构决策才创建 ADR。
+重要设计决策放在 `docs/architecture/`。当前 Flutter 决策记录为
+`0007-flutter-frontend.md`，文档索引为 `docs/README.md`。
+README 必须区分目标架构、现有实现和验证状态；尚未存在的 Flutter 构建命令不能
+写成当前可运行流程。Qt 基线说明见 `docs/development/qt-baseline.md`。
+历史 `docs/validation` 保留原命令、版本、路径和结果，只补背景说明；
+不能把历史 Qt 验收改名为 Flutter 验收。只有真正长期有效的决策才创建 ADR。
 
 ---
 
@@ -2800,6 +2486,8 @@ docs/architecture/
 9. 修复 warning/error。
 10. 再总结变化。
 
+仅修改文档时验证链接、代码围栏、需求一致性和 diff 范围；如未编译/运行必须如实说明。
+
 ---
 
 # 84. Codex Must Inspect Before Editing
@@ -2810,7 +2498,7 @@ docs/architecture/
 实现 ZIP 打开
 ```
 
-不要第一步就改 QML。
+不要第一步就改 Flutter Widget 或旧 QML。
 
 应该先检查：
 
@@ -2819,8 +2507,9 @@ CMake
 Archive Core
 libarchive dependency
 application service
-existing Qt model
-frontend
+C ABI / Dart binding
+metadata query / legacy Qt model
+Flutter frontend
 tests
 ```
 
@@ -2947,7 +2636,7 @@ global task manager
 global mutable settings
 ```
 
-如果 Qt frontend 需要 singleton，它只能是 frontend/application facade。
+如果 Flutter 或旧 Qt frontend 需要 singleton，它只能是 frontend/application facade。
 
 Core 不依赖 global singleton。
 
@@ -2970,11 +2659,15 @@ Core 不依赖 global singleton。
 
 获取最新版本失败或发现兼容性问题时，应明确报告原因并修复适配，不能静默退回旧版本却宣称使用最新版本。
 
-依赖更新应单独提交，并运行受影响的构建、Core regression tests 和必要的 Qt frontend 验证。
+依赖更新应单独提交，并运行受影响的构建、Core/C ABI regression tests 和必要的
+Flutter frontend 验证；触及旧 Qt 基线时再运行其相关检查。
 
 ---
 
 # 91. First Major Milestone
+
+M1–M6 继续描述产品能力。已有 Core 和 Qt 的完成记录保留；Flutter 对应能力必须
+单独完成和验收，不能继承 Qt GUI 的通过状态。迁移执行阶段见第 99 节。
 
 Milestone 1：
 
@@ -3197,140 +2890,72 @@ pass path traversal tests
 
 ---
 
-# 99. Initial Refactoring Tasks
+# 99. Flutter Migration Tasks
 
-重写项目时按以下顺序进行，而不是一次性重写：
+`main` 按以下顺序增量开发，复用已存在的 Core/Application：
 
 ```text
-Phase A
-建立 ananarchiver_core
-
-Phase B
-集成最新版本 libarchive/libarchive
-
-Phase C
-实现 LibArchiveReader
-
-Phase D
-实现 ArchiveEntry / ArchiveInfo / ArchiveError
-
-Phase E
-实现 archive enumeration
-
-Phase F
-将 Qt FileTreeModel 与 backend 解耦
-
-Phase G
-实现真实 ArchiveEntryModel
-
-Phase H
-删除 FileTable.qml 中 mock data
-
-Phase I
-实现异步 OpenArchiveTask
-
-Phase J
-实现 extraction
-
-Phase K
-实现 compression
-
-Phase L
-重新设计 UI
+F1  Stable C ABI
+    handles / ownership / errors / tasks / cancellation / C ABI tests
+F2  Shared metadata browsing
+    从 Qt 抽离目录索引、Unicode 查询、分页、原始身份与选择解析
+F3  Flutter archive browsing
+    Home / 内容检测打开 / 目录树 / 当前目录 / 虚拟列表 / 搜索排序
+F4  Flutter archive operations
+    解压全部与选中 / 密码 / 覆盖交互 / 进度 / 取消 / capabilities 创建
+F5  Desktop and platform parity
+    主题 / 设置迁移 / 最近记录 / 任务中心 / 快捷键 / 拖入拖出 / 系统打开
+F6  Release and performance acceptance
+    各平台打包 / 来源与许可 / 安装升级 / 100k 与 1M metadata / 性能对比
 ```
 
-每一阶段都应保持项目可运行。
+每阶段保持 Core 可独立测试、资源安全、UI 响应和现有回归不退化。
+Qt 基线分支不跟随 Flutter 重写，现有主线 Qt 文件只为迁移对照暂留。
 
 ---
 
 # 100. Immediate Technical Direction
 
-当前阶段不要先做：
-
-```text
-installer
-auto updater
-shell extension
-复杂动画
-plugin system
-cloud storage
-AI features
-```
-
-优先完成这一条完整链路：
+下一步实现 F1，不先重写 backend、不先做复杂动画或新的产品功能。
+第一条 Flutter 纵向链路为：
 
 ```text
 User selects archive
-        ↓
-ApplicationController
-        ↓
-OpenArchiveTask
-        ↓
-ArchiveService
-        ↓
-ArchiveReader
-        ↓
-LibArchiveReader
-        ↓
-libarchive/libarchive
-        ↓
-ArchiveEntry metadata
-        ↓
-ArchiveEntryModel
-        ↓
-QML File View
+    ↓
+Flutter Controller / ViewModel
+    ↓
+Dart FFI → ananarchiver_c_api
+    ↓
+ArchiveService → TaskManager worker
+    ↓
+ArchiveReader → LibArchiveReader → libarchive
+    ↓
+C++ metadata index / current-folder query
+    ↓
+bounded C ABI pages → Dart view state → virtualized Flutter file view
 ```
 
-当这条链路稳定以后，再继续 extraction 和 compression。
+打开/查询的旧 generation 必须失效；选中项保留原始条目身份。
+该链路通过后，接入现有解压和压缩任务，并按 F5/F6 验收桌面体验与发布。
 
 ---
 
 # 101. Final Architecture Rule
 
-任何新代码都先问三个问题：
+新代码先确定其属于 Core、Application、C ABI、Frontend 还是 Platform。
+调用 libarchive、操作 UI、保存 settings 和管理归档线程不能塞进同一个类。
 
-```text
-它属于 Core 吗？
-
-它属于 Application 吗？
-
-它属于 Frontend / Platform 吗？
-```
-
-如果一个类同时：
-
-```text
-调用 libarchive
-操作 QObject
-弹 Dialog
-扫描文件系统
-保存 settings
-管理线程
-```
-
-说明设计已经出了问题，应立即拆分。
-
-最终目标是让项目即使删除：
-
-```text
-frontend/qt
-```
-
-仍然能够单独构建和测试：
+删除任何 frontend 后仍应独立构建测试：
 
 ```text
 ananarchiver_core
 ananarchiver_libarchive
 ananarchiver_application
+ananarchiver_c_api（实现后）
 ```
 
-未来增加：
-
-```text
-frontend/flutter
-```
-
-时，不需要重新实现压缩、解压、安全、任务和错误处理逻辑。
+Flutter 依赖稳定 C ABI，不能依赖旧 Qt Controller；C ABI 不依赖 Flutter engine。
+压缩、解压、安全、取消、任务和错误处理保留唯一的 C++ 实现。
 
 ---
 
@@ -3338,10 +2963,11 @@ frontend/flutter
 
 LiteArc 最终应成为：
 
-> 一个以现代 C++ 为核心、以 libarchive 为统一归档引擎、UI 可替换、跨平台、安全、快速、适合大型压缩包的现代桌面归档管理器。
+> 一个以现代 C++ 为核心、以 libarchive 为统一归档引擎、以 Flutter 为主线前端、
+> UI 边界清晰、跨平台、安全、快速、适合大型压缩包的现代桌面归档管理器。
 
 它不是：
 
-> 一个 QML Demo + 几个 archive_read_* 调用。
+> 一个 Flutter Demo + 几个 archive_read_* 调用。
 
 所有架构决策都应围绕这个长期目标进行。

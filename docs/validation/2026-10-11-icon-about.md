@@ -1,5 +1,10 @@
 # Application icon and About information
 
+> 历史记录说明（2026-11-05 补充）：下文保留当时实际的 C++/Qt 实现、依赖、
+> 命令、产物和验证边界；对应旧前端保留在 `codex/qt-baseline-2026-11-05`。
+> `main` 后续采用 Flutter，本文结果不代表 Flutter/C ABI 已实现或通过验收。
+> 新要求见 [Flutter 前端决策](../architecture/0007-flutter-frontend.md)。
+
 > Historical validation: this run predates the 2026-10-18 rename to 轻匣 / LiteArc.
 > Original AnAnArchiver artifact names, build paths and results are preserved as evidence.
 

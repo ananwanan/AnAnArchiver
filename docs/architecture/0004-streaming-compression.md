@@ -1,10 +1,16 @@
 # Streaming creation and atomic output (M3)
 
+> Frontend update (2026-11-05): the C++ writer and atomic-output contract are
+> retained. Flutter must call existing Application operations through the planned
+> C ABI; see [ADR 0007](0007-flutter-frontend.md). Qt dialog behavior below is the
+> migration baseline, not Flutter completion.
+
 `ArchiveWriter` is a Qt-free worker API. `CompressionRequest` contains selected
 filesystem paths, destination, format, method, level, metadata preferences,
-explicit replacement permission and finite scan/work limits. The Qt frontend
-uses `ArchiveService::compressionCapabilities` and `ArchiveService::compress`;
-only the libarchive adapter configures and owns libarchive handles.
+explicit replacement permission and finite scan/work limits. The Qt baseline
+uses `ArchiveService::compressionCapabilities` and `ArchiveService::compress`.
+Flutter must expose those same operations through the C ABI; only the libarchive
+adapter configures and owns libarchive handles.
 
 ## Capabilities and inputs
 
@@ -67,7 +73,7 @@ durability errors remain diagnostic failures and may accompany an installed arch
 Abrupt process termination and power loss are outside this operation transaction;
 staging files can remain and there is no crash-recovery journal in M3.
 
-## Tasks and Qt
+## Tasks and frontend
 
 `TaskManager` owns creation workers just as it owns opening/extraction workers.
 Compression snapshots include scanning/writing/finalizing phase, current file,
@@ -83,3 +89,9 @@ level options and explicit replacement. It starts a managed task without scannin
 inputs on the GUI thread. The status area shows progress, cancellation and errors,
 then provides an action to open a successfully created archive. Paths and backend
 details are rendered as plain text; creation options do not persist secrets.
+
+The Flutter creation view must preserve these behaviors and obtain its options
+from C ABI capability data. It must not infer encryption or threading support
+from a readable format. Binding/view disposal must not destroy a live task or
+leak result allocations. Validate real archive creation, cancellation, source
+mutation, output replacement and reopening with the new frontend.

@@ -1,17 +1,45 @@
 # Core and frontend boundaries
 
-The first refactoring milestone implements archive opening and metadata browsing.
-The default desktop frontend remains Qt 6 Quick/QML. Archive processing and
-application services are ordinary C++23 and can be built and tested without Qt.
+Updated 2026-11-05: the selected frontend is Flutter/Dart on `main`. The previous
+Qt-default decision is superseded by [ADR 0007](0007-flutter-frontend.md).
+The preserved Qt baseline is `codex/qt-baseline-2026-11-05` at
+`53185742ad1e640b24da397cfa3544507af4edef`.
 
-Dependency direction:
+## Target architecture and implementation state
 
 ```text
-QML -> Qt ArchiveController / model adapters
-    -> Application ArchiveService / TaskManager / DirectoryService
-    -> ArchiveReader / ArchiveEntry / ArchiveInfo / ArchiveError
+Flutter widgets / Dart Controller / ViewModel
+    -> Dart FFI -> ananarchiver_c_api
+    -> C++ Application ArchiveService / TaskManager / metadata query service
+    -> ArchiveReader / ArchiveWriter / policies / errors / cancellation
     -> libarchive adapter -> libarchive/libarchive
 ```
+
+Core, Backend and Application already use ordinary C++23 and build without Qt.
+The C ABI, shared metadata query service and Flutter app are planned migration
+work, not implemented functionality. Existing Qt controllers/models and QML
+remain baseline code while each replacement is verified. Current Qt commands
+are documented in [the baseline guide](../development/qt-baseline.md).
+
+Only the backend includes libarchive headers. Neither Dart nor its platform
+plugins may use backend handles. The C ABI wraps Application, exports opaque
+handles/length-delimited UTF-8 data and contains exceptions; native allocations
+have explicit provider-owned release functions. C ABI and Application do not
+link Flutter, Dart or Qt. Native platform UI integrations remain adapters.
+
+The existing Qt entry/folder models contain reusable metadata/query/selection
+behavior. Extract it into Application, retaining bounded directory construction,
+Unicode semantics, current-folder views, original entry identities and stale
+query invalidation. Flutter receives bounded result pages and keeps finite
+caches, rather than copying the entire C++ metadata index. Real-directory
+browsing remains a separate lazy DirectoryService operation on managed workers.
+
+Numeric sizes/timestamps and structured errors cross the ABI as data. Frontends
+format dates, sizes, icons and translated error messages. Native filesystem paths
+and UTF-8 archive names keep centralized conversion. GUI code never owns archive
+handles or synchronously performs archive IO.
+
+## Native dependency policy
 
 Dependency policy uses the latest stable upstream releases rather than a fixed
 historical version. Use the latest stable release from the official
@@ -28,30 +56,13 @@ hash, and installs a matching patch copy with its provenance so replaying the
 official source manifest and building the corresponding application source can
 reproduce the modified backend. An incompatible patch fails explicitly.
 
-Only the backend adapter includes libarchive headers. Only `frontend/qt` includes
-Qt headers. Public headers under `include/ananarchiver` contain standard C++
-types. Native filesystem paths and UTF-8 archive names have a centralized
-conversion boundary; entry sizes and timestamps remain numeric core metadata.
-Display sizes, dates, icons, and translated errors belong to the frontend.
+## Existing archive capabilities
 
-The existing application bootstrap and file view move into `frontend/qt`.
-`AppContext` is replaced by an archive controller. `FileTreeModel` remains a Qt
-adapter, but obtains immediate directory children from `DirectoryService` on
-its owned worker instead of recursively traversing the entire filesystem.
-Archive metadata uses a separate flat `ArchiveEntryModel`; it is never confused
-with the real-directory tree.
-
-Opening uses content detection. Extensions affect the file dialog only.
-Enumeration streams metadata without retaining entry contents. Some formats
-need sequential decompression to reach subsequent headers; indexing is not
-random access and is not a CRC or integrity test. Encrypted metadata is browsable
-only when the backend can enumerate it without a password. Password prompting
-belongs to the extraction milestone.
-
-Extraction, compression, archive rewriting, previews, shell integration, and
-packaging remain separate later milestones. There are no stub writer or
-extraction implementations that report success. Until extraction exists, opening
-an entry containing a traversal path only displays that pathname and never writes
-it to the filesystem. The extraction milestone must add long-lived traversal,
-symlink/hardlink, overwrite, bomb-limit, and incomplete-output regression tests
-before exposing extraction in the GUI.
+Opening uses content detection; extensions only guide file selection. Enumeration
+streams metadata and does not retain entry contents. Sequential formats may
+decode data to reach later headers; listing is not a CRC/integrity test.
+Application already supports safe extraction and capability-driven creation.
+Flutter must use those implementations, including password/overwrite interaction,
+atomic output, resource limits and cancellation, with new frontend evidence.
+TestArchive, archive rewriting and bounded previews remain separate future work.
+Historical Qt milestone results are not Flutter acceptance results.

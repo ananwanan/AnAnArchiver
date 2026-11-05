@@ -1,5 +1,33 @@
 # LiteArc build dependency plan
 
+> Frontend decision (2026-11-05): `main` develops Flutter; Qt is the preserved
+> baseline at `codex/qt-baseline-2026-11-05`. Native archive source policy remains
+> active. Qt-specific resolver, build and CI details below describe existing
+> tooling; they do not imply a completed Flutter dependency/build integration.
+
+## Flutter toolchain and dependencies (required, pending integration)
+
+Use the official latest stable Flutter SDK with its bundled Dart. Select latest
+compatible stable plugins for the target platforms; report incompatibilities
+rather than silently downgrading. Record Flutter SDK/engine revisions, Dart,
+plugin resolution/lockfile, platform SDK and native toolchain with each build.
+Commit the application's pubspec.lock when the Flutter app is created, then
+update it during future dependency resolution under the latest-stable policy.
+
+The Flutter SDK is an explicitly selected toolchain, not an additional Qt
+supermodule. Build `ananarchiver_c_api` and backend/codecs using existing CMake
+source resolution/provenance; integrate through a build hook or platform runner.
+Do not add another archive parser, codec source graph or untracked system
+libarchive. Core/C ABI builds must not require Qt, Flutter or Dart runtimes.
+
+Flutter release bundles include only their actual runtime/native plugins,
+backend and license notices. Record engine/plugin transitive notices and SDK
+origins as well as the existing native dependencies. Historical Qt provenance
+cannot identify a new Flutter binary. See
+[ADR 0007](../docs/architecture/0007-flutter-frontend.md) for ABI and release gates.
+
+## Native source policy and retained Qt tooling
+
 Use the latest stable release from each dependency's designated upstream when
 initializing or updating sources. Do not prescribe a fixed historical version,
 tag, or commit. Exclude alpha, beta, RC, and nightly builds by default. If a
@@ -38,7 +66,7 @@ the shorter `out/build/<preset>/qt`, adjustable with
 | LZ4 | [lz4/lz4](https://github.com/lz4/lz4) | Latest stable release | LZ4 |
 | Expat | [libexpat/libexpat](https://github.com/libexpat/libexpat) | Latest stable release | XAR XML metadata |
 | Mbed TLS | [Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls) | Latest stable release with its matching framework submodule | AES / cryptographic digests without a system OpenSSL dependency |
-| Qt supermodule | [qt/qt5](https://github.com/qt/qt5) | Latest stable Qt 6 release with matching qtbase, qtshadertools, qtdeclarative, and qtsvg modules | Desktop frontend source build |
+| Qt supermodule | [qt/qt5](https://github.com/qt/qt5) | Latest stable Qt 6 release with matching qtbase, qtshadertools, qtdeclarative, and qtsvg modules | Legacy Qt frontend source build |
 | Vulkan-Headers | [KhronosGroup/Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | Latest stable release | Qt's Vulkan API headers; no Vulkan SDK library is linked |
 
 ## Source resolution and replay
@@ -117,7 +145,8 @@ unidentified old libraries cannot acquire new revision metadata. Resolution-time
 changes alone do not invalidate unchanged sources. Final provenance is recorded
 after production targets succeed, including actual source-generator versions.
 
-CI has a single resolution job and replays its uploaded manifest for the Core
+Automatic CI triggers are currently disabled; the retained manual Core/Qt
+workflow has a single resolution job and replays its uploaded manifest for the Core
 compiler matrix, sanitizers, and Windows Qt desktop job. The desktop job builds
 the exact resolved Qt release and its matching modules through `desktop-release`,
 then runs production QML, archive flows, drag tests, lint, and executable smoke

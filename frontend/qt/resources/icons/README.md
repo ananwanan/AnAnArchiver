@@ -1,5 +1,13 @@
 # Application icon
 
+> Frontend migration (2026-11-05): this original LiteArc artwork remains the
+> shared product asset for Flutter. The resource URLs and platform paths below
+> describe its existing Qt integration. Flutter must reuse/export the original
+> artwork with its provenance and notices, then verify its own platform bundles;
+> it must not claim the QML embedding already applies to Flutter. See
+> [ADR 0007](../../../../docs/architecture/0007-flutter-frontend.md).
+> The original generation prompt is historical and remains unchanged.
+
 `ananarchiver.png` is the original application icon, now used by 轻匣 (LiteArc).
 The compatibility asset filenames and resource URLs remain unchanged. The icon
 was generated with the built-in `image_gen` tool in built-in mode, with

@@ -1,5 +1,29 @@
 # Packaging and platform integration
 
+> Frontend decision (2026-11-05): Flutter is the target on `main`; the detailed
+> deployment implementation below still describes the retained Qt baseline.
+> It does not provide a Flutter package pipeline. See
+> [ADR 0007](0007-flutter-frontend.md) and the per-platform packaging READMEs.
+
+## Flutter release requirements (pending)
+
+Integrate the C ABI/backend through the existing CMake/provenance pipeline and
+deploy the selected Flutter engine, Dart AOT code/assets, native plugins and
+licenses. Flutter packages must not require Qt. Keep public LiteArc names,
+application IDs, shell argument behavior, optional registration/ownership,
+settings migration and `share/AnAnArchiver` metadata compatibility.
+
+Record actual SDK/engine/Dart/plugin/native/toolchain versions and package hashes.
+Adapt scripts only when their new payload checks exist; current `Package-*`
+commands remain Qt-only. Revalidate Windows portable/installer/MSIX and long
+paths, Linux desktop/MIME/default preservation, and macOS document-open,
+entitlements, signing/notarization and runtime relocation on native hosts.
+Old Qt loader/software-renderer patches do not establish Flutter compatibility.
+macOS x86_64 support is an explicit latest-SDK acceptance gate because of
+Flutter's Intel deprecation; unresolved support is not full-platform completion.
+
+## Existing Qt deployment and integration baseline
+
 The product display names are 轻匣 (Chinese) and LiteArc (English). Public
 executables and launchers use `LiteArc`, `LiteArc.exe`, `LiteArc.sh` and
 `LiteArc.app`; distribution artifacts use `LiteArc-<version>-<platform>-<arch>`.

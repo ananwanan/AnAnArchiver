@@ -1,10 +1,16 @@
 # Secure streaming extraction (M2)
 
+> Frontend update (2026-11-05): Core/Application extraction is existing C++
+> functionality. Flutter integration through `ananarchiver_c_api` is required
+> and pending; [ADR 0007](0007-flutter-frontend.md) defines the migration.
+> Historical Qt GUI validation does not verify the Flutter flow.
+
 The public `ExtractionRequest` belongs to Core and contains destination,
 selection, overwrite/link policy, password, resource limits and conflict
-callbacks. The Qt frontend calls `ArchiveService::extract`; only the backend
-adapter uses libarchive. Every task owns a reader, stop token and output
-transaction. There is no GUI dependency in Core or Application.
+callbacks. The existing Qt frontend calls `ArchiveService::extract`; Flutter
+must reach the same operation through the C ABI. Only the backend adapter uses
+libarchive. Every task owns a reader, stop token and output transaction. There
+is no GUI dependency in Core or Application.
 
 ## Paths and output ownership
 
@@ -74,7 +80,9 @@ Payload reads validate backend results, including CRC/authentication failures,
 unexpected EOF and unsupported codecs. Listing remains a metadata operation
 and is not a payload integrity test. Passwords stay within the operation,
 are not logged or persisted, and owned buffers are overwritten on lifetime end.
-Qt clears password input fields when dialogs close.
+Qt clears password input fields when dialogs close. Flutter must clear prompt
+state and minimize Dart password lifetime too; immutable runtime copies cannot
+be claimed to receive guaranteed memory erasure.
 Extraction also drains unselected and policy-skipped payloads to check integrity
 before committing outputs. Those entries count towards safety budgets. Byte
 progress counts decoded data blocks of chosen entries, including overwrite
@@ -94,7 +102,11 @@ The worker waits on a stop-aware condition variable. Responses to stale prompts
 are rejected. Apply-to-all is held only within that task. Cancel and shutdown
 wake pending prompts; the UI never waits for a worker to answer.
 
-Qt provides virtualized multiselection, all/selected extraction, folder choice,
-password input and overwrite/link controls. Extraction is available only after
-indexing succeeds. A cancelled/failed index cannot authorize extraction from
-an incomplete list. Paths and diagnostics are rendered as plain text.
+The Qt baseline provides virtualized multiselection, all/selected extraction,
+folder choice, password input and overwrite/link controls. Flutter must port
+these flows via the C ABI, preserving conflict IDs and original entry ordinals
+or validated directory selections. Extraction is available only after indexing
+succeeds and the latest required view is valid. A cancelled/failed index cannot
+authorize extraction from an incomplete list. Paths and diagnostics are plain
+text. C ABI and Flutter integration tests must exercise real safe extraction,
+password retry, stale prompt responses, cancellation and failure cleanup.

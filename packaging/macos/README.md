@@ -1,5 +1,28 @@
 # LiteArc for macOS
 
+> Scope update (2026-11-05): `main` targets Flutter. Commands, deployment
+> details and test results in this guide describe the existing Qt baseline,
+> preserved in `codex/qt-baseline-2026-11-05` at
+> `53185742ad1e640b24da397cfa3544507af4edef`. Flutter packaging is not implemented.
+> See [the Flutter decision](../../docs/architecture/0007-flutter-frontend.md)
+> and [Qt baseline build instructions](../../docs/development/qt-baseline.md).
+
+## Flutter packaging requirements (pending)
+
+Use the selected stable Flutter SDK/engine, Dart AOT output/assets, the C ABI,
+backend/codecs and required native plugins; exclude Qt from the Flutter runtime.
+Preserve actual build provenance, dependency licenses and payload hashes.
+Adapt and verify the packaging scripts before documenting Flutter commands as
+available. Existing `Package-*` scripts still operate on Qt builds.
+
+Keep LiteArc.app identity, archive document types, startup/open events and
+user settings migration. Validate Flutter frameworks, C ABI/plugins, entitlements,
+signatures/notarization and clean-machine deployment on native hosts. macOS
+x86_64 remains a compatibility target subject to the latest stable Flutter SDK's
+Intel deprecation; unresolved support cannot be reported as completed parity.
+
+## Existing Qt package instructions
+
 Unzip the package and move `LiteArc.app` into Applications, or drag it to the
 Applications shortcut in the disk image. The complete bundle contains the
 selected Qt kit's frameworks, QML imports, plugins and application icon.

@@ -1,5 +1,28 @@
 # LiteArc Windows release packaging
 
+> Scope update (2026-11-05): `main` targets Flutter. Commands, deployment
+> details and test results in this guide describe the existing Qt baseline,
+> preserved in `codex/qt-baseline-2026-11-05` at
+> `53185742ad1e640b24da397cfa3544507af4edef`. Flutter packaging is not implemented.
+> See [the Flutter decision](../../docs/architecture/0007-flutter-frontend.md)
+> and [Qt baseline build instructions](../../docs/development/qt-baseline.md).
+
+## Flutter packaging requirements (pending)
+
+Use the selected stable Flutter SDK/engine, Dart AOT output/assets, the C ABI,
+backend/codecs and required native plugins; exclude Qt from the Flutter runtime.
+Preserve actual build provenance, dependency licenses and payload hashes.
+Adapt and verify the packaging scripts before documenting Flutter commands as
+available. Existing `Package-*` scripts still operate on Qt builds.
+
+Keep portable ZIP, per-user installer and MSIX requirements. Revalidate
+Windows 10/11 x64 launch, Chinese/emoji/long paths, actual native library search,
+app-local CRT, optional Open With/Explorer commands, installation ownership and
+upgrade/uninstall behavior. Store identity/signing acceptance must use the new
+payload; the current Qt-based packaging checks cannot establish it.
+
+## Existing Qt package instructions
+
 Run from the repository after resolving current stable dependencies and building
 the Release MSVC x64 frontend:
 
