@@ -5,7 +5,8 @@ Flutter and Dart. `MetadataIndex` builds immutable metadata/hierarchy snapshots;
 `BrowserService` schedules archive indexing, queries, windows and selections on
 `TaskManager`. Qt models adapt the same index/query/selection methods. Real
 filesystem trees continue to use `DirectoryService` and `FileTreeModel`.
-No Flutter app or Dart binding is implemented by F2; those begin at F3.
+F2 did not implement a Flutter app. F3 now consumes these APIs through the
+[Flutter frontend and binding](flutter.md).
 
 ## Directory and Unicode rules
 
@@ -143,6 +144,6 @@ native large selection and report timings/accounting. It writes no large data.
 See [F2 validation](../validation/2026-11-06-metadata-browsing.md) for commands,
 actual memory/timing measurements and platform limits.
 
-F3 creates the Flutter/Dart binding and browser UI using the native open/query,
+F3 implements the Flutter/Dart binding and browser UI using the native open/query,
 lazy tree, bounded page and selection contracts. Windows measurements do not
 establish Linux/macOS, sanitizer, Dart-isolate or Flutter-rendering acceptance.

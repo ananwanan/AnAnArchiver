@@ -1,7 +1,7 @@
 # Flutter frontend decision and migration contract
 
 - Decision date: 2026-11-05.
-- Status: accepted; F1 C ABI and F2 native metadata browsing implemented; F3–F6 pending.
+- Status: accepted; F1–F3 implemented; Windows x64 browsing verified; F4–F6 pending.
 - Development branch: `main`.
 - Preserved Qt branch: [`codex/qt-baseline-2026-11-05`](https://github.com/ananwanan/AnAnArchiver/tree/codex/qt-baseline-2026-11-05).
 - Qt baseline commit: `53185742ad1e640b24da397cfa3544507af4edef`.
@@ -15,8 +15,9 @@ official libarchive remain the archive implementation.
 
 The initial decision changed requirements and documentation first. F1 now adds
 `ananarchiver_c_api` over the existing Application services, with a pure C
-consumer and lifecycle/operation tests. There is currently no Flutter app or
-Dart binding; F2 now supplies shared native metadata browsing. Existing
+consumer and lifecycle/operation tests. F2 supplies shared native metadata browsing. F3 now provides the runnable Flutter app,
+isolate-owned Dart binding and bounded browser; see [development](../development/flutter.md)
+and [Windows evidence](../validation/2026-11-06-flutter-browsing.md). Existing
 `frontend/qt`, desktop presets, packaging scripts and the manual Core/Qt CI
 workflow remain operational baseline code until their migration stages are
 implemented. Old Qt validation does not establish Flutter completion.

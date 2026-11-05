@@ -1,0 +1,28 @@
+name: litearc
+description: LiteArc desktop archive browser.
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  litearc_binding:
+    path: packages/litearc_binding
+  file_selector: any
+  flutter_svg: any
+  intl: any
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: any
+flutter:
+  generate: true
+  uses-material-design: true
+  assets:
+    - assets/branding/
+    - assets/icons/

@@ -1,0 +1,93 @@
+{
+  "appTitle": "轻匣",
+  "home": "主页",
+  "openArchive": "打开归档",
+  "closeArchive": "关闭归档",
+  "homeTitle": "归档文件，清晰有序。",
+  "homeBody": "打开一个归档，浏览其中的文件夹与文件。",
+  "archiveRoot": "归档根目录",
+  "up": "返回上级",
+  "name": "名称",
+  "size": "大小",
+  "type": "类型",
+  "modified": "修改时间",
+  "search": "搜索当前文件夹",
+  "empty": "此文件夹中没有项目",
+  "selectAll": "全选当前查询",
+  "cancel": "取消",
+  "folders": "文件夹",
+  "more": "下一页文件夹",
+  "previous": "上一页文件夹",
+  "language": "语言",
+  "theme": "主题",
+  "system": "跟随系统",
+  "light": "浅色",
+  "dark": "深色",
+  "errorTitle": "无法完成请求",
+  "details": "详情",
+  "retry": "重试",
+  "loading": "正在加载",
+  "file": "文件",
+  "folder": "文件夹",
+  "link": "链接",
+  "other": "其他",
+  "close": "关闭",
+  "selectionLimit": "选择区间过多，请使用连续选择或全选。",
+  "status": "{count} 个项目 · 已选择 {selected} 个",
+  "@status": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "selected": {
+        "type": "int"
+      }
+    }
+  },
+  "task": "{operation} · {state} · {entries} 个条目 · {ms} 毫秒",
+  "@task": {
+    "placeholders": {
+      "operation": {
+        "type": "String"
+      },
+      "state": {
+        "type": "String"
+      },
+      "entries": {
+        "type": "int"
+      },
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "operation": "{value, select, open{打开归档} query{查询目录} page{加载文件} folders{加载文件夹} selection{解析选择} other{归档任务}}",
+  "@operation": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "taskState": "{value, select, s1{等待中} s2{进行中} s3{正在取消} s4{已取消} s5{已完成} s6{失败} other{未知}}",
+  "@taskState": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "errorMessage": "{value, select, e1{找不到文件。} e2{没有访问权限。} e3{不支持的归档格式。} e4{不支持的压缩方法。} e5{不支持此操作。} e6{归档无效。} e7{归档已损坏。} e8{密码错误。} e9{此归档需要密码，密码输入计划在 F4 接入。} e10{磁盘空间不足。} e11{输出已存在。} e12{操作已取消。} e13{清理失败。} e14{已达到资源上限。} e15{路径编码无效。} e16{归档路径不安全。} e17{发生输入输出错误。} e18{归档后端报告警告。} e19{归档后端报告错误。} other{请求失败，请查看详情。}}",
+  "@errorMessage": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "@@locale": "zh_CN",
+  "components": "开源组件与构建",
+  "licenses": "许可证",
+  "unavailable": "不可用",
+  "modifiedBuild": "含未提交修改"
+}

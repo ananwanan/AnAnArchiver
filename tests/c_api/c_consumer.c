@@ -11,6 +11,14 @@ _Static_assert(sizeof(aa_extract_request) == 96, "ABI v1 extraction layout");
 _Static_assert(sizeof(aa_compress_request) == 64, "ABI v1 compression layout");
 _Static_assert(sizeof(aa_entry) == 64, "ABI v1 entry layout");
 _Static_assert(sizeof(aa_task_snapshot) == 216, "ABI v1 snapshot layout");
+_Static_assert(sizeof(aa_browser_query_request) == 56, "browser query layout");
+_Static_assert(sizeof(aa_browser_page_request) == 40, "browser page layout");
+_Static_assert(sizeof(aa_browser_folder_page_request) == 48, "folder window layout");
+_Static_assert(sizeof(aa_browser_select_request) == 40, "browser selection layout");
+_Static_assert(sizeof(aa_browser_row) == 96, "browser row layout");
+_Static_assert(sizeof(aa_browser_result) == 88, "browser result layout");
+_Static_assert(offsetof(aa_browser_row, entry) == 32, "browser nested entry offset");
+_Static_assert(offsetof(aa_browser_result, rows) == 80, "browser rows pointer offset");
 _Static_assert(offsetof(aa_string, size) == 8, "64-bit desktop string layout");
 
 #define CHECK(expression)                                                                          \

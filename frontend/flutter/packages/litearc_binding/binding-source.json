@@ -1,0 +1,8 @@
+{
+  "header": "include/ananarchiver/c_api/ananarchiver.h",
+  "sha256": "be33cdc28ecd5980b722571ed55d9113b5440799026e901662f67615180054ed",
+  "generator": "ffigen (version recorded in package pubspec.lock)",
+  "dart": "3.13.7 (stable) (Thu Oct 22 14:28:57 2026 -0700) on \"windows_x64\"",
+  "abi": 1,
+  "scope": "All aa_* functions/structs and AA_* constants; native C alignment"
+}

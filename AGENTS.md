@@ -9,7 +9,9 @@ Application/Core 和 libarchive。迁移前的 Qt 版本保存在
 
 开发进度：F1 C ABI v1 已实现，并完成 Windows x64 Release 的 C 消费者及
 Core/C ABI 回归；F2 公共 metadata 浏览已实现并进行 Windows x64 验证。
-Flutter/Dart UI 与 binding 尚未实现，下一阶段为 F3。证据见
+F3 Flutter/Dart UI 与独立 binding 已实现，并验证 Windows x64 Release 与真实 ZIP
+浏览链路；Linux/macOS 尚未原生验证，下一阶段为 F4。F3 证据见
+[Flutter 验证记录](docs/validation/2026-11-06-flutter-browsing.md)。F1/F2 证据见
 [F1 验证记录](docs/validation/2026-11-05-c-api.md) 和
 [F2 验证记录](docs/validation/2026-11-06-metadata-browsing.md)。
 
@@ -241,7 +243,7 @@ LiteArc/
 │   ├── c_api/                 # 已实现：C ABI、结果所有权与异步清理
 │   └── platform/              # OS 归档 IO / 公共平台服务
 ├── frontend/
-│   ├── flutter/               # 规划：主线 Flutter app
+│   ├── flutter/               # 已实现：主线 Flutter 归档浏览
 │   │   ├── lib/               # pages / widgets / controllers / models / l10n
 │   │   ├── packages/          # FFI binding / 桌面平台 adapter
 │   │   ├── assets/
@@ -2922,8 +2924,9 @@ Qt 基线分支不跟随 Flutter 重写，现有主线 Qt 文件只为迁移对�
 
 # 100. Immediate Technical Direction
 
-F1 原生 C ABI 与 F2 公共 metadata 浏览已实现，并提供 Windows x64 Release 验证记录。
-下一步 F3 接入 Flutter/Dart；不重写 backend、不先做复杂动画或新的产品功能。
+F1 原生 C ABI、F2 公共 metadata 浏览与 F3 Flutter/Dart 归档浏览已实现，并提供
+Windows x64 验证记录。下一步 F4 复用已有归档操作；其他平台仍需原生构建和运行验证。
+不重写 backend、不先做复杂动画或无关产品功能。
 第一条 Flutter 纵向链路为：
 
 ```text

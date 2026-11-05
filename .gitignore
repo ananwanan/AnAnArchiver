@@ -94,3 +94,4 @@ out/
 
 # Generated files from the build process
 /dist/
+!/frontend/flutter/windows/runner/Runner.rc

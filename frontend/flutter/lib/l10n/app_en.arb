@@ -1,0 +1,93 @@
+{
+  "appTitle": "LiteArc",
+  "home": "Home",
+  "openArchive": "Open archive",
+  "closeArchive": "Close archive",
+  "homeTitle": "Your archives, clearly arranged.",
+  "homeBody": "Open an archive to browse its folders and files.",
+  "archiveRoot": "Archive root",
+  "up": "Up one level",
+  "name": "Name",
+  "size": "Size",
+  "type": "Type",
+  "modified": "Modified",
+  "search": "Search this folder",
+  "empty": "No items in this folder",
+  "selectAll": "Select all",
+  "cancel": "Cancel",
+  "folders": "Folders",
+  "more": "Next folders",
+  "previous": "Previous folders",
+  "language": "Language",
+  "theme": "Theme",
+  "system": "Follow system",
+  "light": "Light",
+  "dark": "Dark",
+  "errorTitle": "Unable to complete the request",
+  "details": "Details",
+  "retry": "Retry",
+  "loading": "Loading",
+  "file": "File",
+  "folder": "Folder",
+  "link": "Link",
+  "other": "Other",
+  "close": "Close",
+  "selectionLimit": "Too many selection ranges. Use a contiguous range or Select all.",
+  "status": "{count} items · {selected} selected",
+  "@status": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "selected": {
+        "type": "int"
+      }
+    }
+  },
+  "task": "{operation} · {state} · {entries} entries · {ms} ms",
+  "@task": {
+    "placeholders": {
+      "operation": {
+        "type": "String"
+      },
+      "state": {
+        "type": "String"
+      },
+      "entries": {
+        "type": "int"
+      },
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "operation": "{value, select, open{Opening archive} query{Querying folder} page{Loading files} folders{Loading folders} selection{Resolving selection} other{Archive task}}",
+  "@operation": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "taskState": "{value, select, s1{Pending} s2{Running} s3{Cancelling} s4{Cancelled} s5{Succeeded} s6{Failed} other{Unknown}}",
+  "@taskState": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "errorMessage": "{value, select, e1{File not found.} e2{Permission denied.} e3{Unsupported archive format.} e4{Unsupported compression method.} e5{Operation is not supported.} e6{Invalid archive.} e7{The archive is corrupted.} e8{Incorrect password.} e9{A password is required. Password entry is planned for F4.} e10{The disk is full.} e11{The output already exists.} e12{The operation was cancelled.} e13{Cleanup failed.} e14{A resource limit was reached.} e15{Invalid path encoding.} e16{Unsafe archive path.} e17{An input/output error occurred.} e18{The archive backend reported a warning.} e19{The archive backend reported an error.} other{The request failed. See details.}}",
+  "@errorMessage": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "@@locale": "en",
+  "components": "Components and build",
+  "licenses": "Licenses",
+  "unavailable": "Unavailable",
+  "modifiedBuild": "modified build"
+}

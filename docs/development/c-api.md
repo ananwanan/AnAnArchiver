@@ -3,8 +3,8 @@
 `ananarchiver_c_api` is a shared library over C++ Application services. The public
 header is `include/ananarchiver/c_api/ananarchiver.h`. It has no Qt, Flutter, Dart,
 STL or libarchive types. F1 implements native task transport; F2 adds the native
-authoritative browser index, generation-checked queries/pages and selections. There is no
-Flutter app or Dart binding yet.
+authoritative browser index, generation-checked queries/pages and selections. F3 consumes these through an isolate-owned Dart package and Flutter browser;
+see [Flutter development](flutter.md).
 
 ## Build and validation
 
@@ -32,7 +32,8 @@ On Windows, execute commands from an MSVC developer shell or through
 consumer and real archive operations. The C consumer links only this shared
 library; C++ integration fixtures additionally link the backend to generate
 archives. Windows x64 Release is verified; Linux/macOS native verification and
-Dart binding verification remain outstanding.
+other-platform Dart binding verification remain outstanding. Windows F3 evidence is
+in [Flutter validation](../validation/2026-11-06-flutter-browsing.md).
 
 ## ABI and ownership
 
