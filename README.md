@@ -11,8 +11,10 @@
 基线提交为 `53185742ad1e640b24da397cfa3544507af4edef`。
 
 F1 已加入独立共享库 `ananarchiver_c_api`，包装现有异步打开、解压、创建与任务服务，
-并提供纯 C 消费者和生命周期测试。**现有可运行前端仍是 `frontend/qt`，
-`frontend/flutter` 和 Dart binding 尚未实现；公共 metadata 浏览属于下一阶段 F2。** 现有 Qt 源码、CMake 预设、
+并提供纯 C 消费者和生命周期测试。F2 已将目录索引、Unicode 查询、排序和选择解析
+抽离为公共 C++ Application 服务，提供异步、有代次校验的 C ABI 分页和原生选择。
+**主线前端方向是 Flutter；本轮 F2 没有创建 Flutter UI 或 Dart binding，
+现有 `frontend/qt` 仅保留为迁移适配器和回归对照。** 现有 Qt 源码、CMake 预设、
 打包脚本和历史测试暂留作对照，不能作为 Flutter 的完成或验收证据。
 
 完整需求见 [AGENTS.md](AGENTS.md)，决策与验收见
@@ -31,7 +33,7 @@ Flutter widgets / Dart Controller / ViewModel
 include/ananarchiver/      现有、独立于 GUI 的 Core / Application API
 src/core/                 元数据、格式、Unicode、安全路径
 src/backend/libarchive/   唯一调用 libarchive C API 的生产代码
-src/application/          归档服务、任务、按需扫描；待加入公共 metadata 查询
+src/application/          归档服务、任务、按需扫描、公共 metadata 浏览
 include/ananarchiver/c_api/ ABI v1 公共 C 头文件
 src/c_api/                C ABI、结果所有权与异步清理
 frontend/flutter/         规划：Flutter app、绑定、平台 adapter 与测试
@@ -62,7 +64,7 @@ Flutter 必须对齐现有归档目录树与当前目录列表、隐式父目录
 迁移阶段：
 
 1. F1：已实现 C ABI v1、任务与所有权测试；已验证 Windows x64 Release。
-2. F2：从 Qt 抽离公共目录索引、查询、分页和选择解析。
+2. F2：已实现公共目录索引、查询、有界分页和原生选择；验证范围见 [F2 记录](docs/validation/2026-11-06-metadata-browsing.md)。
 3. F3：Flutter Home、内容检测打开、目录树和虚拟化浏览。
 4. F4：复用现有解压、压缩、密码、覆盖、进度与取消。
 5. F5：设置迁移、任务中心、主题、桌面拖放和系统入口对齐。
@@ -97,7 +99,8 @@ ctest --preset core-release
 Windows 非 Developer Shell 可通过 `scripts/Invoke-Msvc.ps1` 执行 CMake/CTest。
 Core 构建默认同时生成 `ananarchiver_c_api`；可通过
 `ANANARCHIVER_BUILD_C_API=OFF` 关闭。接口、线程规则、限制和消费示例见
-[C ABI 开发说明](docs/development/c-api.md)。此共享库无需 Qt、Flutter 或 Dart SDK。
+[C ABI 开发说明](docs/development/c-api.md) 与 [公共 metadata 浏览](docs/development/metadata-browsing.md)。
+此共享库无需 Qt、Flutter 或 Dart SDK。
 完整 Qt 构建、依赖重放、桌面操作、Android APK 与历史限制统一见
 [Qt 基线开发说明](docs/development/qt-baseline.md)。现有 `desktop-release`、
 `desktop-developer`、`Package-*` 和 `Build-Android.ps1` 仍服务 Qt；Flutter 的

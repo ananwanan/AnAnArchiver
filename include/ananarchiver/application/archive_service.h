@@ -7,6 +7,7 @@ namespace ananarchiver::application {
 
 using ReaderFactory = std::function<std::unique_ptr<ArchiveReader>()>;
 using WriterFactory = std::function<std::unique_ptr<ArchiveWriter>()>;
+using SelectionResolver = std::function<Result<void>(ExtractionRequest&, CancellationToken)>;
 
 class ArchiveService {
   public:
@@ -14,7 +15,8 @@ class ArchiveService {
     Result<TaskId> open(const std::filesystem::path& path, std::string password = {});
     // Content detection only, on a worker; never builds the metadata index.
     Result<TaskId> probe(const std::filesystem::path& path);
-    Result<TaskId> extract(const std::filesystem::path& path, ExtractionRequest request);
+    Result<TaskId> extract(const std::filesystem::path& path, ExtractionRequest request,
+                           SelectionResolver selection = {});
     // Capability discovery configures backend options only; it performs no IO.
     std::vector<ArchiveCapabilities> compressionCapabilities() const;
     Result<TaskId> compress(CompressionRequest request);

@@ -8,8 +8,10 @@ Application/Core 和 libarchive。迁移前的 Qt 版本保存在
 [Flutter 前端决策](docs/architecture/0007-flutter-frontend.md)。
 
 开发进度：F1 C ABI v1 已实现，并完成 Windows x64 Release 的 C 消费者及
-Core/C ABI 回归；Flutter/Dart 和 F2 公共 metadata 浏览尚未实现。证据见
-[F1 验证记录](docs/validation/2026-11-05-c-api.md)。
+Core/C ABI 回归；F2 公共 metadata 浏览已实现并进行 Windows x64 验证。
+Flutter/Dart UI 与 binding 尚未实现，下一阶段为 F3。证据见
+[F1 验证记录](docs/validation/2026-11-05-c-api.md) 和
+[F2 验证记录](docs/validation/2026-11-06-metadata-browsing.md)。
 
 ## 1. Project Overview
 
@@ -235,7 +237,7 @@ LiteArc/
 ├── src/
 │   ├── core/
 │   ├── backend/libarchive/
-│   ├── application/           # 现有服务 + 待抽离 metadata 查询
+│   ├── application/           # 现有服务 + 公共 metadata 查询
 │   ├── c_api/                 # 已实现：C ABI、结果所有权与异步清理
 │   └── platform/              # OS 归档 IO / 公共平台服务
 ├── frontend/
@@ -2920,8 +2922,8 @@ Qt 基线分支不跟随 Flutter 重写，现有主线 Qt 文件只为迁移对�
 
 # 100. Immediate Technical Direction
 
-F1 原生 C ABI 已完成首轮实现与 Windows x64 Release 验证。下一步实现 F2，
-从 Qt 抽离公共 metadata 浏览；不先重写 backend、不先做复杂动画或新的产品功能。
+F1 原生 C ABI 与 F2 公共 metadata 浏览已实现，并提供 Windows x64 Release 验证记录。
+下一步 F3 接入 Flutter/Dart；不重写 backend、不先做复杂动画或新的产品功能。
 第一条 Flutter 纵向链路为：
 
 ```text

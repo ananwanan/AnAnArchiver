@@ -36,6 +36,9 @@ typedef uint32_t aa_status;
 #define AA_RESOURCE_LIMIT 6u
 #define AA_INTERNAL_ERROR 7u
 #define AA_ARCHIVE_ERROR 8u
+#define AA_STALE_VIEW 9u
+#define AA_MAX_PAGE_BYTES 1048576u
+#define AA_NO_ENTRY_INDEX UINT64_MAX
 
 /* Values are ABI constants, independent of C++ enum ordinals. */
 #define AA_ERROR_NONE 0u
@@ -63,6 +66,7 @@ typedef uint32_t aa_status;
 #define AA_TASK_OPEN 1u
 #define AA_TASK_EXTRACT 2u
 #define AA_TASK_COMPRESS 3u
+#define AA_TASK_BROWSE 4u
 #define AA_TASK_PENDING 1u
 #define AA_TASK_RUNNING 2u
 #define AA_TASK_CANCELLING 3u
@@ -106,6 +110,7 @@ typedef uint32_t aa_status;
 #define AA_FEATURE_COMPRESS 4u
 #define AA_FEATURE_METADATA_STREAM 8u
 #define AA_FEATURE_ASYNC_CLEANUP 16u
+#define AA_FEATURE_BROWSER 32u
 #define AA_HAS_TOTAL_BYTES 1u
 #define AA_HAS_TOTAL_ENTRIES 2u
 #define AA_HAS_ETA 4u
@@ -248,6 +253,112 @@ typedef struct aa_capability_batch {
     uint32_t count;
     const aa_compression_capability* capabilities;
 } aa_capability_batch;
+
+/* F2 is additive to ABI v1. Handles are engine-scoped generation numbers.
+ * There is one current archive and one current query per engine. Opening or
+ * closing invalidates the previous archive; every query invalidates its prior
+ * query/selection immediately, even if the replacement fails or is cancelled.
+ * Folder row identity is independent of aa_entry.index; for folders the nested
+ * index is AA_NO_ENTRY_INDEX. A file row identity is stable within its archive and its
+ * nested index is the original backend ordinal. Never treat identity as index. */
+typedef uint64_t aa_archive_id;
+typedef uint64_t aa_query_id;
+typedef uint64_t aa_selection_id;
+typedef struct aa_browser_query_request {
+    uint32_t struct_size;
+    int32_t sort_column; /* -1 archive order, 0 name, 1 size, 2 type, 3 date */
+    aa_archive_id archive;
+    aa_string folder; /* empty is root; caller can derive parent by components */
+    aa_string search;
+    uint32_t descending;
+    uint32_t folders_only; /* direct folder children for a lazy tree */
+} aa_browser_query_request;
+typedef struct aa_browser_page_request {
+    uint32_t struct_size;
+    uint32_t max_rows; /* 1..512 */
+    aa_archive_id archive;
+    aa_query_id query;
+    uint64_t offset;
+    uint32_t max_bytes; /* 160..AA_MAX_PAGE_BYTES, includes row allowance */
+    uint32_t reserved;
+} aa_browser_page_request;
+typedef struct aa_browser_folder_page_request {
+    uint32_t struct_size;
+    uint32_t max_rows;
+    aa_archive_id archive;
+    aa_string folder;
+    uint64_t offset;
+    uint32_t max_bytes;
+    uint32_t reserved;
+} aa_browser_folder_page_request;
+typedef struct aa_browser_range {
+    uint64_t first;
+    uint64_t count; /* query positions, sorted nonoverlapping ranges */
+} aa_browser_range;
+typedef struct aa_browser_select_request {
+    uint32_t struct_size;
+    uint32_t select_all; /* whole current query, requires range_count == 0 */
+    aa_archive_id archive;
+    aa_query_id query;
+    const aa_browser_range* ranges;
+    uint64_t range_count; /* <=4096; never a million-item FFI array */
+} aa_browser_select_request;
+typedef struct aa_browser_row {
+    uint32_t struct_size;
+    uint32_t is_folder;
+    uint64_t identity;
+    aa_string name;
+    aa_entry entry;
+} aa_browser_row;
+typedef struct aa_browser_result {
+    uint32_t struct_size;
+    uint32_t count;
+    aa_archive_id archive;
+    aa_query_id query;
+    aa_selection_id selection;
+    uint64_t entry_count;
+    uint64_t folder_count;
+    uint64_t index_bytes; /* conservative native index accounting */
+    uint64_t offset;
+    uint64_t total_rows;
+    uint64_t transfer_bytes; /* row allowance plus UTF-8 bytes <= max_bytes */
+    const aa_browser_row* rows;
+} aa_browser_result;
+/* Open performs content detection + complete native indexing, without F1's
+ * metadata stream. On failure/cancel there is no usable partial index. Input
+ * uses aa_open_request with probe_only == 0. Results arrive on the task.
+ * Calls only submit/invalidate; build/query/sort/page/select run on TaskManager.
+ * aa_browser_task_result returns AA_BUSY until success, AA_ARCHIVE_ERROR after
+ * failure/cancel, AA_STALE_VIEW after invalidation, or an owned bounded result.
+ * Release it exactly once with aa_browser_result_release; it can outlive engine.
+ * Keep caller caches bounded; a result is a page, never the complete index.
+ * Task release/close defer large data reclamation to the engine cleaner.
+ * A selection handle stays native; browser_extract uses it on a worker. */
+AA_API aa_status AA_CALL aa_browser_open(aa_engine*, const aa_open_request*, aa_archive_id*,
+                                         aa_task_id*, const aa_error**) AA_NOEXCEPT;
+AA_API aa_status AA_CALL aa_browser_query(aa_engine*, const aa_browser_query_request*, aa_query_id*,
+                                          aa_task_id*, const aa_error**) AA_NOEXCEPT;
+AA_API aa_status AA_CALL aa_browser_request_page(aa_engine*, const aa_browser_page_request*,
+                                                 aa_task_id*, const aa_error**) AA_NOEXCEPT;
+/* Lazy tree window independent of current list query; does not clear selection.
+ * Result query == 0; tree rows can navigate by path but cannot authorize a list
+ * selection. Like list windows this returns at most 512 rows / 1 MiB. */
+AA_API aa_status AA_CALL aa_browser_request_folders(aa_engine*,
+                                                    const aa_browser_folder_page_request*,
+                                                    aa_task_id*, const aa_error**) AA_NOEXCEPT;
+AA_API aa_status AA_CALL aa_browser_select(aa_engine*, const aa_browser_select_request*,
+                                           aa_selection_id*, aa_task_id*,
+                                           const aa_error**) AA_NOEXCEPT;
+/* request.path must be empty, extract_all == 0, selection arrays empty.
+ * Destination/password/overwrite/links follow aa_archive_extract. The native
+ * selection is checked against the current query again before extraction. */
+AA_API aa_status AA_CALL aa_browser_extract(aa_engine*, aa_archive_id, aa_query_id, aa_selection_id,
+                                            const aa_extract_request*, aa_task_id*,
+                                            const aa_error**) AA_NOEXCEPT;
+AA_API aa_status AA_CALL aa_browser_task_result(aa_engine*, aa_task_id, const aa_browser_result**,
+                                                const aa_error**) AA_NOEXCEPT;
+AA_API aa_status AA_CALL aa_browser_close(aa_engine*, aa_archive_id) AA_NOEXCEPT;
+AA_API void AA_CALL aa_browser_result_release(const aa_browser_result*) AA_NOEXCEPT;
 
 /* Initialize input struct_size to sizeof(the struct); larger suffixes are
  * ignored in ABI v1. Do not pack structs or change the native C alignment.

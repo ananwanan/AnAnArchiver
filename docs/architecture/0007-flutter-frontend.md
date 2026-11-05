@@ -1,7 +1,7 @@
 # Flutter frontend decision and migration contract
 
 - Decision date: 2026-11-05.
-- Status: accepted; F1 C ABI implemented, Windows x64 validated; F2–F6 pending.
+- Status: accepted; F1 C ABI and F2 native metadata browsing implemented; F3–F6 pending.
 - Development branch: `main`.
 - Preserved Qt branch: [`codex/qt-baseline-2026-11-05`](https://github.com/ananwanan/AnAnArchiver/tree/codex/qt-baseline-2026-11-05).
 - Qt baseline commit: `53185742ad1e640b24da397cfa3544507af4edef`.
@@ -16,7 +16,7 @@ official libarchive remain the archive implementation.
 The initial decision changed requirements and documentation first. F1 now adds
 `ananarchiver_c_api` over the existing Application services, with a pure C
 consumer and lifecycle/operation tests. There is currently no Flutter app or
-Dart binding; shared metadata browsing remains F2. Existing
+Dart binding; F2 now supplies shared native metadata browsing. Existing
 `frontend/qt`, desktop presets, packaging scripts and the manual Core/Qt CI
 workflow remain operational baseline code until their migration stages are
 implemented. Old Qt validation does not establish Flutter completion.
@@ -51,8 +51,8 @@ current evidence/limits are documented in [C ABI development](../development/c-a
 Generate the Dart binding from that C interface
 with `ffigen` or an equivalent reviewed generator.
 
-F1 exposes engine-scoped task IDs and bounded metadata streams. Archive/query
-handles and generation-aware current-folder pages belong to F2; the stream is
+F1 exposes engine-scoped task IDs and bounded metadata streams. F2 adds archive/query
+handles and generation-aware current-folder pages; the stream is
 not permission to duplicate the complete metadata index in Dart. Cleanup is
 owned by an engine worker. Final engine destruction is explicitly blocking and
 must run off the UI isolate. Existing backend extraction/compression limits are
@@ -84,9 +84,10 @@ best-effort cleanup of owned native buffers and prompt input state.
 
 ## Shared metadata and selection
 
-The current Qt `ArchiveEntryModel` contains directory construction, Unicode
-case-folded search, sorting and selection mapping. Extract the reusable behavior
-into a Qt-free Application service before maintaining a second implementation.
+F2 extracts directory construction, Unicode simple-case-folded search, sorting
+and selection mapping from Qt into the Qt-free Application `MetadataIndex` and
+`BrowserService`. Qt models now adapt that implementation. See
+[shared metadata browsing](../development/metadata-browsing.md).
 Define Unicode comparison behavior explicitly while replacing `QString` helpers;
 include Chinese, Japanese, Korean, emoji and accented-name regressions.
 

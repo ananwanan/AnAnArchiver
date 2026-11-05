@@ -19,14 +19,6 @@
 namespace ananarchiver::qt {
 
 struct ArchiveEntryModel::QueryWorker {
-    // Match Core's pathname/depth limits, and bound the extra implicit-folder
-    // index independently of the source entry count. QString contents are
-    // shared between snapshots; the text budget counts stored path and name
-    // buffers, while the node limit bounds vector/hash/object overhead.
-    static constexpr std::size_t maxHierarchyPathBytes = 64U * 1024U;
-    static constexpr qsizetype maxHierarchyDepth = 256;
-    static constexpr std::size_t maxFolderNodes = 1'000'000;
-    static constexpr std::size_t maxFolderTextBytes = 128U * 1024U * 1024U;
     struct Request {
         std::uint64_t generation{};
         std::vector<EntryBatch> batches;
@@ -38,34 +30,35 @@ struct ArchiveEntryModel::QueryWorker {
         QString folder;
         std::stop_token cancellation;
     };
-    struct Cancelled {};
-    struct CachedNames {
-        std::weak_ptr<const std::vector<ArchiveEntry>> entries;
-        std::vector<QString> folded;
-        std::vector<std::size_t> parents;
-        std::vector<QString> foldedNames;
+    struct Output {
+        std::uint64_t generation{};
+        int sourceCount{};
+        std::vector<std::size_t> rows;
+        std::shared_ptr<const ArchiveFolderSnapshot> folders;
+        std::shared_ptr<const application::MetadataIndex> metadata;
+        QString error;
     };
-    struct Row {
-        std::size_t position{};
-        const ArchiveEntry* entry{};
-        const QString* name{};
-    };
-
+    void deliver(ArchiveEntryModel* owner) {
+        std::optional<Output> result;
+        {
+            std::lock_guard lock(mutex);
+            result = std::move(output);
+            output.reset();
+        }
+        if (result)
+            owner->applyView(result->generation, result->sourceCount, std::move(result->rows),
+                             std::move(result->folders), std::move(result->metadata),
+                             std::move(result->error));
+    }
     explicit QueryWorker(ArchiveEntryModel* owner)
         : thread([this, owner](std::stop_token stop) { run(owner, stop); }) {}
-
-    ~QueryWorker()
-    {
+    ~QueryWorker() {
         thread.request_stop();
         cancel();
         ready.notify_all();
-        // Join before the model/QObject is destroyed; queued callbacks have
-        // the model as their context and are removed by QObject destruction.
         thread.join();
     }
-
-    void cancel()
-    {
+    void cancel() {
         {
             std::lock_guard lock(mutex);
             currentCancellation.request_stop();
@@ -74,9 +67,7 @@ struct ArchiveEntryModel::QueryWorker {
         }
         ready.notify_one();
     }
-
-    void submit(Request request, bool cancelRunning)
-    {
+    void submit(Request request, bool cancelRunning) {
         {
             std::lock_guard lock(mutex);
             if (cancelRunning || currentCancellation.stop_requested()) {
@@ -88,336 +79,144 @@ struct ArchiveEntryModel::QueryWorker {
         }
         ready.notify_one();
     }
-
-    void retire(std::shared_ptr<const ArchiveFolderSnapshot> snapshot)
-    {
+    void retire(std::shared_ptr<const void> snapshot) {
         if (!snapshot)
             return;
         {
             std::lock_guard lock(mutex);
-            retiredFolders.push_back(std::move(snapshot));
+            retired.push_back(std::move(snapshot));
         }
         ready.notify_one();
     }
-
-    static void check(const Request& request, std::stop_token stop)
-    {
-        if (stop.stop_requested() || request.cancellation.stop_requested())
-            throw Cancelled{};
-    }
-
-    std::vector<std::size_t> calculate(const Request& request, std::stop_token stop)
-    {
-        // Keep Unicode keys across queries. They are computed only once per
-        // immutable batch, on this worker, and released after an archive closes.
-        std::erase_if(names, [](const auto& item) { return item.second.entries.expired(); });
-        const bool needsNames = request.folderNavigation || !request.query.isEmpty() || request.sortColumn == 0;
-        const auto needle = request.query.toCaseFolded();
-        std::vector<std::size_t> result;
-        std::vector<Row> rows;
-        const auto reserveCount = request.query.isEmpty() && !request.folderNavigation
-            ? static_cast<std::size_t>(request.totalCount)
-            : std::min<std::size_t>(static_cast<std::size_t>(request.totalCount), 4096);
-        const auto folderId = request.folderNavigation
-            ? folderSnapshot->byPath.value(request.folder, std::numeric_limits<std::size_t>::max()) : 0;
-        if (request.sortColumn < 0)
-            result.reserve(reserveCount);
-        else
-            rows.reserve(reserveCount);
-        if (request.folderNavigation && folderId < folderSnapshot->folders.size()) {
-            const auto& children = folderSnapshot->folders[folderId].children;
-            // Synthetic direct-folder rows share the hierarchy snapshot. They
-            // have no backend index, and must stay ahead of files in any sort.
-            const bool reverse = request.sortColumn == 0 && request.descending;
-            for (std::size_t row = 0; row < children.size(); ++row) {
-                if ((row & 255U) == 0)
-                    check(request, stop);
-                const auto id = children[reverse ? children.size() - row - 1 : row];
-                if (needle.isEmpty() || folderSnapshot->folders[id].name.toCaseFolded().contains(needle))
-                    result.push_back(folderRowMask | id);
-            }
-        }
-        for (const auto& batch : request.batches) {
-            check(request, stop);
-            const std::vector<QString>* folded = nullptr;
-            if (needsNames) {
-                auto found = names.find(batch.entries.get());
-                // An expired batch may have the same allocation address as a
-                // newly opened archive; never reuse its Unicode cache.
-                if (found == names.end() || found->second.entries.expired()) {
-                    CachedNames cached;
-                    cached.entries = batch.entries;
-                    found = names.insert_or_assign(batch.entries.get(), std::move(cached)).first;
-                }
-                auto& cached = found->second;
-                if (request.folderNavigation && cached.parents.size() != batch.entries->size()) {
-                    std::vector<std::size_t> parents;
-                    std::vector<QString> foldedNames;
-                    parents.reserve(batch.entries->size());
-                    foldedNames.reserve(batch.entries->size());
-                    for (std::size_t i = 0; i < batch.entries->size(); ++i) {
-                        if ((i & 255U) == 0)
-                            check(request, stop);
-                        const auto path = normalizedArchivePath(fromUtf8((*batch.entries)[i].path));
-                        const auto separator = path.lastIndexOf(QChar(u'/'));
-                        parents.push_back(folderSnapshot->byPath.value(
-                            separator < 0 ? QString() : path.left(separator)));
-                        foldedNames.push_back(path.mid(separator + 1).toCaseFolded());
-                    }
-                    cached.parents = std::move(parents);
-                    cached.foldedNames = std::move(foldedNames);
-                } else if (!request.folderNavigation && cached.folded.size() != batch.entries->size()) {
-                    std::vector<QString> foldedPaths;
-                    foldedPaths.reserve(batch.entries->size());
-                    for (std::size_t i = 0; i < batch.entries->size(); ++i) {
-                        if ((i & 255U) == 0)
-                            check(request, stop);
-                        foldedPaths.push_back(fromUtf8((*batch.entries)[i].path).toCaseFolded());
-                    }
-                    cached.folded = std::move(foldedPaths);
-                }
-                folded = request.folderNavigation ? &found->second.foldedNames : &found->second.folded;
-            }
-            for (std::size_t i = 0; i < batch.entries->size(); ++i) {
-                if ((i & 255U) == 0)
-                    check(request, stop);
-                if (request.folderNavigation &&
-                    ((*batch.entries)[i].type == EntryType::Directory ||
-                     names.at(batch.entries.get()).parents[i] != folderId))
-                    continue;
-                const QString* name = folded ? &(*folded)[i] : nullptr;
-                if (needle.isEmpty() || name->contains(needle)) {
-                    if (request.sortColumn < 0)
-                        result.push_back(batch.first + i);
-                    else
-                        rows.push_back({batch.first + i, &(*batch.entries)[i], name});
-                }
-            }
-        }
-        if (request.sortColumn >= 0) {
-            std::size_t comparisons = 0;
-            std::sort(rows.begin(), rows.end(), [&](const Row& left, const Row& right) {
-                if ((comparisons++ & 4095U) == 0)
-                    check(request, stop);
-                const auto& a = *left.entry;
-                const auto& b = *right.entry;
-                int order = 0;
-                switch (request.sortColumn) {
-                case 0:
-                    order = QString::compare(*left.name, *right.name);
-                    break;
-                case 1: {
-                    const bool aKnown = a.sizeKnown && a.type != EntryType::Directory;
-                    const bool bKnown = b.sizeKnown && b.type != EntryType::Directory;
-                    // Empty/unknown values stay last in either direction.
-                    if (aKnown != bKnown)
-                        return aKnown;
-                    if (aKnown)
-                        order = a.size < b.size ? -1 : (a.size > b.size ? 1 : 0);
-                    break;
-                }
-                case 2:
-                    order = a.type < b.type ? -1 : (a.type > b.type ? 1 : 0);
-                    break;
-                case 3:
-                    if (a.modified.has_value() != b.modified.has_value())
-                        return a.modified.has_value();
-                    if (a.modified)
-                        order = *a.modified < *b.modified ? -1 : (*a.modified > *b.modified ? 1 : 0);
-                    break;
-                default:
-                    break;
-                }
-                if (order == 0)
-                    return left.position < right.position;
-                return request.descending ? order > 0 : order < 0;
-            });
-        }
-        check(request, stop);
-        result.reserve(result.size() + rows.size());
-        for (std::size_t i = 0; i < rows.size(); ++i) {
-            if ((i & 4095U) == 0)
-                check(request, stop);
-            result.push_back(rows[i].position);
-        }
-        return result;
-    }
-
-    std::shared_ptr<const ArchiveFolderSnapshot> calculateFolders(
-        const Request& request, std::stop_token stop)
-    {
-        if (!request.folderNavigation || request.batches.empty())
-            return {};
-        const auto first = folderSource.lock();
-        if (!first || first != request.batches.front().entries) {
-            folderSource = request.batches.front().entries;
-            folderBuilder = ArchiveFolderSnapshot{};
-            folderBatchCount = 0;
-            folderSnapshotBatchCount = 0;
-            folderTextBytes = 0;
-            folderSnapshot.reset();
-        }
-        if (folderSnapshotBatchCount == request.batches.size())
-            return folderSnapshot;
-        // Keep the previously indexed hierarchy while appends coalesce. All
-        // path parsing, deduplication and ordering stay on this worker.
-        for (; folderBatchCount < request.batches.size(); ++folderBatchCount) {
-            const auto& batch = request.batches[folderBatchCount];
-            for (std::size_t i = 0; i < batch.entries->size(); ++i) {
-                if ((i & 255U) == 0)
-                    check(request, stop);
-                const auto& entry = (*batch.entries)[i];
-                if (entry.path.size() > maxHierarchyPathBytes)
-                    throw std::length_error("Archive folder pathname exceeds the 64 KiB metadata limit.");
-                auto path = normalizedArchivePath(fromUtf8(entry.path));
-                // Count before producing full prefixes: a single deeply
-                // nested entry must not amplify 64 KiB into gigabytes of
-                // separately allocated implicit-folder paths.
-                if (path.count(QChar(u'/')) >= maxHierarchyDepth)
-                    throw std::length_error("Archive folder hierarchy exceeds the 256-level depth limit.");
-                if (entry.type != EntryType::Directory)
-                    path = path.left(std::max<qsizetype>(0, path.lastIndexOf(QChar(u'/'))));
-                if (path.isEmpty())
-                    continue;
-                if (folderBuilder.byPath.contains(path))
-                    continue;
-                std::size_t parent = 0;
-                qsizetype start = 0;
-                while (start < path.size()) {
-                    check(request, stop);
-                    auto end = path.indexOf(QChar(u'/'), start);
-                    if (end < 0)
-                        end = path.size();
-                    const auto prefix = path.left(end);
-                    auto found = folderBuilder.byPath.constFind(prefix);
-                    if (found == folderBuilder.byPath.cend()) {
-                        if (folderBuilder.folders.size() >= maxFolderNodes)
-                            throw std::length_error("Archive folder hierarchy exceeds the 1,000,000-node limit.");
-                        // Each temporary lookup prefix is bounded by the
-                        // individual pathname limit above. Check cumulative
-                        // storage before allocating/inserting a new node.
-                        const auto prefixUnits = static_cast<std::size_t>(end);
-                        const auto nameUnits = static_cast<std::size_t>(end - start);
-                        const auto remainingUnits = (maxFolderTextBytes - folderTextBytes) / sizeof(QChar);
-                        if (prefixUnits > remainingUnits || nameUnits > remainingUnits - prefixUnits)
-                            throw std::length_error("Archive folder hierarchy exceeds the 128 MiB text-memory limit.");
-                        const auto id = folderBuilder.folders.size();
-                        folderBuilder.folders.push_back({prefix, path.mid(start, end - start), parent, 0, {}});
-                        folderBuilder.folders[parent].children.push_back(id);
-                        folderBuilder.byPath.insert(prefix, id);
-                        folderTextBytes += (prefixUnits + nameUnits) * sizeof(QChar);
-                        parent = id;
-                    } else {
-                        parent = *found;
-                    }
-                    start = end + 1;
-                }
-            }
-        }
-        if (folderSnapshot && folderSnapshot->folders.size() == folderBuilder.folders.size()) {
-            folderSnapshotBatchCount = request.batches.size();
-            return folderSnapshot;
-        }
-        auto snapshot = std::make_shared<ArchiveFolderSnapshot>(folderBuilder);
-        for (std::size_t id = 0; id < snapshot->folders.size(); ++id) {
-            if ((id & 255U) == 0)
-                check(request, stop);
-            auto& children = snapshot->folders[id].children;
-            std::size_t comparisons = 0;
-            std::sort(children.begin(), children.end(), [&](std::size_t left, std::size_t right) {
-                if ((comparisons++ & 4095U) == 0)
-                    check(request, stop);
-                const auto& a = snapshot->folders[left];
-                const auto& b = snapshot->folders[right];
-                const auto folded = QString::compare(a.name, b.name, Qt::CaseInsensitive);
-                return folded != 0 ? folded < 0 : a.path < b.path;
-            });
-            for (std::size_t row = 0; row < children.size(); ++row)
-                snapshot->folders[children[row]].row = static_cast<int>(row);
-        }
-        folderSnapshot = std::move(snapshot);
-        folderSnapshotBatchCount = request.batches.size();
-        return folderSnapshot;
-    }
-
-    void run(ArchiveEntryModel* owner, std::stop_token stop)
-    {
+    void run(ArchiveEntryModel* owner, std::stop_token stop) {
+        std::shared_ptr<const application::MetadataIndex> cached;
+        std::vector<application::MetadataBatch> cachedBatches;
+        std::shared_ptr<const ArchiveFolderSnapshot> tree;
         while (!stop.stop_requested()) {
             std::optional<Request> request;
-            bool pruneNames = false;
-            std::vector<std::shared_ptr<const ArchiveFolderSnapshot>> retired;
+            std::vector<std::shared_ptr<const void>> garbage;
+            std::optional<Output> abandoned;
+            bool clear = false;
             {
                 std::unique_lock lock(mutex);
-                ready.wait(lock, stop, [&] { return pending.has_value() || prune || !retiredFolders.empty(); });
+                ready.wait(lock, stop,
+                           [&] { return pending.has_value() || prune || !retired.empty(); });
                 if (stop.stop_requested())
-                    return;
-                if (prune) {
-                    prune = false;
-                    pruneNames = true;
+                    break;
+                clear = std::exchange(prune, false);
+                if (clear) {
+                    abandoned = std::move(output);
+                    output.reset();
                 }
-                if (pending) {
-                    request = std::move(pending);
-                    pending.reset();
-                }
-                retired.swap(retiredFolders);
+                request = std::move(pending);
+                pending.reset();
+                garbage.swap(retired);
             }
-            // Releasing cached strings can take time for a large archive.
-            // Keep it outside the mailbox lock used by the GUI thread.
-            if (pruneNames) {
-                std::erase_if(names, [](const auto& item) { return item.second.entries.expired(); });
-                if (folderSource.expired()) {
-                    folderBuilder = ArchiveFolderSnapshot{};
-                    folderSnapshot.reset();
-                    folderBatchCount = 0;
-                    folderSnapshotBatchCount = 0;
-                    folderTextBytes = 0;
-                }
+            if (clear) {
+                cached.reset();
+                cachedBatches.clear();
+                tree.reset();
             }
-            retired.clear();
+            garbage.clear();
             if (!request)
                 continue;
-            std::vector<std::size_t> result;
+            std::stop_source combined;
+            std::stop_callback onExit(stop, [&] { combined.request_stop(); });
+            std::stop_callback onChange(request->cancellation, [&] { combined.request_stop(); });
+            auto cancellation = combined.get_token();
+            std::vector<application::MetadataBatch> batches;
             QString error;
-            std::shared_ptr<const ArchiveFolderSnapshot> folders;
+            std::vector<std::size_t> rows;
             try {
-                folders = calculateFolders(*request, stop);
-                result = calculate(*request, stop);
-            } catch (const Cancelled&) {
-                continue;
-            } catch (const std::exception& exception) {
-                error = QString::fromUtf8(exception.what());
+                batches.reserve(request->batches.size());
+                for (const auto& batch : request->batches)
+                    batches.push_back(batch.entries);
+                if (!cached || batches != cachedBatches) {
+                    auto built = application::MetadataIndex::build(batches, {}, cancellation);
+                    if (built) {
+                        auto next = (*built)->hierarchySnapshot();
+                        bool same = tree && tree->folders.size() == next->folders.size();
+                        for (std::size_t id = 0; same && id < tree->folders.size(); ++id) {
+                            const auto& a = tree->folders[id];
+                            const auto& b = next->folders[id];
+                            same = a.path == b.path && a.parent == b.parent &&
+                                   a.children == b.children;
+                            if ((id & 255U) == 0 && cancellation.stop_requested()) {
+                                same = false;
+                                break;
+                            }
+                        }
+                        if (!same)
+                            tree = std::move(next);
+                        cached = std::move(*built);
+                        cachedBatches = std::move(batches);
+                    } else
+                        error = fromUtf8(built.error().message);
+                }
+                if (error.isEmpty()) {
+                    auto queried =
+                        cached->query({request->folder.toUtf8().toStdString(),
+                                       request->query.toUtf8().toStdString(), request->sortColumn,
+                                       request->descending, request->folderNavigation, false},
+                                      cancellation);
+                    if (queried)
+                        rows.assign(queried->begin(), queried->end());
+                    else
+                        error = fromUtf8(queried.error().message);
+                }
+            } catch (const std::exception& failure) {
+                error = QString::fromUtf8(failure.what());
+            } catch (...) {
+                error = QStringLiteral("Metadata adapter failed");
             }
-            if (stop.stop_requested() || request->cancellation.stop_requested())
+            if (cancellation.stop_requested())
                 continue;
-            QMetaObject::invokeMethod(owner,
-                [owner, generation = request->generation, sourceCount = request->totalCount,
-                 result = std::move(result), folders = std::move(folders), error]() mutable {
-                    owner->applyView(generation, sourceCount, std::move(result), std::move(folders), error);
-                }, Qt::QueuedConnection);
+            std::shared_ptr<const ArchiveFolderSnapshot> folders;
+            if (error.isEmpty() && request->folderNavigation)
+                folders = tree;
+            auto index = error.isEmpty() ? cached : nullptr;
+            if (!error.isEmpty()) {
+                cached.reset();
+                cachedBatches.clear();
+                tree.reset();
+            }
+            std::optional<Output> previous;
+            {
+                std::lock_guard lock(mutex);
+                previous = std::exchange(output, Output{request->generation, request->totalCount,
+                                                        std::move(rows), std::move(folders),
+                                                        std::move(index), error});
+            }
+            // The Qt queue carries a wakeup only. Native results coalesce in one
+            // owned mailbox and are reclaimed on this worker if never delivered.
+            QMetaObject::invokeMethod(
+                owner, [owner] { owner->worker_->deliver(owner); }, Qt::QueuedConnection);
+        }
+        // Final destruction also drains native allocations on the worker.
+        std::optional<Output> finalOutput;
+        std::vector<std::shared_ptr<const void>> finalRetired;
+        {
+            std::lock_guard lock(mutex);
+            finalOutput = std::move(output);
+            output.reset();
+            finalRetired.swap(retired);
+            pending.reset();
         }
     }
-
     std::mutex mutex;
     std::condition_variable_any ready;
     std::optional<Request> pending;
+    std::optional<Output> output;
     bool prune{};
     std::stop_source currentCancellation;
-    std::unordered_map<const std::vector<ArchiveEntry>*, CachedNames> names;
-    std::vector<std::shared_ptr<const ArchiveFolderSnapshot>> retiredFolders;
-    std::weak_ptr<const std::vector<ArchiveEntry>> folderSource;
-    ArchiveFolderSnapshot folderBuilder;
-    std::shared_ptr<const ArchiveFolderSnapshot> folderSnapshot;
-    std::size_t folderBatchCount{};
-    std::size_t folderSnapshotBatchCount{};
-    std::size_t folderTextBytes{};
-    // Last member: every object used by run() exists before the thread starts.
+    std::vector<std::shared_ptr<const void>> retired;
     std::jthread thread;
 };
 
 ArchiveEntryModel::ArchiveEntryModel(QObject* parent)
     : QAbstractListModel(parent), worker_(std::make_unique<QueryWorker>(this)) {}
 
-ArchiveEntryModel::~ArchiveEntryModel() = default;
+ArchiveEntryModel::~ArchiveEntryModel() { ++*lifetimeGeneration_; }
 
 int ArchiveEntryModel::rowCount(const QModelIndex& parent) const
 {
@@ -426,14 +225,14 @@ int ArchiveEntryModel::rowCount(const QModelIndex& parent) const
 
 int ArchiveEntryModel::count() const
 {
-    return identityView_ ? totalCount_ : static_cast<int>(visibleRows_.size());
+    return identityView_ ? totalCount_ : static_cast<int>(visibleRows_->size());
 }
 
 const ArchiveEntry& ArchiveEntryModel::entryAt(int row) const
 {
     Q_ASSERT(!isFolderRow(row));
     const auto position = identityView_ ? static_cast<std::size_t>(row)
-                                       : visibleRows_[static_cast<std::size_t>(row)];
+                                        : (*visibleRows_)[static_cast<std::size_t>(row)];
     const auto batch = std::upper_bound(batches_.begin(), batches_.end(), position,
         [](std::size_t value, const EntryBatch& candidate) { return value < candidate.first; });
     const auto& found = *std::prev(batch);
@@ -442,13 +241,15 @@ const ArchiveEntry& ArchiveEntryModel::entryAt(int row) const
 
 bool ArchiveEntryModel::isFolderRow(int row) const
 {
-    return !identityView_ && (visibleRows_[static_cast<std::size_t>(row)] & folderRowMask) != 0;
+    return !identityView_ && ((*visibleRows_)[static_cast<std::size_t>(row)] & folderRowMask) != 0;
 }
 
 QString ArchiveEntryModel::directoryPathAt(int row) const
 {
     if (isFolderRow(row))
-        return viewFolders_->folders[visibleRows_[static_cast<std::size_t>(row)] & ~folderRowMask].path;
+        return fromUtf8(
+            viewFolders_->folders[(*visibleRows_)[static_cast<std::size_t>(row)] & ~folderRowMask]
+                .path);
     const auto& entry = entryAt(row);
     return entry.type == EntryType::Directory ? normalizedArchivePath(fromUtf8(entry.path)) : QString();
 }
@@ -460,9 +261,9 @@ void ArchiveEntryModel::setFolderNavigationEnabled(bool enabled)
     folderNavigation_ = enabled;
     beginResetModel();
     identityView_ = !enabled;
-    visibleRows_.clear();
+    worker_->retire(
+        std::exchange(visibleRows_, std::make_shared<const std::vector<std::size_t>>()));
     worker_->retire(std::exchange(viewFolders_, {}));
-    selected_.assign(enabled ? 0 : static_cast<std::size_t>(totalCount_), 0);
     selectionRanges_.clear();
     selectionCount_ = 0;
     anchor_ = -1;
@@ -483,9 +284,9 @@ bool ArchiveEntryModel::navigateToFolder(const QString& path)
     clearSelection();
     beginResetModel();
     identityView_ = false;
-    visibleRows_.clear();
+    worker_->retire(
+        std::exchange(visibleRows_, std::make_shared<const std::vector<std::size_t>>()));
     worker_->retire(std::exchange(viewFolders_, {}));
-    selected_.clear();
     endResetModel();
     emit countChanged();
     emit folderChanged();
@@ -544,17 +345,19 @@ void ArchiveEntryModel::requestView(bool configurationChanged)
     viewFailed_ = false;
     if (configurationChanged) {
         ++generation_;
+        ++*lifetimeGeneration_;
         appliedSourceCount_ = 0;
     }
     clearSelection();
     if (totalCount_ == 0 || (!folderNavigation_ && query_.isEmpty() && sortColumn_ == -1)) {
         worker_->cancel();
+        worker_->retire(std::exchange(viewIndex_, {}));
         if (!identityView_) {
             beginResetModel();
             identityView_ = !folderNavigation_;
-            visibleRows_.clear();
+            worker_->retire(
+                std::exchange(visibleRows_, std::make_shared<const std::vector<std::size_t>>()));
             worker_->retire(std::exchange(viewFolders_, {}));
-            selected_.assign(static_cast<std::size_t>(totalCount_), 0);
             selectionRanges_.clear();
             selectionCount_ = 0;
             anchor_ = -1;
@@ -581,37 +384,40 @@ void ArchiveEntryModel::requestView(bool configurationChanged)
 }
 
 void ArchiveEntryModel::applyView(std::uint64_t generation, int sourceCount,
-                                 std::vector<std::size_t> rows,
-                                 std::shared_ptr<const ArchiveFolderSnapshot> folders, QString error)
-{
+                                  std::vector<std::size_t> rows,
+                                  std::shared_ptr<const ArchiveFolderSnapshot> folders,
+                                  std::shared_ptr<const application::MetadataIndex> metadata,
+                                  QString error) {
     if (generation != generation_ || sourceCount < appliedSourceCount_) {
         worker_->retire(std::move(folders));
+        worker_->retire(std::move(metadata));
+        worker_->retire(std::make_shared<const std::vector<std::size_t>>(std::move(rows)));
         return;
     }
     if (!error.isEmpty()) {
         worker_->retire(std::move(folders));
         viewFailed_ = true;
+        beginResetModel();
+        identityView_ = false;
+        worker_->retire(
+            std::exchange(visibleRows_, std::make_shared<const std::vector<std::size_t>>()));
+        worker_->retire(std::exchange(viewIndex_, {}));
+        worker_->retire(std::exchange(viewFolders_, {}));
+        endResetModel();
+        worker_->retire(folders_.replace({}));
+        emit countChanged();
         setQuerying(sourceCount < totalCount_);
         emit queryFailed(error);
-        return;
-    }
-    std::vector<std::uint8_t> selection;
-    try {
-        selection.resize(rows.size(), 0);
-    } catch (const std::exception& exception) {
-        worker_->retire(std::move(folders));
-        viewFailed_ = true;
-        setQuerying(sourceCount < totalCount_);
-        emit queryFailed(QString::fromUtf8(exception.what()));
         return;
     }
     beginResetModel();
     viewFailed_ = false;
     appliedSourceCount_ = sourceCount;
-    visibleRows_ = std::move(rows);
+    worker_->retire(std::exchange(
+        visibleRows_, std::make_shared<const std::vector<std::size_t>>(std::move(rows))));
     worker_->retire(std::exchange(viewFolders_, folders));
     identityView_ = false;
-    selected_ = std::move(selection);
+    worker_->retire(std::exchange(viewIndex_, std::move(metadata)));
     selectionRanges_.clear();
     selectionCount_ = 0;
     anchor_ = -1;
@@ -628,17 +434,21 @@ QVariant ArchiveEntryModel::data(const QModelIndex& index, int role) const
     if (!index.isValid() || index.column() != 0 || index.row() < 0 || index.row() >= count())
         return {};
     if (isFolderRow(index.row())) {
-        const auto& folder = viewFolders_->folders[
-            visibleRows_[static_cast<std::size_t>(index.row())] & ~folderRowMask];
+        const auto& folder =
+            viewFolders_
+                ->folders[(*visibleRows_)[static_cast<std::size_t>(index.row())] & ~folderRowMask];
         switch (role) {
         case Qt::DisplayRole:
-        case PathRole: return folder.path;
-        case NameRole: return folder.name;
+        case PathRole:
+            return fromUtf8(folder.path);
+        case NameRole:
+            return fromUtf8(folder.name);
         case SizeRole:
         case ModifiedRole: return QString();
         case TypeRole: return tr("Folder");
         case DirectoryRole: return true;
-        case SelectedRole: return selected_[static_cast<std::size_t>(index.row())] != 0;
+        case SelectedRole:
+            return rowSelected(index.row());
         default: return {};
         }
     }
@@ -677,7 +487,7 @@ QVariant ArchiveEntryModel::data(const QModelIndex& index, int role) const
     case DirectoryRole:
         return entry.type == EntryType::Directory;
     case SelectedRole:
-        return selected_[static_cast<std::size_t>(index.row())] != 0;
+        return rowSelected(index.row());
     default:
         return {};
     }
@@ -693,14 +503,17 @@ QHash<int, QByteArray> ArchiveEntryModel::roleNames() const
 void ArchiveEntryModel::clear()
 {
     ++generation_;
+    ++*lifetimeGeneration_;
     beginResetModel();
-    std::vector<EntryBatch>{}.swap(batches_);
-    std::vector<std::size_t>{}.swap(visibleRows_);
+    worker_->retire(std::make_shared<const std::vector<EntryBatch>>(std::move(batches_)));
+    batches_ = {};
+    worker_->retire(std::exchange(viewIndex_, {}));
+    worker_->retire(
+        std::exchange(visibleRows_, std::make_shared<const std::vector<std::size_t>>()));
     worker_->retire(std::exchange(viewFolders_, {}));
     totalCount_ = 0;
     appliedSourceCount_ = 0;
     identityView_ = !folderNavigation_;
-    std::vector<std::uint8_t>{}.swap(selected_);
     selectionRanges_.clear();
     selectionCount_ = 0;
     anchor_ = -1;
@@ -732,8 +545,6 @@ void ArchiveEntryModel::append(std::vector<ArchiveEntry> entries)
     auto batch = std::make_shared<const std::vector<ArchiveEntry>>(std::move(entries));
     if (batches_.size() == batches_.capacity())
         batches_.reserve(std::max<std::size_t>(batches_.size() + 1, batches_.capacity() * 2));
-    if (identityView_ && selected_.capacity() < static_cast<std::size_t>(last + 1))
-        selected_.reserve(std::max<std::size_t>(static_cast<std::size_t>(last + 1), selected_.capacity() * 2));
     for (const auto& entry : *batch) {
         if (entry.type != EntryType::RegularFile)
             continue;
@@ -747,7 +558,6 @@ void ArchiveEntryModel::append(std::vector<ArchiveEntry> entries)
     batches_.push_back({static_cast<std::size_t>(first), std::move(batch)});
     totalCount_ = last + 1;
     if (identityView_) {
-        selected_.resize(static_cast<std::size_t>(totalCount_), 0);
         endInsertRows();
         emit countChanged();
     }
@@ -756,122 +566,146 @@ void ArchiveEntryModel::append(std::vector<ArchiveEntry> entries)
         requestView(false);
 }
 
-void ArchiveEntryModel::clearSelection()
-{
-    if (selectionCount_ == 0)
+bool ArchiveEntryModel::rowSelected(int row) const {
+    return std::ranges::any_of(
+        selectionRanges_, [row](auto range) { return row >= range.first && row <= range.second; });
+}
+void ArchiveEntryModel::clearSelection() {
+    ++selectionGeneration_;
+    ++*lifetimeGeneration_;
+    if (!selectionCount_)
         return;
-    std::fill(selected_.begin(), selected_.end(), 0);
     selectionRanges_.clear();
     selectionCount_ = 0;
     anchor_ = -1;
-    if (count() > 0)
+    if (count())
         emit dataChanged(index(0), index(count() - 1), {SelectedRole});
     emit selectionChanged();
 }
-
-void ArchiveEntryModel::selectAll()
-{
-    if (querying_ || viewFailed_ || count() == 0 || selectionCount_ == count())
+void ArchiveEntryModel::selectAll() {
+    if (querying_ || viewFailed_ || !count() || selectionCount_ == count())
         return;
-    std::fill(selected_.begin(), selected_.end(), 1);
     selectionRanges_ = {{0, count() - 1}};
     selectionCount_ = count();
     anchor_ = 0;
+    ++selectionGeneration_;
+    ++*lifetimeGeneration_;
     emit dataChanged(index(0), index(count() - 1), {SelectedRole});
     emit selectionChanged();
 }
-
-void ArchiveEntryModel::selectRow(int row, bool toggle, bool range)
-{
+void ArchiveEntryModel::selectRow(int row, bool toggle, bool range) {
     if (querying_ || viewFailed_ || row < 0 || row >= count())
         return;
-    if (range && anchor_ >= 0) {
-        const auto first = std::min(row, anchor_);
-        const auto last = std::max(row, anchor_);
-        if (!toggle) {
-            std::fill(selected_.begin(), selected_.end(), 0);
-            selectionCount_ = 0;
-            selectionRanges_.clear();
-        }
-        for (int i = first; i <= last; ++i) {
-            if (!selected_[static_cast<std::size_t>(i)]) {
-                selected_[static_cast<std::size_t>(i)] = 1;
-                ++selectionCount_;
-            }
-        }
-        selectionRanges_.emplace_back(first, last);
-        std::sort(selectionRanges_.begin(), selectionRanges_.end());
-        std::vector<std::pair<int, int>> merged;
-        merged.reserve(selectionRanges_.size());
-        for (const auto& interval : selectionRanges_) {
-            if (!merged.empty() && interval.first <= merged.back().second + 1)
-                merged.back().second = std::max(merged.back().second, interval.second);
-            else
-                merged.push_back(interval);
-        }
-        selectionRanges_ = std::move(merged);
-    } else if (toggle) {
-        auto& value = selected_[static_cast<std::size_t>(row)];
-        value = value ? 0 : 1;
-        selectionCount_ += value ? 1 : -1;
-        if (value) {
-            selectionRanges_.emplace_back(row, row);
-            std::sort(selectionRanges_.begin(), selectionRanges_.end());
-        } else {
-            for (std::size_t i = 0; i < selectionRanges_.size(); ++i) {
-                const auto [first, last] = selectionRanges_[i];
-                if (row < first || row > last)
-                    continue;
-                selectionRanges_.erase(selectionRanges_.begin() + static_cast<std::ptrdiff_t>(i));
+    const bool remove = toggle && !range && rowSelected(row);
+    if ((!toggle || range) && !range)
+        selectionRanges_.clear();
+    if (range && !toggle)
+        selectionRanges_.clear();
+    if (remove) {
+        std::vector<std::pair<int, int>> next;
+        for (auto [first, last] : selectionRanges_) {
+            if (row < first || row > last)
+                next.emplace_back(first, last);
+            else {
                 if (row > first)
-                    selectionRanges_.emplace_back(first, row - 1);
+                    next.emplace_back(first, row - 1);
                 if (row < last)
-                    selectionRanges_.emplace_back(row + 1, last);
-                std::sort(selectionRanges_.begin(), selectionRanges_.end());
-                break;
+                    next.emplace_back(row + 1, last);
             }
         }
-        anchor_ = row;
-    } else {
-        std::fill(selected_.begin(), selected_.end(), 0);
-        selected_[static_cast<std::size_t>(row)] = 1;
-        selectionCount_ = 1;
-        selectionRanges_ = {{row, row}};
-        anchor_ = row;
+        selectionRanges_ = std::move(next);
+    } else
+        selectionRanges_.emplace_back(range && anchor_ >= 0 ? std::min(row, anchor_) : row,
+                                      range && anchor_ >= 0 ? std::max(row, anchor_) : row);
+    std::sort(selectionRanges_.begin(), selectionRanges_.end());
+    std::vector<std::pair<int, int>> merged;
+    for (auto part : selectionRanges_) {
+        if (!merged.empty() && part.first <= merged.back().second + 1)
+            merged.back().second = std::max(merged.back().second, part.second);
+        else
+            merged.push_back(part);
     }
+    selectionRanges_ = std::move(merged);
+    selectionCount_ = 0;
+    for (auto [first, last] : selectionRanges_)
+        selectionCount_ += last - first + 1;
+    if (!range)
+        anchor_ = row;
+    ++selectionGeneration_;
+    ++*lifetimeGeneration_;
     emit dataChanged(index(0), index(count() - 1), {SelectedRole});
     emit selectionChanged();
 }
-
-std::vector<std::uint64_t> ArchiveEntryModel::selectedIndices() const
-{
-    std::vector<std::uint64_t> result;
-    result.reserve(static_cast<std::size_t>(selectionCount_));
-    // Sparse selection reads only its selected row ranges; selecting one entry
-    // near the end of a million-row archive does not scan the metadata index.
-    for (const auto& [first, last] : selectionRanges_)
-        for (int row = first; row <= last; ++row) {
-            if (isFolderRow(row))
-                continue;
-            const auto& entry = entryAt(row);
-            if (entry.type != EntryType::Directory)
-                result.push_back(entry.index);
+application::SelectionResolver ArchiveEntryModel::selectionResolver() const {
+    std::vector<std::weak_ptr<const std::vector<ArchiveEntry>>> batches;
+    batches.reserve(batches_.size());
+    for (const auto& batch : batches_)
+        batches.emplace_back(batch.entries);
+    std::weak_ptr<const application::MetadataIndex> metadata = viewIndex_;
+    std::weak_ptr<const std::vector<std::size_t>> rows = visibleRows_;
+    auto ranges = selectionRanges_;
+    const auto expected = lifetimeGeneration_->load();
+    auto lifetime = lifetimeGeneration_;
+    const bool identity = identityView_;
+    const bool valid = !querying_ && !viewFailed_;
+    return [batches = std::move(batches), metadata = std::move(metadata), rows,
+            ranges = std::move(ranges), expected, lifetime, identity,
+            valid](ExtractionRequest& target, CancellationToken stop) -> Result<void> {
+        if (!valid || lifetime->load() != expected)
+            return std::unexpected(
+                ArchiveError{ArchiveErrorCode::UnsupportedOperation, "Stale archive view", {}, {}});
+        auto source = metadata.lock();
+        if (!source) {
+            std::vector<application::MetadataBatch> input;
+            for (const auto& batch : batches) {
+                auto locked = batch.lock();
+                if (!locked)
+                    return std::unexpected(ArchiveError{
+                        ArchiveErrorCode::UnsupportedOperation, "Expired archive view", {}, {}});
+                input.push_back(std::move(locked));
+            }
+            auto built = application::MetadataIndex::build(std::move(input), {}, stop);
+            if (!built)
+                return std::unexpected(built.error());
+            source = std::move(*built);
         }
-    return result;
+        std::vector<std::uint64_t> nativeRows;
+        if (identity) {
+            nativeRows.resize(source->count());
+            for (std::size_t i = 0; i < nativeRows.size(); ++i)
+                nativeRows[i] = i;
+        } else {
+            auto locked = rows.lock();
+            if (!locked)
+                return std::unexpected(ArchiveError{
+                    ArchiveErrorCode::UnsupportedOperation, "Expired query rows", {}, {}});
+            nativeRows.assign(locked->begin(), locked->end());
+        }
+        std::vector<application::MetadataRange> nativeRanges;
+        for (auto [first, last] : ranges)
+            nativeRanges.push_back(
+                {static_cast<std::uint64_t>(first), static_cast<std::uint64_t>(last - first + 1)});
+        auto result = source->resolve(nativeRows, nativeRanges, stop);
+        if (!result)
+            return std::unexpected(result.error());
+        if (lifetime->load() != expected)
+            return std::unexpected(
+                ArchiveError{ArchiveErrorCode::UnsupportedOperation, "Stale archive view", {}, {}});
+        target.selectedIndices = std::move(result->indices);
+        target.selectedDirectoryPaths = std::move(result->directories);
+        return {};
+    };
 }
-
-std::vector<std::string> ArchiveEntryModel::selectedDirectoryPaths() const
-{
-    std::vector<std::string> result;
-    for (const auto& [first, last] : selectionRanges_)
-        for (int row = first; row <= last; ++row) {
-            const auto path = directoryPathAt(row);
-            if (path.isEmpty())
-                continue;
-            const auto bytes = path.toUtf8();
-            result.emplace_back(bytes.constData(), static_cast<std::size_t>(bytes.size()));
-        }
-    return result;
+std::vector<std::uint64_t> ArchiveEntryModel::selectedIndices() const {
+    ExtractionRequest request;
+    auto resolved = selectionResolver()(request, {});
+    return resolved && request.selectedIndices ? std::move(*request.selectedIndices)
+                                               : std::vector<std::uint64_t>{};
+}
+std::vector<std::string> ArchiveEntryModel::selectedDirectoryPaths() const {
+    ExtractionRequest request;
+    auto resolved = selectionResolver()(request, {});
+    return resolved ? std::move(request.selectedDirectoryPaths) : std::vector<std::string>{};
 }
 
 void ArchiveEntryModel::setExtractionTotals(ExtractionRequest& request, bool selected) const

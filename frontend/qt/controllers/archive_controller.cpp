@@ -131,21 +131,6 @@ void ArchiveController::cancelTask(application::TaskId id)
         tasks_.cancel(id);
 }
 
-Result<ExtractionRequest> ArchiveController::selectedExtractionRequest(
-    const std::filesystem::path& destination) const
-{
-    if (!canExtract() || selectionCount() == 0)
-        return std::unexpected(ArchiveError{ArchiveErrorCode::UnsupportedOperation,
-            "Select archive entries after indexing has finished.", {}, {}});
-    ExtractionRequest request;
-    request.destination = destination;
-    request.selectedIndices = entries_.selectedIndices();
-    request.selectedDirectoryPaths = entries_.selectedDirectoryPaths();
-    request.overwrite = OverwritePolicy::Overwrite;
-    request.links = LinkPolicy::Skip;
-    return request;
-}
-
 void ArchiveController::close()
 {
     emit archiveClosed();
@@ -254,14 +239,12 @@ void ArchiveController::extract(const QString& destination, bool onlySelected, Q
         }
         request.overwrite = static_cast<OverwritePolicy>(overwrite);
         request.links = static_cast<LinkPolicy>(links);
-        if (onlySelected) {
-            request.selectedIndices = entries_.selectedIndices();
-            request.selectedDirectoryPaths = entries_.selectedDirectoryPaths();
-        }
         entries_.setExtractionTotals(request, onlySelected);
         if (!password.isEmpty())
             request.password = takePassword(password);
-        auto result = service_.extract(toPath(currentFile_), std::move(request));
+        auto result = service_.extract(toPath(currentFile_), std::move(request),
+                                       onlySelected ? entries_.selectionResolver()
+                                                    : application::SelectionResolver{});
         if (!result) {
             showError(result.error());
             return;

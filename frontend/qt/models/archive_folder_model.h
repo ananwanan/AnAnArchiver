@@ -3,24 +3,13 @@
 #include <QAbstractItemModel>
 #include <QHash>
 #include <QString>
+#include <ananarchiver/application/metadata_index.h>
 #include <memory>
 #include <vector>
 
 namespace ananarchiver::qt {
 
-// Constructed on the metadata worker and published as an immutable snapshot.
-// Node zero is the archive root; only its actual folders appear in the view.
-struct ArchiveFolderSnapshot {
-    struct Folder {
-        QString path;
-        QString name;
-        std::size_t parent{};
-        int row{};
-        std::vector<std::size_t> children;
-    };
-    std::vector<Folder> folders{Folder{}};
-    QHash<QString, std::size_t> byPath{{QString(), 0}};
-};
+using ArchiveFolderSnapshot = application::MetadataFolders;
 
 class ArchiveFolderModel final : public QAbstractItemModel
 {

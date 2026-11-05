@@ -14,7 +14,8 @@
 namespace ananarchiver::application {
 
 using TaskId = std::uint64_t;
-enum class TaskType { OpenArchive, ExtractArchive, CompressArchive };
+enum class TaskType { OpenArchive, ExtractArchive, CompressArchive, BrowseArchive };
+struct BrowserTaskResult;
 enum class TaskState { Pending, Running, Cancelling, Cancelled, Succeeded, Failed };
 
 struct ConflictResolution {
@@ -57,6 +58,7 @@ class TaskContext {
     // Backpressure limits queued metadata to eight batches. Cancellation wakes
     // a producer even when the UI has stopped consuming entries.
     bool publishEntries(std::vector<ArchiveEntry> entries);
+    void publishBrowserResult(std::shared_ptr<const BrowserTaskResult> result);
 
   private:
     struct SharedState;
@@ -77,6 +79,7 @@ class TaskManager {
     Result<TaskId> start(TaskType type, TaskWork work);
     std::optional<TaskSnapshot> snapshot(TaskId id) const;
     std::vector<ArchiveEntry> takeEntries(TaskId id, std::size_t maxBatches = 4);
+    std::shared_ptr<const BrowserTaskResult> browserResult(TaskId id) const;
     // Background cleanup can discard queued metadata without allocating a copy.
     void discardEntries(TaskId id);
     bool cancel(TaskId id);

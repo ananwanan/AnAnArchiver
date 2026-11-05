@@ -92,12 +92,16 @@ ananarchiver_project_options(ananarchiver_libarchive)
 
 add_library(ananarchiver_application STATIC
     src/application/archive_service.cpp
+    src/application/metadata_index.cpp
+    src/application/browser_service.cpp
     src/application/task_manager.cpp
     src/application/directory_service.cpp)
 target_link_libraries(ananarchiver_application PUBLIC ananarchiver_core Threads::Threads
     PRIVATE ananarchiver_libarchive)
 ananarchiver_project_options(ananarchiver_application)
 add_dependencies(ananarchiver_build_info ananarchiver_application)
+install(FILES src/application/unicode-LICENSE.txt
+    DESTINATION share/AnAnArchiver/licenses RENAME Unicode-LICENSE.txt)
 
 if(ANANARCHIVER_BUILD_C_API)
     # The whole static dependency chain is linked into a shared FFI library.

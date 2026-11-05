@@ -30,6 +30,7 @@ struct TaskContext::SharedState {
     std::deque<std::vector<ArchiveEntry>> batches;
     std::optional<ConflictResolution> resolution;
     std::optional<OverwritePolicy> applyToAll;
+    std::shared_ptr<const BrowserTaskResult> browserResult;
 };
 
 struct TaskManager::Impl {
@@ -44,6 +45,22 @@ struct TaskManager::Impl {
 
 TaskContext::TaskContext(std::shared_ptr<SharedState> state) : state_(std::move(state)) {}
 CancellationToken TaskContext::cancellation() const { return state_->stop.get_token(); }
+
+void TaskContext::publishBrowserResult(std::shared_ptr<const BrowserTaskResult> result) {
+    std::lock_guard lock(state_->mutex);
+    state_->browserResult = std::move(result);
+}
+
+std::shared_ptr<const BrowserTaskResult> TaskManager::browserResult(TaskId id) const {
+    std::lock_guard lock(impl_->mutex);
+    const auto found = impl_->tasks.find(id);
+    if (found == impl_->tasks.end())
+        return {};
+    std::lock_guard stateLock(found->second->state->mutex);
+    if (found->second->state->snapshot.state != TaskState::Succeeded)
+        return {};
+    return found->second->state->browserResult;
+}
 
 void TaskContext::setArchiveInfo(ArchiveInfo info) {
     std::lock_guard lock(state_->mutex);

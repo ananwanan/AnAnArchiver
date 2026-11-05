@@ -1,16 +1,13 @@
 #include "archive_folder_model.h"
 
-#include <QStringList>
+#include "platform/path_conversion.h"
 #include <utility>
 
 namespace ananarchiver::qt {
 
 QString normalizedArchivePath(QString path)
 {
-    path.replace(QChar(u'\\'), QChar(u'/'));
-    auto parts = path.split(QChar(u'/'), Qt::SkipEmptyParts);
-    parts.removeAll(QStringLiteral("."));
-    return parts.join(QChar(u'/'));
+    return fromUtf8(application::normalizedMetadataPath(path.toUtf8().toStdString()));
 }
 
 QModelIndex ArchiveFolderModel::index(int row, int column, const QModelIndex& parentIndex) const
@@ -55,9 +52,9 @@ QVariant ArchiveFolderModel::data(const QModelIndex& item, int role) const
         return {};
     const auto& folder = snapshot_->folders[item.internalId()];
     if (role == Qt::DisplayRole || role == NameRole)
-        return folder.name;
+        return fromUtf8(folder.name);
     if (role == PathRole)
-        return folder.path;
+        return fromUtf8(folder.path);
     return {};
 }
 
@@ -68,7 +65,7 @@ QHash<int, QByteArray> ArchiveFolderModel::roleNames() const
 
 bool ArchiveFolderModel::contains(const QString& path) const
 {
-    return path.isEmpty() || (snapshot_ && snapshot_->byPath.contains(path));
+    return path.isEmpty() || (snapshot_ && snapshot_->byPath.contains(path.toUtf8().toStdString()));
 }
 
 std::shared_ptr<const ArchiveFolderSnapshot> ArchiveFolderModel::replace(

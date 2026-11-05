@@ -77,7 +77,10 @@ public:
     Q_INVOKABLE void retryOpenPassword(QString password);
     Q_INVOKABLE void dismissPassword();
     Q_INVOKABLE QString localPath(const QUrl& url) const { return url.toLocalFile(); }
-    Result<ExtractionRequest> selectedExtractionRequest(const std::filesystem::path& destination) const;
+    application::SelectionResolver selectionResolver() const {
+        return entries_.selectionResolver();
+    }
+    std::uint64_t selectionGeneration() const { return entries_.selectionGeneration(); }
     void cancelTask(application::TaskId id);
 
 signals:

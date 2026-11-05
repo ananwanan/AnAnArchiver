@@ -113,13 +113,20 @@ Result<TaskId> ArchiveService::open(const std::filesystem::path& path, std::stri
         });
 }
 
-Result<TaskId> ArchiveService::extract(const std::filesystem::path& path,
-                                      ExtractionRequest request) {
+Result<TaskId> ArchiveService::extract(const std::filesystem::path& path, ExtractionRequest request,
+                                       SelectionResolver selection) {
     const PasswordGuard guard{request.password ? &*request.password : nullptr};
     auto owned = std::make_shared<ArchiveOperation>();
     owned->extraction = std::move(request);
-    return tasks_.start(TaskType::ExtractArchive,
-        [path, owned, factory = factory_](TaskContext& context) -> Result<void> {
+    return tasks_.start(
+        TaskType::ExtractArchive,
+        [path, owned, factory = factory_,
+         selection = std::move(selection)](TaskContext& context) -> Result<void> {
+            if (selection) {
+                auto resolved = selection(owned->extraction, context.cancellation());
+                if (!resolved)
+                    return resolved;
+            }
             auto reader = factory();
             if (!reader)
                 return std::unexpected(ArchiveError{ArchiveErrorCode::BackendError,

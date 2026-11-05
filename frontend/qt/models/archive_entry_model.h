@@ -1,14 +1,16 @@
 #pragma once
 
-#include <ananarchiver/archive_entry.h>
 #include "archive_folder_model.h"
 #include <QAbstractListModel>
 #include <QString>
-#include <memory>
-#include <limits>
-#include <vector>
-#include <utility>
+#include <ananarchiver/application/archive_service.h>
+#include <ananarchiver/archive_entry.h>
 #include <ananarchiver/extraction.h>
+#include <atomic>
+#include <limits>
+#include <memory>
+#include <utility>
+#include <vector>
 
 namespace ananarchiver::qt {
 
@@ -57,6 +59,8 @@ public:
     void clearSelection();
     std::vector<std::uint64_t> selectedIndices() const;
     std::vector<std::string> selectedDirectoryPaths() const;
+    application::SelectionResolver selectionResolver() const;
+    std::uint64_t selectionGeneration() const { return selectionGeneration_; }
     void setExtractionTotals(ExtractionRequest& request, bool selected) const;
 
 signals:
@@ -85,12 +89,14 @@ private:
     void requestView(bool configurationChanged = true);
     void setQuerying(bool querying);
     void applyView(std::uint64_t generation, int sourceCount, std::vector<std::size_t> rows,
-                   std::shared_ptr<const ArchiveFolderSnapshot> folders, QString error);
+                   std::shared_ptr<const ArchiveFolderSnapshot> folders,
+                   std::shared_ptr<const application::MetadataIndex> metadata, QString error);
 
     // Immutable batches let the worker read metadata while the UI appends new
     // batches, without copying the metadata index or sharing mutable vectors.
     std::vector<EntryBatch> batches_;
-    std::vector<std::size_t> visibleRows_;
+    std::shared_ptr<const std::vector<std::size_t>> visibleRows_{
+        std::make_shared<const std::vector<std::size_t>>()};
     std::shared_ptr<const ArchiveFolderSnapshot> viewFolders_;
     int totalCount_{};
     bool identityView_{true};
@@ -105,7 +111,11 @@ private:
     std::uint64_t generation_{};
     int appliedSourceCount_{};
     std::unique_ptr<QueryWorker> worker_;
-    std::vector<std::uint8_t> selected_;
+    bool rowSelected(int row) const;
+    std::shared_ptr<const application::MetadataIndex> viewIndex_;
+    std::shared_ptr<std::atomic<std::uint64_t>> lifetimeGeneration_{
+        std::make_shared<std::atomic<std::uint64_t>>(0)};
+    std::uint64_t selectionGeneration_{};
     std::vector<std::pair<int, int>> selectionRanges_;
     int selectionCount_{};
     int anchor_{-1};

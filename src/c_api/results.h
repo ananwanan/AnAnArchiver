@@ -6,6 +6,7 @@
 
 namespace ananarchiver::c_api {
 
+aa_entry entryValue(const ArchiveEntry& entry) noexcept;
 aa_string view(const std::string& text) noexcept;
 struct ErrorResult final : aa_error {
     std::string messageText;

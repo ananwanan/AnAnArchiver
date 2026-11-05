@@ -41,6 +41,47 @@ bool waitUntil(const std::function<bool()>& ready)
     return ready();
 }
 
+void publicUnicodeParity() {
+    const std::vector<QString> samples{
+        QString::fromUtf8("Straße"), QString::fromUtf8("İΣς"),
+        QString::fromUtf8("CAFÉ🐈"), QString::fromUtf8("こんにちは/안녕/安安"),
+        QString::fromUtf8("ﬃ𐐀"),     QString::fromUtf8("é"),
+        QString::fromUtf8("é")};
+    for (const auto& sample : samples) {
+        const auto bytes = sample.toUtf8();
+        const auto actual = QString::fromStdU16String(application::foldMetadataText(
+            std::string_view(bytes.constData(), static_cast<std::size_t>(bytes.size()))));
+        if (actual != sample.toCaseFolded())
+            std::cerr << "Unicode parity sample=" << sample.toUtf8().toHex().constData()
+                      << " actual=" << actual.toUtf8().toHex().constData()
+                      << " Qt=" << sample.toCaseFolded().toUtf8().toHex().constData() << "\n";
+        require(actual == sample.toCaseFolded(), "Public Unicode folding differs from Qt");
+    }
+    std::vector<ArchiveEntry> entries;
+    const std::vector<QString> names{QString::fromUtf8("ss"), QString::fromUtf8("ß"),
+                                     QString::fromUtf8("𐐀"), QString::fromUtf8(""),
+                                     QStringLiteral("SS")};
+    for (const auto& name : names) {
+        ArchiveEntry entry;
+        entry.type = EntryType::Directory;
+        entry.path = name.toUtf8().toStdString() + "/";
+        entries.push_back(std::move(entry));
+    }
+    auto built = application::MetadataIndex::build(
+        {std::make_shared<const std::vector<ArchiveEntry>>(std::move(entries))});
+    require(built.has_value(), "Unicode folder parity index failed");
+    auto expected = names;
+    std::sort(expected.begin(), expected.end(), [](const QString& a, const QString& b) {
+        const auto order = QString::compare(a, b, Qt::CaseInsensitive);
+        return order ? order < 0 : a < b;
+    });
+    const auto& tree = (*built)->hierarchy();
+    for (std::size_t i = 0; i < expected.size(); ++i)
+        require(QString::fromUtf8(tree.folders[tree.folders[0].children[i]].name) == expected[i],
+                "Public folder order differs from Qt simple folding/UTF-16 tie ordering");
+    std::cout << "PASS shared Unicode simple-fold search and Qt folder comparison parity\n";
+}
+
 void finishQuery(ArchiveEntryModel& model)
 {
     require(waitUntil([&] { return !model.querying(); }), "Metadata query did not complete");
@@ -561,6 +602,7 @@ int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);
     try {
+        publicUnicodeParity();
         unicodeSearchAndSelection();
         numericSortAndStableIdentity();
         incrementalAndStaleResults();

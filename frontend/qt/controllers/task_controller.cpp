@@ -49,6 +49,8 @@ QVariant TaskController::data(const QModelIndex& index, int role) const {
         if (record.id.startsWith(QStringLiteral("drag:"))) return tr("Drag and drop");
         switch (task.type) {
         case application::TaskType::OpenArchive: return tr("Open archive");
+        case application::TaskType::BrowseArchive:
+            return tr("Browse archive");
         case application::TaskType::ExtractArchive: return tr("Extract archive");
         case application::TaskType::CompressArchive: return tr("Create archive");
         }

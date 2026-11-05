@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ananarchiver/application/archive_service.h>
+#include <ananarchiver/application/browser_service.h>
 #include <ananarchiver/c_api/ananarchiver.h>
 
 #include <array>
@@ -20,8 +21,10 @@ struct aa_engine {
     std::array<Slot, 16> slots{};
     bool closing{};
     bool stopped{};
+    bool browserCleanup{};
     std::unique_ptr<ananarchiver::application::TaskManager> tasks;
     std::unique_ptr<ananarchiver::application::ArchiveService> archives;
+    std::unique_ptr<ananarchiver::application::BrowserService> browser;
     std::jthread cleaner;
 
     aa_engine();

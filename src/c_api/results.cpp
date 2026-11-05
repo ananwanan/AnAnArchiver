@@ -69,6 +69,8 @@ std::string diagnostic(std::string_view input) {
     return "Diagnostic contains invalid UTF-8";
 }
 
+} // namespace
+
 aa_entry entryValue(const ArchiveEntry& entry) noexcept {
     aa_entry row{};
     row.struct_size = sizeof(row);
@@ -106,7 +108,6 @@ aa_entry entryValue(const ArchiveEntry& entry) noexcept {
     }
     return row;
 }
-} // namespace
 
 aa_string view(const std::string& text) noexcept {
     return {text.data(), static_cast<uint64_t>(text.size())};
@@ -140,6 +141,9 @@ SnapshotResult::SnapshotResult(application::TaskSnapshot snapshot)
         break;
     case application::TaskType::CompressArchive:
         type = AA_TASK_COMPRESS;
+        break;
+    case application::TaskType::BrowseArchive:
+        type = AA_TASK_BROWSE;
         break;
     }
     switch (source.state) {

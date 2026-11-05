@@ -187,6 +187,38 @@ template <class F> aa_status submit(aa_engine& engine, aa_task_id* task, F&& ope
         return AA_RESOURCE_LIMIT;
     return submitted(engine, operation(), task);
 }
+struct BrowserResult final : aa_browser_result {
+    std::shared_ptr<const application::BrowserTaskResult> source;
+    std::vector<aa_browser_row> values;
+    explicit BrowserResult(std::shared_ptr<const application::BrowserTaskResult> result)
+        : aa_browser_result{}, source(std::move(result)) {
+        static_assert(sizeof(aa_browser_result) <= 128);
+        static_assert(sizeof(aa_browser_row) <= application::MetadataIndex::rowWireBytes);
+        struct_size = sizeof(aa_browser_result);
+        archive = source->archive;
+        query = source->query;
+        selection = source->selection;
+        entry_count = source->entryCount;
+        folder_count = source->folderCount;
+        index_bytes = source->indexBytes;
+        offset = source->page.offset;
+        total_rows = source->page.total;
+        transfer_bytes = source->page.bytes;
+        values.reserve(source->page.rows.size());
+        for (const auto& row : source->page.rows) {
+            aa_browser_row value{};
+            value.struct_size = sizeof(value);
+            value.is_folder = row.folder;
+            value.identity = row.identity;
+            value.name = view(row.name);
+            // No per-field FFI calls; populate one C record from owned native metadata.
+            value.entry = entryValue(row.entry);
+            values.push_back(value);
+        }
+        count = static_cast<uint32_t>(values.size());
+        rows = values.data();
+    }
+};
 } // namespace
 
 extern "C" {
@@ -196,7 +228,7 @@ aa_status AA_CALL aa_get_api_info(aa_api_info* info) noexcept {
     *info = {sizeof(aa_api_info),
              AA_ABI_VERSION,
              AA_FEATURE_OPEN | AA_FEATURE_EXTRACT | AA_FEATURE_COMPRESS |
-                 AA_FEATURE_METADATA_STREAM | AA_FEATURE_ASYNC_CLEANUP,
+                 AA_FEATURE_METADATA_STREAM | AA_FEATURE_ASYNC_CLEANUP | AA_FEATURE_BROWSER,
              AA_MAX_BATCH_ENTRIES,
              AA_MAX_STRING_BYTES,
              2,
@@ -442,5 +474,211 @@ void AA_CALL aa_entry_batch_release(const aa_entry_batch* batch) noexcept {
 }
 void AA_CALL aa_capability_batch_release(const aa_capability_batch* batch) noexcept {
     delete static_cast<const CapabilityBatchResult*>(batch);
+}
+
+aa_status AA_CALL aa_browser_open(aa_engine* engine, const aa_open_request* request,
+                                  aa_archive_id* archive, aa_task_id* task,
+                                  const aa_error** error) noexcept {
+    if (archive)
+        *archive = 0;
+    if (task)
+        *task = 0;
+    return boundary(error, [&]() -> aa_status {
+        requestSize(request);
+        if (!archive || !task || request->probe_only)
+            invalid("Browser open outputs and non-probe request required");
+        auto path = pathInput(request->path);
+        Secret password(request->password);
+        return withEngine(engine, [&]() -> aa_status {
+            return submit(*engine, task, [&]() -> Result<application::TaskId> {
+                engine->browserCleanup = true;
+                engine->changed.notify_all();
+                auto result = engine->browser->open(path, std::move(password.text));
+                if (!result)
+                    return std::unexpected(result.error());
+                *archive = result->archive;
+                return result->task;
+            });
+        });
+    });
+}
+aa_status AA_CALL aa_browser_query(aa_engine* engine, const aa_browser_query_request* request,
+                                   aa_query_id* query, aa_task_id* task,
+                                   const aa_error** error) noexcept {
+    if (query)
+        *query = 0;
+    if (task)
+        *task = 0;
+    return boundary(error, [&]() -> aa_status {
+        requestSize(request);
+        if (!query || !task || request->descending > 1 || request->folders_only > 1 ||
+            request->sort_column < -1 || request->sort_column > 3)
+            invalid("Invalid browser query");
+        application::MetadataQuery input{std::string(textInput(request->folder)),
+                                         std::string(textInput(request->search)),
+                                         request->sort_column,
+                                         request->descending != 0,
+                                         true,
+                                         request->folders_only != 0};
+        return withEngine(engine, [&]() -> aa_status {
+            if (!engine->browser->valid(request->archive))
+                return AA_STALE_VIEW;
+            return submit(*engine, task, [&]() -> Result<application::TaskId> {
+                engine->browserCleanup = true;
+                engine->changed.notify_all();
+                auto result = engine->browser->query(request->archive, std::move(input));
+                if (!result)
+                    return std::unexpected(result.error());
+                *query = result->query;
+                return result->task;
+            });
+        });
+    });
+}
+aa_status AA_CALL aa_browser_request_page(aa_engine* engine, const aa_browser_page_request* request,
+                                          aa_task_id* task, const aa_error** error) noexcept {
+    if (task)
+        *task = 0;
+    return boundary(error, [&]() -> aa_status {
+        requestSize(request);
+        if (!task || request->reserved || !request->max_rows ||
+            request->max_rows > AA_MAX_BATCH_ENTRIES ||
+            request->max_bytes < application::MetadataIndex::rowWireBytes ||
+            request->max_bytes > AA_MAX_PAGE_BYTES)
+            invalid("Invalid browser page bounds");
+        return withEngine(engine, [&]() -> aa_status {
+            if (!engine->browser->valid(request->archive, request->query) || !request->query)
+                return AA_STALE_VIEW;
+            return submit(*engine, task, [&] {
+                return engine->browser->page(request->archive, request->query, request->offset,
+                                             request->max_rows, request->max_bytes);
+            });
+        });
+    });
+}
+aa_status AA_CALL aa_browser_request_folders(aa_engine* engine,
+                                             const aa_browser_folder_page_request* request,
+                                             aa_task_id* task, const aa_error** error) noexcept {
+    if (task)
+        *task = 0;
+    return boundary(error, [&]() -> aa_status {
+        requestSize(request);
+        if (!task || request->reserved || !request->max_rows ||
+            request->max_rows > AA_MAX_BATCH_ENTRIES ||
+            request->max_bytes < application::MetadataIndex::rowWireBytes ||
+            request->max_bytes > AA_MAX_PAGE_BYTES)
+            invalid("Invalid folder page bounds");
+        auto folder = std::string(textInput(request->folder));
+        return withEngine(engine, [&]() -> aa_status {
+            if (!engine->browser->valid(request->archive))
+                return AA_STALE_VIEW;
+            return submit(*engine, task, [&] {
+                return engine->browser->folderPage(request->archive, std::move(folder),
+                                                   request->offset, request->max_rows,
+                                                   request->max_bytes);
+            });
+        });
+    });
+}
+aa_status AA_CALL aa_browser_select(aa_engine* engine, const aa_browser_select_request* request,
+                                    aa_selection_id* selection, aa_task_id* task,
+                                    const aa_error** error) noexcept {
+    if (selection)
+        *selection = 0;
+    if (task)
+        *task = 0;
+    return boundary(error, [&]() -> aa_status {
+        requestSize(request);
+        arrayInput(request->ranges, request->range_count);
+        if (!selection || !task || request->select_all > 1 ||
+            (request->select_all && request->range_count))
+            invalid("Invalid browser selection");
+        std::vector<application::MetadataRange> ranges;
+        for (uint64_t i = 0; i < request->range_count; ++i)
+            ranges.push_back({request->ranges[i].first, request->ranges[i].count});
+        return withEngine(engine, [&]() -> aa_status {
+            if (!engine->browser->valid(request->archive, request->query) || !request->query)
+                return AA_STALE_VIEW;
+            return submit(*engine, task, [&]() -> Result<application::TaskId> {
+                auto result = engine->browser->select(request->archive, request->query,
+                                                      std::move(ranges), request->select_all != 0);
+                if (!result)
+                    return std::unexpected(result.error());
+                *selection = result->selection;
+                return result->task;
+            });
+        });
+    });
+}
+aa_status AA_CALL aa_browser_extract(aa_engine* engine, aa_archive_id archive, aa_query_id query,
+                                     aa_selection_id selection, const aa_extract_request* request,
+                                     aa_task_id* task, const aa_error** error) noexcept {
+    if (task)
+        *task = 0;
+    return boundary(error, [&]() -> aa_status {
+        requestSize(request);
+        if (!task || !query || !selection || request->extract_all ||
+            request->selected_index_count || request->selected_directory_count ||
+            request->path.size)
+            invalid("Browser extraction requires only a native selection");
+        ExtractionRequest input;
+        input.destination = pathInput(request->destination);
+        input.overwrite = overwriteInput(request->overwrite);
+        input.links = linkInput(request->links);
+        Secret password(request->password);
+        return withEngine(engine, [&]() -> aa_status {
+            if (!engine->browser->valid(archive, query, selection))
+                return AA_STALE_VIEW;
+            return submit(*engine, task, [&] {
+                if (!password.text.empty())
+                    input.password = std::move(password.text);
+                return engine->browser->extract(archive, query, selection, std::move(input));
+            });
+        });
+    });
+}
+aa_status AA_CALL aa_browser_task_result(aa_engine* engine, aa_task_id task,
+                                         const aa_browser_result** result,
+                                         const aa_error** error) noexcept {
+    if (result)
+        *result = nullptr;
+    return boundary(error, [&]() -> aa_status {
+        if (!result)
+            invalid("Browser result output required");
+        return withEngine(engine, [&]() -> aa_status {
+            if (!engine->contains(task))
+                return AA_NOT_FOUND;
+            auto snapshot = engine->tasks->snapshot(task);
+            if (!snapshot)
+                return AA_NOT_FOUND;
+            if (snapshot->state == application::TaskState::Failed ||
+                snapshot->state == application::TaskState::Cancelled)
+                return AA_ARCHIVE_ERROR;
+            auto value = engine->tasks->browserResult(task);
+            if (!value)
+                return snapshot->state == application::TaskState::Succeeded ? AA_INVALID_ARGUMENT
+                                                                            : AA_BUSY;
+            if (!engine->browser->valid(value->archive, value->query, value->selection))
+                return AA_STALE_VIEW;
+            *result = new BrowserResult(std::move(value));
+            return AA_OK;
+        });
+    });
+}
+aa_status AA_CALL aa_browser_close(aa_engine* engine, aa_archive_id archive) noexcept {
+    return boundary(nullptr, [&] {
+        return withEngine(engine, [&]() -> aa_status {
+            if (!engine->browser->contains(archive))
+                return AA_STALE_VIEW;
+            if (!engine->browser->close(archive))
+                return AA_RESOURCE_LIMIT;
+            engine->browserCleanup = true;
+            engine->changed.notify_all();
+            return AA_OK;
+        });
+    });
+}
+void AA_CALL aa_browser_result_release(const aa_browser_result* result) noexcept {
+    delete static_cast<const BrowserResult*>(result);
 }
 } // extern "C"

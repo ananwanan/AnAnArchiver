@@ -6,7 +6,7 @@ using namespace ananarchiver::application;
 
 aa_engine::aa_engine()
     : tasks(std::make_unique<TaskManager>()), archives(std::make_unique<ArchiveService>(*tasks)),
-      cleaner([this] { clean(); }) {}
+      browser(std::make_unique<BrowserService>(*tasks)), cleaner([this] { clean(); }) {}
 
 aa_engine::~aa_engine() {
     shutdown();
@@ -43,7 +43,7 @@ void aa_engine::clean() {
     std::unique_lock lock(mutex);
     for (;;) {
         changed.wait(lock, [this] {
-            return closing || std::ranges::any_of(slots, [](const Slot& slot) {
+            return closing || browserCleanup || std::ranges::any_of(slots, [](const Slot& slot) {
                        return slot.id != 0 && slot.retiring;
                    });
         });
@@ -54,10 +54,17 @@ void aa_engine::clean() {
             lock.unlock();
             archives.reset();
             tasks.reset();
+            browser.reset();
             lock.lock();
             slots = {};
             stopped = true;
             return;
+        }
+        if (browserCleanup) {
+            browserCleanup = false;
+            lock.unlock();
+            browser->reclaim();
+            lock.lock();
         }
         for (auto& slot : slots) {
             if (slot.id == 0 || !slot.retiring)

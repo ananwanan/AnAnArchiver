@@ -2,8 +2,8 @@
 
 `ananarchiver_c_api` is a shared library over C++ Application services. The public
 header is `include/ananarchiver/c_api/ananarchiver.h`. It has no Qt, Flutter, Dart,
-STL or libarchive types. F1 implements native task transport; shared current-folder
-queries and a native authoritative browser index remain stage F2. There is no
+STL or libarchive types. F1 implements native task transport; F2 adds the native
+authoritative browser index, generation-checked queries/pages and selections. There is no
 Flutter app or Dart binding yet.
 
 ## Build and validation
@@ -100,8 +100,8 @@ callers must not accumulate them without limit.
 F1 request arrays contain at most 4,096 items each. Each string is at most
 64 KiB, and compression paths or selected directory paths together are at most
 4 MiB per request. Existing backend metadata, nesting, payload and time limits
-remain in force; ABI v1 cannot silently relax them. Million-entry selection and
-current-folder pages will use F2's native browser/selection representation.
+remain in force; ABI v1 cannot silently relax them. Large selections and current-folder
+pages use F2's native browser/selection representation.
 Do not accumulate the metadata stream into a full Dart-side archive index.
 
 ## Operations and conflicts
@@ -156,3 +156,41 @@ released. No worker is detached, and results do not borrow service memory.
 The C11 smoke consumer in `tests/c_api/c_consumer.c` is a minimal ownership and
 version-negotiation example; `tests/c_api/c_api_tests.cpp` demonstrates complete
 real archive tasks, conflict responses and shutdown.
+
+## F2 native browser extension (ABI v1 compatible)
+
+`AA_FEATURE_BROWSER` advertises additive functions/structures; all F1 layouts,
+constants and exports remain compatible. Negotiate this feature before generating
+a Dart binding. See [shared metadata browsing](metadata-browsing.md) for exact
+Unicode, directory, memory and generation semantics, and
+[F2 validation](../validation/2026-11-06-metadata-browsing.md) for evidence.
+
+1. `aa_browser_open` takes a non-probe `aa_open_request` and returns an archive
+   generation plus task ID. Poll the task and retrieve the owned summary with
+   `aa_browser_task_result`. No full metadata stream is emitted by this operation.
+2. `aa_browser_query` submits folder/search/sort and returns the new query ID
+   immediately. It invalidates its predecessor and selections. After success,
+   retrieve total rows; keep the full native query in C++.
+3. `aa_browser_request_page` submits offset/row/byte limits against those IDs.
+   Its successful task result is a batch of complete row records and strings.
+   `aa_browser_request_folders` independently loads direct folders for the tree
+   without invalidating list selection. The page limit is 512 rows and 1 MiB,
+   including a conservative record/header allowance and complete UTF-8 strings.
+4. `aa_browser_select` submits at most 4,096 nonoverlapping position ranges or
+   select-all for the current query. It returns a selection handle, with resolved
+   metadata retained natively after its task succeeds. Each new selection replaces
+   its predecessor. `aa_browser_extract` accepts the native selection plus regular
+   extraction options, reusing the existing worker and safe backend pipeline.
+5. `aa_browser_close` invalidates the archive and schedules index reclamation.
+   Release every owned result with `aa_browser_result_release` and every task with
+   `aa_task_release`; closing an archive does not release task IDs automatically.
+
+All input strings/arrays are copied during submission. Browser result strings
+last until that result is released, including after close/shutdown. Results never
+borrow the native full index. `AA_STALE_VIEW` rejects old archive/query IDs;
+pending tasks report `AA_BUSY`, failed/cancelled tasks `AA_ARCHIVE_ERROR` (inspect
+the ordinary task snapshot for the structured error). A successful non-browser
+task has no browser result and returns `AA_INVALID_ARGUMENT`. Output slots clear
+on failure. Invalid native selections fail explicitly, never become extract-all.
+F1 `aa_archive_open` streaming remains available for native compatibility; Flutter
+browsing should use `aa_browser_open` and bounded windows instead.

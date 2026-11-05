@@ -175,7 +175,10 @@ void exportSortedSelectionAndLinks() {
     check(selectedRow > 0 && model->data(model->index(0), qt::ArchiveEntryModel::DirectoryRole).toBool(),
           "Fixture did not reorder its original enumeration identities");
     view.archive.selectRow(selectedRow);
-    const auto selected = view.archive.selectedExtractionRequest({})->selectedIndices;
+    ExtractionRequest resolvedSelection;
+    succeeded(view.archive.selectionResolver()(resolvedSelection, {}),
+              "Resolve selected metadata on test thread");
+    const auto selected = resolvedSelection.selectedIndices;
     check(selected && *selected == std::vector<std::uint64_t>{1},
           "Sorted selection did not retain the original index");
     view.exportSelection();

@@ -16,3 +16,12 @@ _aa_error_release
 _aa_snapshot_release
 _aa_entry_batch_release
 _aa_capability_batch_release
+_aa_browser_open
+_aa_browser_query
+_aa_browser_request_page
+_aa_browser_select
+_aa_browser_extract
+_aa_browser_task_result
+_aa_browser_close
+_aa_browser_result_release
+_aa_browser_request_folders

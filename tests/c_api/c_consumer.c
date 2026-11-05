@@ -5,6 +5,12 @@
 
 _Static_assert(sizeof(aa_status) == 4, "status width");
 _Static_assert(sizeof(aa_task_id) == 8, "task ID width");
+_Static_assert(sizeof(aa_api_info) == 32, "ABI v1 info layout");
+_Static_assert(sizeof(aa_open_request) == 40, "ABI v1 open layout");
+_Static_assert(sizeof(aa_extract_request) == 96, "ABI v1 extraction layout");
+_Static_assert(sizeof(aa_compress_request) == 64, "ABI v1 compression layout");
+_Static_assert(sizeof(aa_entry) == 64, "ABI v1 entry layout");
+_Static_assert(sizeof(aa_task_snapshot) == 216, "ABI v1 snapshot layout");
 _Static_assert(offsetof(aa_string, size) == 8, "64-bit desktop string layout");
 
 #define CHECK(expression)                                                                          \
@@ -25,6 +31,7 @@ int main(void) {
     CHECK(aa_get_api_info(&info) == AA_OK);
     CHECK(info.abi_version == AA_ABI_VERSION && info.max_batch_entries == 512);
     CHECK((info.features & AA_FEATURE_ASYNC_CLEANUP) != 0);
+    CHECK((info.features & AA_FEATURE_BROWSER) != 0);
     CHECK(aa_engine_create(0, &engine, &error) == AA_ABI_MISMATCH);
     CHECK(engine == NULL && error == NULL);
     CHECK(aa_engine_create(info.abi_version, &engine, &error) == AA_OK);
@@ -44,6 +51,7 @@ int main(void) {
     aa_error_release(NULL);
     aa_entry_batch_release(NULL);
     aa_snapshot_release(NULL);
+    aa_browser_result_release(NULL);
     aa_engine_destroy(NULL);
     puts("C ABI consumer passed");
     return 0;

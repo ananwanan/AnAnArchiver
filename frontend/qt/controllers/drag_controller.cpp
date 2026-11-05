@@ -33,6 +33,7 @@ ArchiveError cancelled() {
 
 struct DragController::Operation {
     ExtractionRequest request;
+    application::SelectionResolver selection;
     std::filesystem::path source;
     std::filesystem::path root;
     QList<QUrl> outputUrls;
@@ -152,18 +153,19 @@ void DragController::prepareExport(QString password) {
     discardExport();
     dismissError();
     try {
-        auto request = archive_.selectedExtractionRequest({});
-        if (!request) {
+        if (!archive_.canExtract() || !archive_.selectionCount()) {
             password.fill(QChar{});
-            showError(request.error());
+            showError({ArchiveErrorCode::UnsupportedOperation,
+                       "Select archive entries after indexing has finished.",
+                       {},
+                       {}});
             return;
         }
         operation_ = std::make_shared<Operation>();
-        operation_->request = std::move(*request);
+        operation_->selection = archive_.selectionResolver();
         operation_->source = toPath(archive_.currentFile());
         exportedArchive_ = archive_.currentFile();
-        exportedIndices_ = operation_->request.selectedIndices;
-        exportedDirectoryPaths_ = operation_->request.selectedDirectoryPaths;
+        exportedSelection_ = archive_.selectionGeneration();
         auto& extraction = operation_->request;
         extraction.overwrite = OverwritePolicy::Skip;
         extraction.links = LinkPolicy::Skip;
@@ -202,7 +204,7 @@ void DragController::prepareExport(QString password) {
 void DragController::startExtract() {
     exportRoot_ = operation_->root;
     auto request = std::move(operation_->request);
-    if (!begin(service_.extract(operation_->source, std::move(request)),
+    if (!begin(service_.extract(operation_->source, std::move(request), operation_->selection),
                Phase::Extract, tr("Extracting selected files for dragging…"))) {
         discardExport();
         operation_.reset();
@@ -338,17 +340,15 @@ void DragController::discardExport() {
     exportRoot_.clear();
     exportUrls_.clear();
     exportedArchive_.clear();
-    exportedIndices_.reset();
-    exportedDirectoryPaths_.clear();
+    exportedSelection_ = 0;
     retained_ = false;
 }
 
 void DragController::invalidateExport() {
     if (exportUrls_.isEmpty() || dragging_)
         return;
-    auto current = archive_.selectedExtractionRequest({});
-    if (!current || archive_.currentFile() != exportedArchive_ || current->selectedIndices != exportedIndices_ ||
-        current->selectedDirectoryPaths != exportedDirectoryPaths_) {
+    if (!archive_.canExtract() || archive_.currentFile() != exportedArchive_ ||
+        archive_.selectionGeneration() != exportedSelection_) {
         discardExport();
         status_ = tr("Selection changed. Prepare the selected files again.");
         emit changed();

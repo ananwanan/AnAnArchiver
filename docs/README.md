@@ -23,6 +23,7 @@ Application/Core 和官方 libarchive 实现。需求变更不等于 Flutter 已
 C ABI 可独立于 GUI 构建；Flutter 构建与打包入口在实现、验证后补充。
 
 - [C ABI v1：接口、所有权、线程、限制与独立构建](development/c-api.md)
+- [F2 公共 metadata 浏览：Unicode、代次、预算与原生选择](development/metadata-browsing.md)
 - [Qt 基线开发、操作与构建说明](development/qt-baseline.md)
 - [Windows 基线打包与 Flutter 发布待办](../packaging/windows/README.md)
 - [Linux 基线打包与 Flutter 发布待办](../packaging/linux/README.md)
@@ -56,3 +57,5 @@ C ABI 可独立于 GUI 构建；Flutter 构建与打包入口在实现、验证�
 
 - [2026-11-05 Flutter 需求与文档切换](validation/2026-11-05-flutter-requirements.md)
 - [2026-11-05 F1 C ABI 开发与验证](validation/2026-11-05-c-api.md)
+
+- [2026-11-06 F2 公共 metadata 浏览与 Windows 验证](validation/2026-11-06-metadata-browsing.md)
