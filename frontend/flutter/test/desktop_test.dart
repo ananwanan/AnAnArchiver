@@ -6,8 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:litearc/controllers/browser_controller.dart';
 import 'package:litearc/controllers/desktop_controller.dart';
+import 'package:litearc/controllers/settings_controller.dart';
 import 'package:litearc/controllers/task_history_controller.dart';
 import 'package:litearc/main.dart';
+import 'package:litearc/platform/desktop_adapter.dart';
+import 'package:litearc/platform/settings_store.dart';
 import 'package:litearc_binding/litearc_binding.dart';
 
 import 'support/synthetic_transport.dart';
@@ -53,9 +56,66 @@ class ExportRace extends SyntheticTransport {
   }
 }
 
+class LoadingSettings extends SettingsController {
+  LoadingSettings() : super(SettingsStore('unused-in-test'));
+  final gate = Completer<void>();
+  @override
+  Future<void> load() => gate.future;
+}
+
+class ExitPicker extends Picker implements DesktopEvents {
+  bool disposed = false;
+  int restores = 0, connections = 0;
+  @override
+  Stream<List<String>> get openFiles => const Stream.empty();
+  @override
+  Future<List<String>> ready() async {
+    connections++;
+    return [];
+  }
+
+  @override
+  Future<void> restoreWindow(Map<String, Object?> state) async {
+    restores++;
+  }
+
+  @override
+  Future<Map<String, Object?>> windowState() async => {};
+  @override
+  Future<void> dispose() async {
+    disposed = true;
+  }
+}
+
 void main() {
   String absolute(String name) =>
       '${Directory.systemTemp.path}${Platform.pathSeparator}$name';
+  testWidgets(
+    'exit waits for pending settings and prevents late binding startup',
+    (tester) async {
+      final settings = LoadingSettings();
+      final platform = ExitPicker();
+      await tester.pumpWidget(
+        LiteArcApp(settings: settings, platform: platform),
+      );
+      var finished = false;
+      final exit = tester.binding.handleRequestAppExit().then((value) {
+        finished = true;
+        return value;
+      });
+      await tester.pump();
+      expect(platform.disposed, true);
+      expect(finished, false);
+      settings.gate.complete();
+      await tester.pump();
+      await exit;
+      expect(finished, true);
+      expect(platform.restores, 0);
+      expect(platform.connections, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   test(
     'navigation during handoff never discards output already offered to OS',
     () async {

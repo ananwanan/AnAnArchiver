@@ -46,6 +46,9 @@ class _LiteArcAppState extends State<LiteArcApp> {
   late final DesktopAdapter platform;
   DesktopOpenController? external;
   StreamSubscription<List<String>>? openSubscription;
+  Future<void>? starting;
+  Future<AppExitResponse>? exiting;
+  bool stopping = false;
   late final AppLifecycleListener lifecycle;
   @override
   void initState() {
@@ -55,42 +58,49 @@ class _LiteArcAppState extends State<LiteArcApp> {
     settings = widget.settings;
     locale = widget.initialLocale;
     lifecycle = AppLifecycleListener(
-      onExitRequested: () async {
-        external?.close();
-        await openSubscription?.cancel();
-        if (platform is SystemDesktopAdapter) {
-          await (platform as SystemDesktopAdapter).dispose();
-        }
-        if (platform case final DesktopEvents events) {
-          try {
-            final state = await events.windowState();
-            settings?.update(
-              width: state['width'] as int?,
-              height: state['height'] as int?,
-              maximized: state['maximized'] as bool?,
-            );
-          } catch (e) {
-            settings?.error = e;
-          }
-        }
-        final nativeShutdown = controller?.shutdown();
-        await settings?.flush();
-        await nativeShutdown;
-        return AppExitResponse.exit;
-      },
+      onExitRequested: () => exiting ??= _exit(),
     );
     if (controller == null) {
-      unawaited(_start());
+      starting = _start();
+      unawaited(starting);
     } else {
       _connect();
     }
+  }
+
+  Future<AppExitResponse> _exit() async {
+    stopping = true;
+    external?.close();
+    await openSubscription?.cancel();
+    if (platform case final DesktopEvents events) {
+      await events.dispose();
+    }
+    // Startup may be awaiting settings IO or creating the binding worker.
+    // Let it observe stopping and close any new worker before exiting.
+    await starting;
+    if (platform case final DesktopEvents events) {
+      try {
+        final state = await events.windowState();
+        settings?.update(
+          width: state['width'] as int?,
+          height: state['height'] as int?,
+          maximized: state['maximized'] as bool?,
+        );
+      } catch (e) {
+        settings?.error = e;
+      }
+    }
+    final nativeShutdown = controller?.shutdown();
+    await settings?.flush();
+    await nativeShutdown;
+    return AppExitResponse.exit;
   }
 
   Future<void> _start() async {
     try {
       settings ??= SettingsController(SettingsStore.system());
       await settings?.load();
-      if (!mounted) return;
+      if (!mounted || stopping) return;
       final prefs = settings?.value;
       if (prefs != null) {
         theme = ThemeMode.values[prefs.theme];
@@ -103,15 +113,16 @@ class _LiteArcAppState extends State<LiteArcApp> {
           await events.restoreWindow(prefs.toJson());
         }
       }
+      if (!mounted || stopping) return;
       final binding = await BrowserClient.start();
-      if (!mounted) {
+      if (!mounted || stopping) {
         await binding.close();
         return;
       }
       setState(() => controller = BrowserController(binding));
       _connect();
     } catch (e) {
-      if (mounted) setState(() => startupError = e);
+      if (mounted && !stopping) setState(() => startupError = e);
     }
   }
 
@@ -135,6 +146,7 @@ class _LiteArcAppState extends State<LiteArcApp> {
 
   @override
   void dispose() {
+    stopping = true;
     lifecycle.dispose();
     external?.close();
     unawaited(openSubscription?.cancel());
