@@ -208,8 +208,7 @@ void TempFileManager::clean(std::stop_token stop) {
                 cleanupErrors_.push_back({ArchiveErrorCode::CleanupFailed,
                                           "Could not clean a private export directory after three "
                                           "attempts; close programs using its files",
-                                          {},
-                                          root});
+                                          removalError.message(), root});
             }
             continue;
         }

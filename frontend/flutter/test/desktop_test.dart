@@ -87,6 +87,22 @@ class ExitPicker extends Picker implements DesktopEvents {
   }
 }
 
+class FailedRelease extends SyntheticTransport {
+  @override
+  Future<BrowserPage> request(
+    String op, [
+    Map<String, Object?> args = const {},
+  ]) {
+    if (op == 'exportControl') {
+      if (args['action'] == 4) {
+        return Future.error(const BrowserFailure(6, 17, 'locked export'));
+      }
+      return Future.value(const BrowserPage(paths: ['private-root']));
+    }
+    return super.request(op, args);
+  }
+}
+
 void main() {
   String absolute(String name) =>
       '${Directory.systemTemp.path}${Platform.pathSeparator}$name';
@@ -112,6 +128,31 @@ void main() {
       expect(finished, true);
       expect(platform.restores, 0);
       expect(platform.connections, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
+    'retained export release reports errors after its dialog closes',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final c = BrowserController(FailedRelease());
+      await tester.pumpWidget(
+        LiteArcApp(
+          controller: c,
+          platform: Picker(),
+          settings: LoadingSettings(),
+          initialLocale: const Locale('en'),
+        ),
+      );
+      await tester.tap(find.byTooltip('Temporary exports'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('All target copies finished: release files'));
+      await tester.pumpAndSettle();
+      expect(c.operations.error?.code, 17);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

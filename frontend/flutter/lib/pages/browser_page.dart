@@ -214,8 +214,12 @@ class _BrowserPageViewState extends State<BrowserPageView> {
               TextButton(
                 onPressed: () async {
                   Navigator.pop(context);
-                  for (final root in result.paths) {
-                    await e.release(root);
+                  try {
+                    for (final root in result.paths) {
+                      await e.release(root);
+                    }
+                  } catch (error) {
+                    widget.controller.operations.reportFailure(error);
                   }
                 },
                 child: Text(l.releaseExports),
