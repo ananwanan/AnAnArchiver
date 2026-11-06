@@ -13,7 +13,7 @@ F3 Flutter/Dart UI 与独立 binding 已实现，并验证 Windows x64 Release �
 浏览链路；F4 已接入真实解压/创建、密码、覆盖交互、进度与取消并完成 Windows x64
 验证，见 [F4 验证记录](docs/validation/2026-11-06-flutter-operations.md)。
 F5 已接入设置迁移、最近记录、任务中心、快捷键、系统打开与 OS 文件拖放；
-Windows 自动化与原生链路已验证，Explorer 拖出目标内容及完整 OS 取消/退出组合尚待闭环，
+Windows 自动化与原生链路、Explorer 单文件拖出目标内容已验证；目录及完整 OS 取消/退出组合尚待闭环，
 见 [F5 验证记录](docs/validation/2026-11-07-flutter-desktop.md)。
 Linux/macOS 尚未原生验证，后续为平台补验及 F6。F3 证据见
 [Flutter 验证记录](docs/validation/2026-11-06-flutter-browsing.md)。F1/F2 证据见
@@ -2929,8 +2929,9 @@ Qt 基线分支不跟随 Flutter 重写，现有主线 Qt 文件只为迁移对�
 
 # 100. Immediate Technical Direction
 
-F1 原生 C ABI、F2 公共 metadata 浏览、F3 Flutter/Dart 归档浏览与 F4 归档操作已实现，
-并提供 Windows x64 验证记录。下一步 F5 桌面体验；其他平台仍需原生构建和运行验证。
+F1 原生 C ABI、F2 公共 metadata 浏览、F3 Flutter/Dart 归档浏览、F4 归档操作与 F5
+桌面体验已实现，并提供 Windows x64 验证记录。下一步补齐 F5 桌面实机验收，再推进
+F6；其他平台仍需原生构建和运行验证。
 不重写 backend、不先做复杂动画或无关产品功能。
 第一条 Flutter 纵向链路为：
 

@@ -3,8 +3,9 @@
 ## 状态与证据边界
 
 从 `main` / `b1ebfed` 实施 F5。功能已接入，Windows x64 Release 构建与实际打开、
-设置迁移、原生选择导出准备通过；**F5 桌面验收尚未全部完成**：Explorer 文件/目录
-拖出的目标内容与原生异步复制/退出组合仍待独立核验。不能把协议 mock、真实 C ABI
+设置迁移、原生选择导出准备、Explorer 单文件拖出及目标内容校验通过；
+**F5 桌面验收尚未全部完成**：Explorer 目录目标内容与原生异步复制/退出组合仍待独立
+核验。不能把协议 mock、真实 C ABI
 或用户初次笼统反馈作为这些项目已通过的替代证据。Linux/macOS 只有接线，没有原生
 构建/运行证据。F6、关联注册、安装器、签名与正式发布未扩展。
 
@@ -27,6 +28,7 @@
   可用总量、输出位置及错误详情；不保留 native task/快照/完整索引用于历史。
   一个浏览通道、一个操作通道，2 active / 16 retained 限制不变；队列、进度 ack 有界。
   被替换的浏览仍观察实际终态后释放；没有假暂停或未知总量的假百分比。
+  启动设置读取/worker 创建与退出串接，退出等待启动收尾，禁止退出后继续创建 binding。
 - 平台习惯快捷键，文本/密码/对话框作用域、列表焦点边框、新 zh-CN/en ARB。
   Ctrl/Cmd+O/N/E/F/A，Shift+E 全部解压，Alt+Up/Home 或 Cmd+Up/Shift+Up 导航，
   Ctrl/Cmd+句点取消操作；Escape 只在非编辑/非对话框作用域取消浏览。
@@ -44,6 +46,7 @@
   因此交付后的目录跨退出/重启保留并继续计入容量；用户确认复制完成后明确释放。
   未交付输出十分钟过期；取消/失败/关闭由受管理 worker 清理。删除重试、清理错误
   与 Windows 扩展长路径共用同一实现；私有存储有 OS 锁，失败根可再次明确释放。
+  释放对话框关闭后发生的异步失败仍报告到操作状态，保留原生删除失败的系统诊断。
 
 ## 工具链与来源
 
@@ -61,6 +64,15 @@ native 重放 **2026-10-28T15:46:45.521277+00:00** 的已验证解析及 F1 pref
 libarchive **3.8.10** / `0c48412be2d94afe1859a807ea7896a18d8900bd`；没有声称重新
 获取了最新 backend/codec，没有回退系统库。包内 litearc-build 保存实际 SDK、锁文件、
 binding header hash、native provenance、解析与许可。开发期间产物含 dirty 标记。
+
+最终用 `out/f5-verify-worktree` 的独立干净检出重放同一解析构建 Windows x64 Release，
+避免覆盖实机窗口正在加载的 DLL。检出同时建立 manifest 所列原生源码及 Mbed TLS
+嵌套源码的相同 revision；首次缺少 framework 时 provenance 正确拒绝，补齐后通过，
+没有绕过来源校验。最终功能提交 **`e5518b32d98e1dc03c51b55cf6d7e36dc253bf52`**，
+产物 `litearc-build/dependency-provenance.json` 的 application.dirty 为 **false**。
+最后一次构建 41.3 s（增量），bundle 85 个文件、35,209,894 B，未包含 Qt DLL。
+该构建数据不作为 clean-machine 启动或安装器验收，实际 Explorer 操作使用此前的
+交互 Release；最后的启动退出与错误报告补充由 widget/native 回归验证。
 
 [Flutter 部署表](https://docs.flutter.dev/reference/supported-platforms) 仍列出目标桌面架构；
 [Intel 弃用追踪](https://github.com/flutter/flutter/issues/188328) 仍开放。
@@ -88,19 +100,21 @@ $env:ANANARCHIVER_DEPENDENCY_PREFIX = (Resolve-Path ../../out/build/f1-release/d
 ../../scripts/Invoke-Msvc.ps1 flutter build windows --release
 ```
 
-- Flutter/controller/widget/protocol **31/31 通过**；analyze、Dart format 通过。
+- Flutter/controller/widget/protocol **33/33 通过**；analyze、Dart format 通过。
 - binding 启用真实 library/archive/long-archive/operations fixtures，**27/27 通过**，
   无跳过真实测试；binding analyze 通过。
 - Core/archive/extraction/security/compression/Application/metadata/C consumer/C ABI
   **9/9 suites 通过**；dependency_tools 独立 **1/1 通过**，175.53 s。
-- 受影响 Qt/native **21/21 suites 通过**，最终一次 12.21 s，含长路径导出与锁定清理。
+- 受影响 Qt/native **21/21 suites 通过**，完整一次 18.69 s，含长路径导出与锁定清理。
+  最后补充系统清理诊断后，qt_drag/browser_c_api **2/2 通过**，5.16 s。
 - 本次 C/C++ 修改经 clang-format；修复临时管理抽离引入的长路径删除和别名前置声明
   回归、移除重复 NOMINMAX 引入的 warning。最终编译无本次项目 warning/error。
 - git diff --check 通过。没有修改 CI 自动触发策略。
 
 新增测试包括首次/重复/未知/损坏迁移、并发写入冲突、合并与最近去重/上限/失效路径，
 外部打开替换/重复/关闭、32 项任务摘要、文本/密码/对话框快捷键作用域、导航与 handoff
-竞态。协议 fake 验证 native drop acknowledgment 不等待 modal/controller Future；
+竞态、启动设置未完成时退出、释放对话框结束后的异步失败。协议 fake 验证 native drop
+acknowledgment 不等待 modal/controller Future；
 这不是 Explorer 复制证据。真实 C ABI 验证第二个同名文件、隐式/空目录、导出结果在
 engine 销毁后仍可读、跨 engine 存储独占、重启四根预算、明确释放与后台清理。
 
@@ -161,12 +175,18 @@ dart run tool/measure_desktop.dart ../../../../out/build/f2-core/ananarchiver_c_
 用户曾反馈拖入/拖出成功；独立观察明确确认 `plain.txt` 已进入创建对话框，但指定
 `out/f5-os/target` 当时仍为空、没有导出根，因此未将那次反馈计为拖出内容校验通过。
 桌面工具的 drag API 限制在单窗口边界内，跨 Explorer/LiteArc 拖动返回 outside window
-bounds；已经请求用户执行剩余真实手势，仍待对目标文件及目录内容核验。
+bounds，因此请求用户执行跨窗口真实手势。修复后的 Release 中，随后实际出现目标
+`out/f5-os/target/duplicate.txt`，6 字节、内容 `second`，目标与 export-1 源文件的 SHA-256
+均为 `16367AACB67A4A017C8DA8AB95682CCB390863780F7114DDA0A0E0C55644C7C4`。
+该文件是用户真实拖动复制的独立磁盘证据，验证了第二个原始同名条目的身份。
+另已通过 UI 准备 empty、many（300 个文件）、隐式中文目录三项；准备输出已检查，
+尚未观察到对应 Explorer 目标目录，不将它记作目录复制通过。
 
 这轮实机过程暴露了等待创建对话框的 native drop 回调。曾出现“未响应”窗口，旧运行
 被终止后重建；该终止不是正常清理/退出通过的证据。现已改成取得普通路径后立即结束
 回调，再异步处理创建/打开，并添加协议回归。修复版 Release 的启动与真实导出准备
-已重测；Explorer 创建/文件及目录复制、目标延迟读取、原生拖动中取消/关闭/退出的
+已重测，单文件复制已按上段独立核验；修复后的 Explorer 创建对话框收尾、目录复制、
+目标延迟读取、原生拖动中取消/关闭/退出的
 完整 OS 组合还不能标为通过。C ABI / Profile 的延迟读取和清理证据如上，分别列出。
 
 本轮检查品牌 PNG/ICO 内嵌 PNG 均无 iCCP；Profile 与修复版 Release 记录没有重现
