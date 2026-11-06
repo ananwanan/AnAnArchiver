@@ -61,7 +61,7 @@
       }
     }
   },
-  "operation": "{value, select, open{Opening archive} query{Querying folder} page{Loading files} folders{Loading folders} selection{Resolving selection} other{Archive task}}",
+  "operation": "{value, select, open{Opening archive} query{Querying folder} page{Loading files} folders{Loading folders} selection{Resolving selection} extractAll{Extracting all} extractSelected{Extracting selection} compress{Creating archive} other{Archive task}}",
   "@operation": {
     "placeholders": {
       "value": {
@@ -77,7 +77,7 @@
       }
     }
   },
-  "errorMessage": "{value, select, e1{File not found.} e2{Permission denied.} e3{Unsupported archive format.} e4{Unsupported compression method.} e5{Operation is not supported.} e6{Invalid archive.} e7{The archive is corrupted.} e8{Incorrect password.} e9{A password is required. Password entry is planned for F4.} e10{The disk is full.} e11{The output already exists.} e12{The operation was cancelled.} e13{Cleanup failed.} e14{A resource limit was reached.} e15{Invalid path encoding.} e16{Unsafe archive path.} e17{An input/output error occurred.} e18{The archive backend reported a warning.} e19{The archive backend reported an error.} other{The request failed. See details.}}",
+  "errorMessage": "{value, select, e1{File not found.} e2{Permission denied.} e3{Unsupported archive format.} e4{Unsupported compression method.} e5{Operation is not supported.} e6{Invalid archive.} e7{The archive is corrupted.} e8{Incorrect password.} e9{A password is required.} e10{The disk is full.} e11{The output already exists.} e12{The operation was cancelled.} e13{Cleanup failed.} e14{A resource limit was reached.} e15{Invalid path encoding.} e16{Unsafe archive path.} e17{An input/output error occurred.} e18{The archive backend reported a warning.} e19{The archive backend reported an error.} other{The request failed. See details.}}",
   "@errorMessage": {
     "placeholders": {
       "value": {
@@ -89,5 +89,66 @@
   "components": "Components and build",
   "licenses": "Licenses",
   "unavailable": "Unavailable",
-  "modifiedBuild": "modified build"
+  "modifiedBuild": "modified build",
+  "createArchive": "Create archive",
+  "extractAll": "Extract all",
+  "extractSelected": "Extract selected",
+  "extract": "Extract",
+  "password": "Password",
+  "overwrite": "Existing files",
+  "applyToAll": "Apply to all in this task",
+  "conflictTitle": "The destination already exists",
+  "staleAnswer": "This conflict is no longer waiting for an answer.",
+  "cleanupNotice": "The operation did not complete. Extraction rolls back new output; inspect the destination and cleanup error details. Existing files may already have been replaced.",
+  "addFiles": "Add files",
+  "addFolder": "Add folder",
+  "clearInputs": "Clear inputs",
+  "inputLimit": "At most 4,096 input paths are allowed.",
+  "inputCount": "{count} input paths",
+  "formatMethod": "Format / method",
+  "level": "Compression level",
+  "preservePermissions": "Preserve permissions",
+  "preserveTimestamps": "Preserve timestamps",
+  "chooseOutput": "Choose output",
+  "replaceArchive": "Replace existing archive after successful creation",
+  "overwritePolicy": "{value, select, p0{Ask} p1{Overwrite} p2{Skip} p3{Rename} p4{Overwrite if newer} other{Unknown}}",
+  "operationStats": "{entries} entries · {bytes} B · {speed} B/s · {ms} ms",
+  "compressionPhase": "{value, select, p1{Scanning inputs} p2{Writing archive} p3{Finalizing output} other{Working}}",
+  "@inputCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@operationStats": {
+    "placeholders": {
+      "entries": {
+        "type": "String"
+      },
+      "bytes": {
+        "type": "String"
+      },
+      "speed": {
+        "type": "String"
+      },
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "@overwritePolicy": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "@compressionPhase": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  }
 }

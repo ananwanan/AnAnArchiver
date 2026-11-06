@@ -15,7 +15,10 @@ F1 已加入独立共享库 `ananarchiver_c_api`，包装现有异步打开、�
 抽离为公共 C++ Application 服务，提供异步、有代次校验的 C ABI 分页和原生选择。
 **F3 已实现真正运行的 Flutter 归档浏览：Home、系统文件选择、内容检测打开、
 目录树/当前目录虚拟列表、导航、Unicode 搜索排序和原生多选。Windows x64 已验证；
-Linux/macOS runner 已接线但尚未原生验证。** `frontend/qt` 仍是迁移回归对照。 现有 Qt 源码、CMake 预设、
+Linux/macOS runner 已接线但尚未原生验证。** F4 现已接入真实解压全部/选中、密码重试、
+覆盖策略与本任务 Apply to all、实际进度/取消和 native capabilities 创建归档；
+Windows 证据见 [F4 验证记录](docs/validation/2026-11-06-flutter-operations.md)。
+`frontend/qt` 仍是迁移回归对照。现有 Qt 源码、CMake 预设、
 打包脚本和历史测试暂留作对照，不能作为 Flutter 的完成或验收证据。
 
 完整需求见 [AGENTS.md](AGENTS.md)，决策与验收见
@@ -49,16 +52,16 @@ C ABI 不导出 STL 或 C++ 异常，明确 handles、UTF-8、内存释放和版
 IO、索引、查询和清理运行在受管理 worker；UI 只读取有界任务快照及分页视图。
 完整 metadata 索引留在 C++，避免在 Dart 再持有百万条目的完整副本。
 
-## 已有能力与 Flutter 待迁移范围
+## 已有能力与后续范围
 
 已有 C++ 实现包括内容检测、流式枚举、安全解压、覆盖策略、密码、取消、
 实际字节进度及原子创建。writer capabilities 决定可创建的 ZIP、7z 和 TAR
 过滤器组合；读取支持不等于写入支持。完整性测试、归档编辑和预览仍需独立实现，
 不能因换前端而标记完成。
 
-Flutter 必须对齐现有归档目录树与当前目录列表、隐式父目录/空目录、文件夹优先、
-根目录/上级导航、搜索排序、多选、原始条目身份、选中/全部解压、密码与覆盖交互、
-创建、任务中心、主题、最近记录、快捷键及系统文件拖入拖出。
+Flutter 已接入归档目录树与当前目录列表、隐式父目录/空目录、文件夹优先、
+根目录/上级导航、搜索排序、多选、原始条目身份、选中/全部解压、密码与覆盖交互和
+创建。完整任务中心、设置/最近记录迁移、完整快捷键及系统文件拖入拖出继续属于 F5。
 失败或超限的目录视图不能执行选中操作；切换目录、搜索和排序清空选择并使旧查询失效。
 真实文件系统浏览继续使用独立的按需扫描，所有归档安全与资源上限继续生效。
 
@@ -67,7 +70,7 @@ Flutter 必须对齐现有归档目录树与当前目录列表、隐式父目录
 1. F1：已实现 C ABI v1、任务与所有权测试；已验证 Windows x64 Release。
 2. F2：已实现公共目录索引、查询、有界分页和原生选择；验证范围见 [F2 记录](docs/validation/2026-11-06-metadata-browsing.md)。
 3. F3：已实现 Flutter Home、真实打开和有界归档浏览；[开发说明](docs/development/flutter.md)、[Windows 验证与性能](docs/validation/2026-11-06-flutter-browsing.md)。
-4. F4：复用现有解压、压缩、密码、覆盖、进度与取消。
+4. F4：已实现解压全部/原生选中、密码、覆盖、进度/取消和 capabilities 创建；[真实操作、测试与测量](docs/validation/2026-11-06-flutter-operations.md)。
 5. F5：设置迁移、任务中心、主题、桌面拖放和系统入口对齐。
 6. F6：各平台 Release 打包、来源/许可、安装升级与大规模性能验收。
 

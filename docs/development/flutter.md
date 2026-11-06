@@ -1,4 +1,4 @@
-# Flutter 归档浏览（F3）
+# Flutter 归档浏览与操作（F3/F4）
 
 `frontend/flutter` 是可运行的桌面 app；`packages/litearc_binding` 是不依赖 Flutter
 的 Dart package。Windows x64 已构建/运行；Linux/macOS runner 已接线，仍需对应
@@ -64,6 +64,8 @@ C ABI → Application → Core/backend。UI isolate 从不创建指针、装载 
 worker 协商 `AA_ABI_VERSION == 1` 与 `AA_FEATURE_BROWSER`，并检查任务容量。
 无 Dart callback 进入 C++。最终 `aa_engine_destroy`、join、native 缓冲释放及输入准备都在
 worker isolate；正常关闭等待 worker 完成后再允许窗口退出，不通过 kill 清理。
+进度消息逐请求确认：每条通道最多一个未确认快照和一个可替换的最新状态，终态另行发送，
+不让 UI 忙碌时在 isolate mailbox 积累无限快照；原生 snapshot 在复制 DTO 后即释放。
 
 生成绑定：
 
@@ -80,13 +82,16 @@ dart analyze
 C11 consumer 对同一组 C 布局/关键 offsets 作编译期断言。更新绑定后必须跑真实 ABI
 集成测试；hash/size 检查不能独自代替运行证据。
 
-worker 一次只提交一个 native active/retained task；每个结果完成/失败/取消后立刻释放。
-原生 cleaner 可能还在回收已释放任务，因此 AA_BUSY 最多重试 100 次，每次等待 20 ms，
-等待期间继续处理取消/退出输入。poll 间隔 50 ms，快任务可立即完成。所有 snapshots、
+worker 保留一条串行浏览队列和一条独立归档操作通道，最多两个 native active tasks；
+原生 retained 上限仍为 16，每个结果完成/失败/取消后立刻释放任务。
+原生 cleaner 可能还在回收已释放任务，因此暂时的 task capacity/AA_BUSY 最多重试
+100 次，每次等待 20 ms；真实输入/索引预算或内存错误仍返回失败。
+等待期间继续处理取消/覆盖回答/退出。两条通道均以 50 ms cadence 轮询，快任务可立即完成。所有 snapshots、
 errors、browser results 精确释放，先复制有界 DTO 再传给 UI。
 
-binding 前端最多 32 个待答请求、worker 队列最多 16 个；变更 open/query/close/cancel
-清除旧队列、取消当前任务；重复选择合并为最后一次。Controller 只允许一个列表窗口
+binding 前端最多 32 个待答请求（普通请求占 28 个，为控制输入预留 4 个）、worker 浏览
+队列最多 16 个，归档操作不积累队列；open/query/close/cancel 清除旧浏览队列、取消
+当前浏览任务；重复选择合并为最后一次。Controller 只允许一个列表窗口
 请求和两个 folder 请求，合并重复窗口/滚动目标。请求 epoch 与 archive/query/selection
 代次共同拒绝旧结果。页面 dispose 会启动 transport 关闭；正常应用退出显式 await
 shutdown。被强制终止进程不承诺执行 Dart 清理。
@@ -111,7 +116,46 @@ native transfer allowance；Dart 对象/字符串和传输中的副本另有开�
 搜索 debounce 180 ms，选择提交 debounce 80 ms。归档、目录、搜索、排序变化立即清空
 可见选择/旧查询；C++ 执行 Unicode 搜索、排序、目录构建和大选择。错误 code 由 ARB
 本地化为 zh-CN/en，原始诊断仅在详情显示为纯文本。未知总量显示实际状态/条目数，
-不构造百分比。未接入的压缩/解压/拖出不提供成功占位。
+不构造百分比。F4 已接入下面的压缩/解压；未实现的拖出等不提供成功占位。
+
+## F4 解压、创建与交互
+
+Widget → BrowserController / OperationController → BrowserClient → 同一 worker/engine
+→ C ABI → 现有 Application/Core。浏览和归档任务分别拥有 task ID，轮询/释放不互相
+覆盖。`resolveConflict` / `cancelOperation` 在 inbox 直接处理，不进入等待该回答的队列。
+正常操作只保留两个当前任务及有界快照，不增加 native 容量。
+
+- **全部解压**：系统目录选择后，显式 `aa_archive_extract(extract_all=1)`，不继承搜索、
+  排序或选择。**选中解压**：仅允许完成且属于当前 generation 的 selection handle，
+  调用 `aa_browser_extract`；不展开 native 百万选择，不在 Dart 重建原始 ordinals/目录。
+  选择尚未完成、失效、空选择或无效视图均明确拒绝。选择目标/选项期间视图变化也拒绝。
+- 复用 Core 的路径、绝对路径、链接、预算、输出事务和 rollback；本轮不增加解析器或
+  Dart 文件扫描。默认 safe link policy。输出失败/取消显示实际结构化错误；cleanup failure
+  的原始路径/诊断可在纯文本详情查看，不把取消请求本身当作清理完成。
+- 密码需要/错误时，前一 native 任务已终止并清理，再提交相同操作及新密码；选中操作
+  仍重新检查 archive/query/selection，不能在重试时退化为全部。密码取消完成该操作。
+  密码不进入设置/日志/来源记录；输入框在回答、取消、关闭和 dispose 时同步清空，
+  请求引用在提交后移除。worker 擦写自有 UTF-8 和 FFI buffer 后释放，native 沿用密码
+  guard。Dart 不可变字符串、VM/isolate 传输和系统输入可能有副本，不能保证绝对擦除。
+- 初始覆盖策略为 Ask/Overwrite/Skip/Rename/OverwriteIfNewer；每次回答同时携带实际
+  task ID 和 conflict ID，拒绝过期/重复回答。Apply to all 只在该 native 任务内有效。
+- 创建对话框从 `aa_compression_capabilities` 读取实际格式/方法、level 区间及权限/
+  时间戳选项；使用系统多文件、目录和保存位置对话框。没有密码创建/AES/多线程/solid
+  控件。所有输入扫描、读写、压缩和原子替换仍在 C++ worker；现存输出只在显式允许且
+  成功创建后替换。输入上限为 4,096 路径、每路径 64 KiB UTF-8、累计 4 MiB；超限报错，
+  不截断。macOS runner 改用 user-selected read-write entitlement，尚未原生验证。
+- 任务面板显示实际状态、当前文件、扫描/写入/完成阶段、条目/字节、速度、耗时和
+  已知总量；总量未知显示不确定进度，没有伪暂停。面板只显示当前/最近一次操作，完整
+  任务中心和持久历史仍属 F5。
+
+目录/搜索/排序变化允许已提交操作继续；若等待密码期间选中视图失效，重试明确失败。
+切换/关闭归档会取消在途操作，native worker 完成回滚/释放后才切换归档。
+页面 dispose/正常退出会先结束密码等待、取消所有 native 任务与冲突等待，在后台等待
+操作终态并最终 destroy/join，之后窗口退出；不使用 isolate.kill。
+系统强制终止进程不承诺运行清理。归档源仍是路径而非文件内容快照，外部改变后必须重开。
+
+真实测试、工具链、Release/独立 Profile、IO/百万选择测量和平台限制见
+[F4 验证记录](../validation/2026-11-06-flutter-operations.md)。
 
 主题与语言当前仅会话内生效；F3 不读写旧 QSettings。F5 将在保留旧设置的前提下，
 后台一次性迁移已知 theme/recent 字段、加迁移标记、不迁移密码、不在启动时 stat 最近路径。

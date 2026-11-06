@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:litearc_binding/litearc_binding.dart';
 
+import 'operation_controller.dart';
+
 class RowSelection {
   final List<(int, int)> ranges = []; // half-open query positions, at most 4096
   int get count => ranges.fold(0, (n, r) => n + r.$2 - r.$1);
@@ -42,15 +44,17 @@ class RowSelection {
 }
 
 class BrowserController extends ChangeNotifier {
-  BrowserController(this.transport) {
+  BrowserController(this.transport)
+    : operations = OperationController(transport) {
     _subscription = transport.progress.listen((p) {
-      if (!_disposed && !isHome) {
+      if (!_disposed && !isHome && !p.isArchiveOperation) {
         progress = p;
         notifyListeners();
       }
     });
   }
   final BrowserTransport transport;
+  final OperationController operations;
   late final StreamSubscription<TaskProgress> _subscription;
   static const maxPages = 8, maxFolderWindows = 8;
   final pages = <int, BrowserPage>{};
@@ -98,6 +102,9 @@ class BrowserController extends ChangeNotifier {
   }
 
   Future<void> open(String source) async {
+    if (_disposed) return;
+    await operations.cancel();
+    if (_disposed) return;
     _searchTimer?.cancel();
     _resetView();
     final token = generation;
@@ -113,7 +120,26 @@ class BrowserController extends ChangeNotifier {
     busy = true;
     notifyListeners();
     try {
-      final r = await transport.request('open', {'path': source});
+      BrowserPage r;
+      final args = <String, Object?>{'path': source};
+      while (true) {
+        try {
+          final pending = transport.request('open', Map.of(args));
+          args.remove('password');
+          r = await pending;
+          break;
+        } on BrowserFailure catch (e) {
+          if (!_valid(token)) return;
+          if (e.code != 8 && e.code != 9) rethrow;
+          String? password = await operations.requestPassword(e);
+          if (!_valid(token) || password == null) {
+            password = null;
+            throw const BrowserFailure(8, 12, 'Password entry cancelled');
+          }
+          args['password'] = password;
+          password = null;
+        }
+      }
       if (!_valid(token)) return;
       archive = r.archive;
       entries = r.entryCount;
@@ -174,6 +200,7 @@ class BrowserController extends ChangeNotifier {
   }
 
   void setSearch(String value) {
+    if (_disposed) return;
     if (search == value) return;
     search = value;
     // Invalidate the visible state immediately, before the debounced native query.
@@ -283,12 +310,14 @@ class BrowserController extends ChangeNotifier {
   }
 
   Future<void> focusTree(String value) async {
+    if (_disposed) return;
     treeRoot = value;
     await loadFolders(value);
     if (!_disposed) notifyListeners();
   }
 
   Future<void> expand(String value) async {
+    if (_disposed) return;
     if (expanded.remove(value)) {
       notifyListeners();
       return;
@@ -300,7 +329,8 @@ class BrowserController extends ChangeNotifier {
   }
 
   void choose(int index, {bool additive = false, bool extend = false}) {
-    if (query == 0 ||
+    if (_disposed ||
+        query == 0 ||
         busy ||
         index < 0 ||
         index >= total ||
@@ -325,7 +355,7 @@ class BrowserController extends ChangeNotifier {
   }
 
   void selectAll() {
-    if (query == 0 || busy) return;
+    if (_disposed || query == 0 || busy) return;
     selection.replace(0, total);
     _submitSelection();
   }
@@ -357,6 +387,9 @@ class BrowserController extends ChangeNotifier {
   }
 
   Future<void> cancel() async {
+    if (_disposed) return;
+    await operations.cancel();
+    if (_disposed) return;
     _searchTimer?.cancel();
     _resetView();
     busy = false;
@@ -369,6 +402,9 @@ class BrowserController extends ChangeNotifier {
   }
 
   Future<void> closeArchive() async {
+    if (_disposed) return;
+    await operations.cancel();
+    if (_disposed) return;
     _searchTimer?.cancel();
     _resetView();
     path = null;
@@ -397,11 +433,41 @@ class BrowserController extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    operations.dispose();
     generation++;
     _searchTimer?.cancel();
     _selectionTimer?.cancel();
     unawaited(_subscription.cancel());
     unawaited(transport.close());
     super.dispose();
+  }
+
+  bool get canExtractSelected =>
+      archive != 0 &&
+      query != 0 &&
+      !busy &&
+      error == null &&
+      selection.count > 0 &&
+      selectionHandle != 0;
+
+  Future<void> extract(
+    String destination, {
+    required bool all,
+    int overwrite = 0,
+  }) async {
+    if (_disposed) return;
+    if (archive == 0 || path == null || (!all && !canExtractSelected)) {
+      error = const BrowserFailure(9, 5, 'Selection or archive is not ready');
+      notifyListeners();
+      return;
+    }
+    await operations.run(all ? 'extractAll' : 'extractSelected', {
+      'path': path,
+      'archive': archive,
+      'query': query,
+      'selection': selectionHandle,
+      'destination': destination,
+      'overwrite': overwrite,
+    });
   }
 }

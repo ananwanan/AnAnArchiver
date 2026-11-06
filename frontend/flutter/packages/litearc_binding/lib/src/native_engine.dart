@@ -17,8 +17,10 @@ class NativeEngine {
       check(api.aa_get_api_info(info), nullptr);
       if (info.ref.abi_version != AA_ABI_VERSION ||
           info.ref.features & AA_FEATURE_BROWSER == 0 ||
-          info.ref.max_active_tasks < 1 ||
-          info.ref.max_retained_tasks < 1) {
+          info.ref.features & (AA_FEATURE_EXTRACT | AA_FEATURE_COMPRESS) !=
+              (AA_FEATURE_EXTRACT | AA_FEATURE_COMPRESS) ||
+          info.ref.max_active_tasks < 2 ||
+          info.ref.max_retained_tasks < 2) {
         throw const BrowserFailure(
           AA_ABI_MISMATCH,
           0,
@@ -38,8 +40,9 @@ class NativeEngine {
   static String _libraryPath() {
     final dir = File(Platform.resolvedExecutable).parent.path;
     if (Platform.isWindows) return '$dir/ananarchiver_c_api.dll';
-    if (Platform.isMacOS)
+    if (Platform.isMacOS) {
       return '$dir/../Frameworks/libananarchiver_c_api.dylib';
+    }
     return '$dir/lib/libananarchiver_c_api.so';
   }
 
@@ -64,9 +67,10 @@ class NativeEngine {
     }
   }
 
-  void string(aa_string dest, String source, Arena a) {
+  void string(aa_string dest, String source, Arena a, {bool secret = false}) {
     final bytes = utf8.encode(source);
     if (bytes.length > AA_MAX_STRING_BYTES) {
+      if (secret) bytes.fillRange(0, bytes.length, 0);
       throw const BrowserFailure(
         AA_RESOURCE_LIMIT,
         AA_ERROR_RESOURCE_LIMIT,
@@ -75,6 +79,12 @@ class NativeEngine {
     }
     final ptr = a<Uint8>(bytes.isEmpty ? 1 : bytes.length);
     ptr.asTypedList(bytes.length).setAll(0, bytes);
+    if (secret) {
+      bytes.fillRange(0, bytes.length, 0);
+      a.onReleaseAll(
+        () => ptr.asTypedList(dest.size).fillRange(0, dest.size, 0),
+      );
+    }
     dest.data = ptr.cast();
     dest.size = bytes.length;
   }
@@ -90,6 +100,12 @@ class NativeEngine {
           final r = a<aa_open_request>();
           r.ref.struct_size = sizeOf<aa_open_request>();
           string(r.ref.path, args['path'] as String, a);
+          string(
+            r.ref.password,
+            args['password'] as String? ?? '',
+            a,
+            secret: true,
+          );
           status = api.aa_browser_open(engine, r, id, t, error);
           if (status == AA_OK) {
             archive = id.value;
@@ -155,17 +171,169 @@ class NativeEngine {
     });
   }
 
-  TaskProgress poll(String op) => using((a) {
+  int submitOperation(String op, Map<String, Object?> args) => using((a) {
+    final t = a<Uint64>();
+    final error = a<Pointer<aa_error>>();
+    int status;
+    if (op == 'compress') {
+      final paths = (args['paths'] as List).cast<String>();
+      if (paths.isEmpty || paths.length > AA_MAX_REQUEST_ITEMS) {
+        throw const BrowserFailure(
+          AA_RESOURCE_LIMIT,
+          AA_ERROR_RESOURCE_LIMIT,
+          'Input path count limit',
+        );
+      }
+      final r = a<aa_compress_request>();
+      r.ref.struct_size = sizeOf<aa_compress_request>();
+      r.ref.format = args['format'] as int;
+      r.ref.method = args['method'] as int;
+      r.ref.level = args['level'] as int;
+      r.ref.overwrite_existing = args['replace'] == true ? 1 : 0;
+      r.ref.preserve_permissions = args['permissions'] == true ? 1 : 0;
+      r.ref.preserve_timestamps = args['timestamps'] == true ? 1 : 0;
+      string(r.ref.destination, args['destination'] as String, a);
+      final buffer = a<aa_string>(paths.length);
+      var bytes = 0;
+      for (var i = 0; i < paths.length; i++) {
+        string(buffer[i], paths[i], a);
+        bytes += buffer[i].size;
+        if (bytes > 4 * 1024 * 1024) {
+          throw const BrowserFailure(
+            AA_RESOURCE_LIMIT,
+            AA_ERROR_RESOURCE_LIMIT,
+            'Input path byte limit',
+          );
+        }
+      }
+      r.ref.input_paths = buffer;
+      r.ref.input_path_count = paths.length;
+      status = api.aa_archive_compress(engine, r, t, error);
+    } else {
+      final r = a<aa_extract_request>();
+      r.ref.struct_size = sizeOf<aa_extract_request>();
+      r.ref.overwrite = args['overwrite'] as int? ?? AA_OVERWRITE_ASK;
+      r.ref.links = AA_LINK_SAFE;
+      string(r.ref.destination, args['destination'] as String, a);
+      string(
+        r.ref.password,
+        args['password'] as String? ?? '',
+        a,
+        secret: true,
+      );
+      if (op == 'extractAll') {
+        string(r.ref.path, args['path'] as String, a);
+        r.ref.extract_all = 1;
+        status = api.aa_archive_extract(engine, r, t, error);
+      } else {
+        final selection = args['selection'] as int;
+        if (selection == 0) {
+          throw const BrowserFailure(
+            AA_STALE_VIEW,
+            AA_ERROR_UNSUPPORTED_OPERATION,
+            'No completed selection',
+          );
+        }
+        status = api.aa_browser_extract(
+          engine,
+          args['archive'] as int,
+          args['query'] as int,
+          selection,
+          r,
+          t,
+          error,
+        );
+      }
+    }
+    check(status, error.value);
+    return t.value;
+  });
+
+  BrowserPage capabilities() => using((a) {
+    final out = a<Pointer<aa_capability_batch>>();
+    final error = a<Pointer<aa_error>>();
+    check(api.aa_compression_capabilities(engine, out, error), error.value);
+    final ptr = out.value;
+    try {
+      if (ptr.ref.count > AA_MAX_REQUEST_ITEMS) {
+        throw const BrowserFailure(
+          AA_RESOURCE_LIMIT,
+          AA_ERROR_RESOURCE_LIMIT,
+          'Capability count limit',
+        );
+      }
+      return BrowserPage(
+        capabilities: List.generate(ptr.ref.count, (i) {
+          final c = ptr.ref.capabilities[i];
+          return CompressionCapability(
+            format: c.format,
+            method: c.method,
+            formatName: text(c.format_name),
+            methodName: text(c.method_name),
+            extension: text(c.extension),
+            hasLevels: c.has_levels != 0,
+            minLevel: c.min_level,
+            maxLevel: c.max_level,
+            defaultLevel: c.default_level,
+            permissions: c.supports_permissions != 0,
+            timestamps: c.supports_timestamps != 0,
+          );
+        }, growable: false),
+      );
+    } finally {
+      api.aa_capability_batch_release(ptr);
+    }
+  });
+
+  void resolve(Map<String, Object?> args) {
+    check(
+      api.aa_task_resolve_conflict(
+        engine,
+        args['task'] as int,
+        args['conflict'] as int,
+        args['overwrite'] as int,
+        args['all'] == true ? 1 : 0,
+      ),
+      nullptr,
+    );
+  }
+
+  TaskProgress poll(String op, {int? id, bool throwTerminal = true}) => using((
+    a,
+  ) {
     final out = a<Pointer<aa_task_snapshot>>();
     final error = a<Pointer<aa_error>>();
-    check(api.aa_task_poll(engine, task, out, error), error.value);
+    check(api.aa_task_poll(engine, id ?? task, out, error), error.value);
     final ptr = out.value;
     try {
       final s = ptr.ref;
-      if (s.state == AA_TASK_FAILED || s.state == AA_TASK_CANCELLED) {
+      if (throwTerminal &&
+          (s.state == AA_TASK_FAILED || s.state == AA_TASK_CANCELLED)) {
         throw failure(AA_ARCHIVE_ERROR, s.error);
       }
-      return TaskProgress(op, s.state, s.processed_entries, s.elapsed_ms);
+      return TaskProgress(
+        op,
+        s.state,
+        s.processed_entries,
+        s.elapsed_ms,
+        taskId: s.task_id,
+        bytes: s.processed_bytes,
+        totalBytes: s.flags & AA_HAS_TOTAL_BYTES != 0 ? s.total_bytes : null,
+        totalEntries: s.flags & AA_HAS_TOTAL_ENTRIES != 0
+            ? s.total_entries
+            : null,
+        bytesPerSecond: s.bytes_per_second,
+        currentFile: text(s.current_file),
+        phase: s.compression_phase,
+        conflict: s.flags & AA_HAS_CONFLICT != 0
+            ? TaskConflict(
+                s.conflict_id,
+                text(s.conflict_entry.path),
+                text(s.conflict_destination),
+              )
+            : null,
+        error: s.error != nullptr ? failure(AA_ARCHIVE_ERROR, s.error) : null,
+      );
     } finally {
       api.aa_snapshot_release(ptr);
     }
@@ -212,6 +380,14 @@ class NativeEngine {
   });
   void cancel() {
     if (task != 0) api.aa_task_cancel(engine, task);
+  }
+
+  void cancelTask(int id) {
+    if (id != 0) api.aa_task_cancel(engine, id);
+  }
+
+  void releaseTask(int id) {
+    if (id != 0) api.aa_task_release(engine, id);
   }
 
   void release() {

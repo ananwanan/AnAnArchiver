@@ -318,7 +318,7 @@ abstract class AppLocalizations {
   /// No description provided for @operation.
   ///
   /// In en, this message translates to:
-  /// **'{value, select, open{Opening archive} query{Querying folder} page{Loading files} folders{Loading folders} selection{Resolving selection} other{Archive task}}'**
+  /// **'{value, select, open{Opening archive} query{Querying folder} page{Loading files} folders{Loading folders} selection{Resolving selection} extractAll{Extracting all} extractSelected{Extracting selection} compress{Creating archive} other{Archive task}}'**
   String operation(String value);
 
   /// No description provided for @taskState.
@@ -330,7 +330,7 @@ abstract class AppLocalizations {
   /// No description provided for @errorMessage.
   ///
   /// In en, this message translates to:
-  /// **'{value, select, e1{File not found.} e2{Permission denied.} e3{Unsupported archive format.} e4{Unsupported compression method.} e5{Operation is not supported.} e6{Invalid archive.} e7{The archive is corrupted.} e8{Incorrect password.} e9{A password is required. Password entry is planned for F4.} e10{The disk is full.} e11{The output already exists.} e12{The operation was cancelled.} e13{Cleanup failed.} e14{A resource limit was reached.} e15{Invalid path encoding.} e16{Unsafe archive path.} e17{An input/output error occurred.} e18{The archive backend reported a warning.} e19{The archive backend reported an error.} other{The request failed. See details.}}'**
+  /// **'{value, select, e1{File not found.} e2{Permission denied.} e3{Unsupported archive format.} e4{Unsupported compression method.} e5{Operation is not supported.} e6{Invalid archive.} e7{The archive is corrupted.} e8{Incorrect password.} e9{A password is required.} e10{The disk is full.} e11{The output already exists.} e12{The operation was cancelled.} e13{Cleanup failed.} e14{A resource limit was reached.} e15{Invalid path encoding.} e16{Unsafe archive path.} e17{An input/output error occurred.} e18{The archive backend reported a warning.} e19{The archive backend reported an error.} other{The request failed. See details.}}'**
   String errorMessage(String value);
 
   /// No description provided for @components.
@@ -356,6 +356,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'modified build'**
   String get modifiedBuild;
+
+  /// No description provided for @createArchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Create archive'**
+  String get createArchive;
+
+  /// No description provided for @extractAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Extract all'**
+  String get extractAll;
+
+  /// No description provided for @extractSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Extract selected'**
+  String get extractSelected;
+
+  /// No description provided for @extract.
+  ///
+  /// In en, this message translates to:
+  /// **'Extract'**
+  String get extract;
+
+  /// No description provided for @password.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get password;
+
+  /// No description provided for @overwrite.
+  ///
+  /// In en, this message translates to:
+  /// **'Existing files'**
+  String get overwrite;
+
+  /// No description provided for @applyToAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply to all in this task'**
+  String get applyToAll;
+
+  /// No description provided for @conflictTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The destination already exists'**
+  String get conflictTitle;
+
+  /// No description provided for @staleAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'This conflict is no longer waiting for an answer.'**
+  String get staleAnswer;
+
+  /// No description provided for @cleanupNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'The operation did not complete. Extraction rolls back new output; inspect the destination and cleanup error details. Existing files may already have been replaced.'**
+  String get cleanupNotice;
+
+  /// No description provided for @addFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Add files'**
+  String get addFiles;
+
+  /// No description provided for @addFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Add folder'**
+  String get addFolder;
+
+  /// No description provided for @clearInputs.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear inputs'**
+  String get clearInputs;
+
+  /// No description provided for @inputLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'At most 4,096 input paths are allowed.'**
+  String get inputLimit;
+
+  /// No description provided for @inputCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} input paths'**
+  String inputCount(int count);
+
+  /// No description provided for @formatMethod.
+  ///
+  /// In en, this message translates to:
+  /// **'Format / method'**
+  String get formatMethod;
+
+  /// No description provided for @level.
+  ///
+  /// In en, this message translates to:
+  /// **'Compression level'**
+  String get level;
+
+  /// No description provided for @preservePermissions.
+  ///
+  /// In en, this message translates to:
+  /// **'Preserve permissions'**
+  String get preservePermissions;
+
+  /// No description provided for @preserveTimestamps.
+  ///
+  /// In en, this message translates to:
+  /// **'Preserve timestamps'**
+  String get preserveTimestamps;
+
+  /// No description provided for @chooseOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose output'**
+  String get chooseOutput;
+
+  /// No description provided for @replaceArchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace existing archive after successful creation'**
+  String get replaceArchive;
+
+  /// No description provided for @overwritePolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'{value, select, p0{Ask} p1{Overwrite} p2{Skip} p3{Rename} p4{Overwrite if newer} other{Unknown}}'**
+  String overwritePolicy(String value);
+
+  /// No description provided for @operationStats.
+  ///
+  /// In en, this message translates to:
+  /// **'{entries} entries · {bytes} B · {speed} B/s · {ms} ms'**
+  String operationStats(String entries, String bytes, String speed, int ms);
+
+  /// No description provided for @compressionPhase.
+  ///
+  /// In en, this message translates to:
+  /// **'{value, select, p1{Scanning inputs} p2{Writing archive} p3{Finalizing output} other{Working}}'**
+  String compressionPhase(String value);
 }
 
 class _AppLocalizationsDelegate

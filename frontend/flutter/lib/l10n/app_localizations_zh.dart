@@ -129,6 +129,9 @@ class AppLocalizationsZh extends AppLocalizations {
       'page': '加载文件',
       'folders': '加载文件夹',
       'selection': '解析选择',
+      'extractAll': '解压全部',
+      'extractSelected': '解压选中',
+      'compress': '创建归档',
       'other': '归档任务',
     });
     return '$_temp0';
@@ -159,7 +162,7 @@ class AppLocalizationsZh extends AppLocalizations {
       'e6': '归档无效。',
       'e7': '归档已损坏。',
       'e8': '密码错误。',
-      'e9': '此归档需要密码，密码输入计划在 F4 接入。',
+      'e9': '此归档需要密码。',
       'e10': '磁盘空间不足。',
       'e11': '输出已存在。',
       'e12': '操作已取消。',
@@ -186,6 +189,100 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get modifiedBuild => '含未提交修改';
+
+  @override
+  String get createArchive => '创建归档';
+
+  @override
+  String get extractAll => '解压全部';
+
+  @override
+  String get extractSelected => '解压选中';
+
+  @override
+  String get extract => '解压';
+
+  @override
+  String get password => '密码';
+
+  @override
+  String get overwrite => '目标文件已存在时';
+
+  @override
+  String get applyToAll => '应用于本任务全部冲突';
+
+  @override
+  String get conflictTitle => '目标文件已存在';
+
+  @override
+  String get staleAnswer => '此冲突已不再等待回答。';
+
+  @override
+  String get cleanupNotice => '操作未完成。解压会回滚新建输出，请检查目标目录及清理错误详情；已存在的文件可能已被替换。';
+
+  @override
+  String get addFiles => '添加文件';
+
+  @override
+  String get addFolder => '添加文件夹';
+
+  @override
+  String get clearInputs => '清空输入';
+
+  @override
+  String get inputLimit => '最多允许 4,096 个输入路径。';
+
+  @override
+  String inputCount(int count) {
+    return '$count 个输入路径';
+  }
+
+  @override
+  String get formatMethod => '格式 / 方法';
+
+  @override
+  String get level => '压缩等级';
+
+  @override
+  String get preservePermissions => '保留权限';
+
+  @override
+  String get preserveTimestamps => '保留时间戳';
+
+  @override
+  String get chooseOutput => '选择输出位置';
+
+  @override
+  String get replaceArchive => '创建成功后替换已有归档';
+
+  @override
+  String overwritePolicy(String value) {
+    String _temp0 = intl.Intl.selectLogic(value, {
+      'p0': '询问',
+      'p1': '覆盖',
+      'p2': '跳过',
+      'p3': '重命名',
+      'p4': '仅覆盖较旧文件',
+      'other': '未知',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String operationStats(String entries, String bytes, String speed, int ms) {
+    return '$entries 个条目 · $bytes 字节 · $speed 字节/秒 · $ms 毫秒';
+  }
+
+  @override
+  String compressionPhase(String value) {
+    String _temp0 = intl.Intl.selectLogic(value, {
+      'p1': '扫描输入',
+      'p2': '写入归档',
+      'p3': '完成输出',
+      'other': '处理中',
+    });
+    return '$_temp0';
+  }
 }
 
 /// The translations for Chinese, as used in China (`zh_CN`).
@@ -312,6 +409,9 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
       'page': '加载文件',
       'folders': '加载文件夹',
       'selection': '解析选择',
+      'extractAll': '解压全部',
+      'extractSelected': '解压选中',
+      'compress': '创建归档',
       'other': '归档任务',
     });
     return '$_temp0';
@@ -342,7 +442,7 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
       'e6': '归档无效。',
       'e7': '归档已损坏。',
       'e8': '密码错误。',
-      'e9': '此归档需要密码，密码输入计划在 F4 接入。',
+      'e9': '此归档需要密码。',
       'e10': '磁盘空间不足。',
       'e11': '输出已存在。',
       'e12': '操作已取消。',
@@ -369,4 +469,98 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
 
   @override
   String get modifiedBuild => '含未提交修改';
+
+  @override
+  String get createArchive => '创建归档';
+
+  @override
+  String get extractAll => '解压全部';
+
+  @override
+  String get extractSelected => '解压选中';
+
+  @override
+  String get extract => '解压';
+
+  @override
+  String get password => '密码';
+
+  @override
+  String get overwrite => '目标文件已存在时';
+
+  @override
+  String get applyToAll => '应用于本任务全部冲突';
+
+  @override
+  String get conflictTitle => '目标文件已存在';
+
+  @override
+  String get staleAnswer => '此冲突已不再等待回答。';
+
+  @override
+  String get cleanupNotice => '操作未完成。解压会回滚新建输出，请检查目标目录及清理错误详情；已存在的文件可能已被替换。';
+
+  @override
+  String get addFiles => '添加文件';
+
+  @override
+  String get addFolder => '添加文件夹';
+
+  @override
+  String get clearInputs => '清空输入';
+
+  @override
+  String get inputLimit => '最多允许 4,096 个输入路径。';
+
+  @override
+  String inputCount(int count) {
+    return '$count 个输入路径';
+  }
+
+  @override
+  String get formatMethod => '格式 / 方法';
+
+  @override
+  String get level => '压缩等级';
+
+  @override
+  String get preservePermissions => '保留权限';
+
+  @override
+  String get preserveTimestamps => '保留时间戳';
+
+  @override
+  String get chooseOutput => '选择输出位置';
+
+  @override
+  String get replaceArchive => '创建成功后替换已有归档';
+
+  @override
+  String overwritePolicy(String value) {
+    String _temp0 = intl.Intl.selectLogic(value, {
+      'p0': '询问',
+      'p1': '覆盖',
+      'p2': '跳过',
+      'p3': '重命名',
+      'p4': '仅覆盖较旧文件',
+      'other': '未知',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String operationStats(String entries, String bytes, String speed, int ms) {
+    return '$entries 个条目 · $bytes 字节 · $speed 字节/秒 · $ms 毫秒';
+  }
+
+  @override
+  String compressionPhase(String value) {
+    String _temp0 = intl.Intl.selectLogic(value, {
+      'p1': '扫描输入',
+      'p2': '写入归档',
+      'p3': '完成输出',
+      'other': '处理中',
+    });
+    return '$_temp0';
+  }
 }

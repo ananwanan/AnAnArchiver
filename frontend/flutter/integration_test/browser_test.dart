@@ -12,6 +12,12 @@ import 'package:litearc/platform/desktop_adapter.dart';
 
 class FixturePicker implements DesktopAdapter {
   @override
+  Future<String?> chooseDirectory() async => null;
+  @override
+  Future<List<String>> chooseInputs() async => [];
+  @override
+  Future<String?> chooseOutput(String suggestedName) async => null;
+  @override
   Future<void> setTitle(String title) => SystemDesktopAdapter().setTitle(title);
   @override
   Future<String?> chooseArchive() async =>

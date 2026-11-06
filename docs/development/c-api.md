@@ -5,6 +5,9 @@ header is `include/ananarchiver/c_api/ananarchiver.h`. It has no Qt, Flutter, Da
 STL or libarchive types. F1 implements native task transport; F2 adds the native
 authoritative browser index, generation-checked queries/pages and selections. F3 consumes these through an isolate-owned Dart package and Flutter browser;
 see [Flutter development](flutter.md).
+F4 consumes the existing operation/conflict exports without changing ABI v1,
+its layouts, feature bits or exports. [F4 evidence](../validation/2026-11-06-flutter-operations.md)
+includes real Dart/desktop operations and native writer/policy regressions.
 
 ## Build and validation
 

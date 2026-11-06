@@ -10,6 +10,12 @@ import 'support/synthetic_transport.dart';
 
 class Picker implements DesktopAdapter {
   @override
+  Future<String?> chooseDirectory() async => null;
+  @override
+  Future<List<String>> chooseInputs() async => [];
+  @override
+  Future<String?> chooseOutput(String suggestedName) async => null;
+  @override
   Future<void> setTitle(String title) async {}
   @override
   Future<String?> chooseArchive() async => 'synthetic';

@@ -399,9 +399,97 @@ void concurrentPollAndRelease() {
         std::this_thread::sleep_for(1ms);
     }
 }
+
+void operationPoliciesAndFormats() {
+    TemporaryDirectory fixture;
+    Engine engine;
+    const auto archive = fixture.path / "policies.tar";
+    createFixture(archive, FixtureFormat::Tar, {{"same.txt", "payload"}});
+    const auto path = pathToUtf8(archive);
+    for (uint32_t policy = AA_OVERWRITE_REPLACE; policy <= AA_OVERWRITE_IF_NEWER; ++policy) {
+        const auto destination = fixture.path / std::to_string(policy);
+        std::filesystem::create_directory(destination);
+        std::ofstream(destination / "same.txt") << "original";
+        const auto outputPath = pathToUtf8(destination);
+        aa_extract_request request{};
+        request.path = input(path);
+        request.destination = input(outputPath);
+        request.extract_all = 1;
+        request.overwrite = policy;
+        const auto id = extract(engine.handle, request);
+        check(await(engine.handle, id)->state == AA_TASK_SUCCEEDED, "ABI overwrite policy");
+        check(readFile(destination / "same.txt") ==
+                  (policy == AA_OVERWRITE_REPLACE ? "payload" : "original"),
+              "ABI overwrite result");
+        check(aa_task_release(engine.handle, id) == AA_OK, "release policy task");
+    }
+    const aa_capability_batch* batch{};
+    check(aa_compression_capabilities(engine.handle, &batch, nullptr) == AA_OK, "capabilities");
+    std::unique_ptr<const aa_capability_batch, decltype(&aa_capability_batch_release)> held(
+        batch, aa_capability_batch_release);
+    const auto source = fixture.path / pathFromUtf8("输入🐈.txt");
+    std::ofstream(source) << "capability payload";
+    const auto sourcePath = pathToUtf8(source);
+    const aa_string inputs[] = {input(sourcePath)};
+    for (uint32_t i = 0; i < batch->count; ++i) {
+        const auto& capability = batch->capabilities[i];
+        check(!capability.supports_password && !capability.supports_multithreading &&
+                  !capability.supports_solid,
+              "unsupported writer options stay disabled");
+        const auto outputPath = pathToUtf8(fixture.path / ("format-" + std::to_string(i)));
+        aa_compress_request request{};
+        request.struct_size = sizeof(request);
+        request.format = capability.format;
+        request.method = capability.method;
+        request.level = capability.default_level;
+        request.destination = input(outputPath);
+        request.input_paths = inputs;
+        request.input_path_count = 1;
+        request.preserve_permissions = capability.supports_permissions;
+        request.preserve_timestamps = capability.supports_timestamps;
+        aa_task_id id{};
+        check(aa_archive_compress(engine.handle, &request, &id, nullptr) == AA_OK, "submit format");
+        check(await(engine.handle, id)->state == AA_TASK_SUCCEEDED, "create advertised format");
+        aa_task_release(engine.handle, id);
+        const auto destination = fixture.path / ("read-" + std::to_string(i));
+        const auto destinationPath = pathToUtf8(destination);
+        aa_extract_request extraction{};
+        extraction.path = input(outputPath);
+        extraction.destination = input(destinationPath);
+        extraction.extract_all = 1;
+        id = extract(engine.handle, extraction);
+        check(await(engine.handle, id)->state == AA_TASK_SUCCEEDED, "extract advertised format");
+        check(readFile(destination / source.filename()) == "capability payload", "format payload");
+        aa_task_release(engine.handle, id);
+        const auto before = readFile(pathFromUtf8(outputPath));
+        request.overwrite_existing = 1;
+        const auto missing = pathToUtf8(fixture.path / "missing-input");
+        const aa_string invalid[] = {input(missing)};
+        request.input_paths = invalid;
+        check(aa_archive_compress(engine.handle, &request, &id, nullptr) == AA_OK,
+              "submit failure");
+        check(await(engine.handle, id)->state == AA_TASK_FAILED, "missing input fails");
+        check(readFile(pathFromUtf8(outputPath)) == before, "failed creation preserves original");
+        aa_task_release(engine.handle, id);
+    }
+}
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 3 && std::string_view(argv[1]) == "--generate-flutter-fixtures") {
+        const auto directory = pathFromUtf8(argv[2]);
+        std::filesystem::create_directories(directory);
+        createFixture(directory / "encrypted.zip", FixtureFormat::Zip, {{"secret.txt", "secret"}},
+                      true);
+        createFixture(directory / "policies.tar", FixtureFormat::Tar,
+                      {{"a.txt", "archive-a"}, {"b.txt", "archive-b"}});
+        createFixture(directory / "unsafe.tar", FixtureFormat::Tar,
+                      {{"safe.txt", "rollback"}, {"../escape.txt", "unsafe"}});
+        createFixture(
+            directory / "unsafe-link.tar", FixtureFormat::Tar,
+            {{"escape", {}, EntryType::Symlink, "../"}, {"escape/escaped.txt", "unsafe"}});
+        return 0;
+    }
     Tests tests;
     tests.run("checked C ABI inputs and versioned structs", checkedBoundary);
     tests.run("content detection, bounded metadata and result ownership",
@@ -413,5 +501,7 @@ int main() {
     tests.run("password ownership and extraction security", encryptedAndUnsafeExtraction);
     tests.run("capabilities and real creation/extraction round trip", creationRoundTrip);
     tests.run("concurrent polling and asynchronous reclamation", concurrentPollAndRelease);
+    tests.run("ABI overwrite policies and every advertised writer pair",
+              operationPoliciesAndFormats);
     return tests.finish();
 }

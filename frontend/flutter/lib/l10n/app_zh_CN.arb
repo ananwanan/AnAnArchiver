@@ -61,7 +61,7 @@
       }
     }
   },
-  "operation": "{value, select, open{打开归档} query{查询目录} page{加载文件} folders{加载文件夹} selection{解析选择} other{归档任务}}",
+  "operation": "{value, select, open{打开归档} query{查询目录} page{加载文件} folders{加载文件夹} selection{解析选择} extractAll{解压全部} extractSelected{解压选中} compress{创建归档} other{归档任务}}",
   "@operation": {
     "placeholders": {
       "value": {
@@ -77,7 +77,7 @@
       }
     }
   },
-  "errorMessage": "{value, select, e1{找不到文件。} e2{没有访问权限。} e3{不支持的归档格式。} e4{不支持的压缩方法。} e5{不支持此操作。} e6{归档无效。} e7{归档已损坏。} e8{密码错误。} e9{此归档需要密码，密码输入计划在 F4 接入。} e10{磁盘空间不足。} e11{输出已存在。} e12{操作已取消。} e13{清理失败。} e14{已达到资源上限。} e15{路径编码无效。} e16{归档路径不安全。} e17{发生输入输出错误。} e18{归档后端报告警告。} e19{归档后端报告错误。} other{请求失败，请查看详情。}}",
+  "errorMessage": "{value, select, e1{找不到文件。} e2{没有访问权限。} e3{不支持的归档格式。} e4{不支持的压缩方法。} e5{不支持此操作。} e6{归档无效。} e7{归档已损坏。} e8{密码错误。} e9{此归档需要密码。} e10{磁盘空间不足。} e11{输出已存在。} e12{操作已取消。} e13{清理失败。} e14{已达到资源上限。} e15{路径编码无效。} e16{归档路径不安全。} e17{发生输入输出错误。} e18{归档后端报告警告。} e19{归档后端报告错误。} other{请求失败，请查看详情。}}",
   "@errorMessage": {
     "placeholders": {
       "value": {
@@ -89,5 +89,29 @@
   "components": "开源组件与构建",
   "licenses": "许可证",
   "unavailable": "不可用",
-  "modifiedBuild": "含未提交修改"
+  "modifiedBuild": "含未提交修改",
+  "createArchive": "创建归档",
+  "extractAll": "解压全部",
+  "extractSelected": "解压选中",
+  "extract": "解压",
+  "password": "密码",
+  "overwrite": "目标文件已存在时",
+  "applyToAll": "应用于本任务全部冲突",
+  "conflictTitle": "目标文件已存在",
+  "staleAnswer": "此冲突已不再等待回答。",
+  "cleanupNotice": "操作未完成。解压会回滚新建输出，请检查目标目录及清理错误详情；已存在的文件可能已被替换。",
+  "addFiles": "添加文件",
+  "addFolder": "添加文件夹",
+  "clearInputs": "清空输入",
+  "inputLimit": "最多允许 4,096 个输入路径。",
+  "inputCount": "{count} 个输入路径",
+  "formatMethod": "格式 / 方法",
+  "level": "压缩等级",
+  "preservePermissions": "保留权限",
+  "preserveTimestamps": "保留时间戳",
+  "chooseOutput": "选择输出位置",
+  "replaceArchive": "创建成功后替换已有归档",
+  "overwritePolicy": "{value, select, p0{询问} p1{覆盖} p2{跳过} p3{重命名} p4{仅覆盖较旧文件} other{未知}}",
+  "operationStats": "{entries} 个条目 · {bytes} 字节 · {speed} 字节/秒 · {ms} 毫秒",
+  "compressionPhase": "{value, select, p1{扫描输入} p2{写入归档} p3{完成输出} other{处理中}}"
 }

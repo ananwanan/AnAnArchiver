@@ -130,6 +130,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'page': 'Loading files',
       'folders': 'Loading folders',
       'selection': 'Resolving selection',
+      'extractAll': 'Extracting all',
+      'extractSelected': 'Extracting selection',
+      'compress': 'Creating archive',
       'other': 'Archive task',
     });
     return '$_temp0';
@@ -160,7 +163,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'e6': 'Invalid archive.',
       'e7': 'The archive is corrupted.',
       'e8': 'Incorrect password.',
-      'e9': 'A password is required. Password entry is planned for F4.',
+      'e9': 'A password is required.',
       'e10': 'The disk is full.',
       'e11': 'The output already exists.',
       'e12': 'The operation was cancelled.',
@@ -187,4 +190,100 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get modifiedBuild => 'modified build';
+
+  @override
+  String get createArchive => 'Create archive';
+
+  @override
+  String get extractAll => 'Extract all';
+
+  @override
+  String get extractSelected => 'Extract selected';
+
+  @override
+  String get extract => 'Extract';
+
+  @override
+  String get password => 'Password';
+
+  @override
+  String get overwrite => 'Existing files';
+
+  @override
+  String get applyToAll => 'Apply to all in this task';
+
+  @override
+  String get conflictTitle => 'The destination already exists';
+
+  @override
+  String get staleAnswer => 'This conflict is no longer waiting for an answer.';
+
+  @override
+  String get cleanupNotice =>
+      'The operation did not complete. Extraction rolls back new output; inspect the destination and cleanup error details. Existing files may already have been replaced.';
+
+  @override
+  String get addFiles => 'Add files';
+
+  @override
+  String get addFolder => 'Add folder';
+
+  @override
+  String get clearInputs => 'Clear inputs';
+
+  @override
+  String get inputLimit => 'At most 4,096 input paths are allowed.';
+
+  @override
+  String inputCount(int count) {
+    return '$count input paths';
+  }
+
+  @override
+  String get formatMethod => 'Format / method';
+
+  @override
+  String get level => 'Compression level';
+
+  @override
+  String get preservePermissions => 'Preserve permissions';
+
+  @override
+  String get preserveTimestamps => 'Preserve timestamps';
+
+  @override
+  String get chooseOutput => 'Choose output';
+
+  @override
+  String get replaceArchive =>
+      'Replace existing archive after successful creation';
+
+  @override
+  String overwritePolicy(String value) {
+    String _temp0 = intl.Intl.selectLogic(value, {
+      'p0': 'Ask',
+      'p1': 'Overwrite',
+      'p2': 'Skip',
+      'p3': 'Rename',
+      'p4': 'Overwrite if newer',
+      'other': 'Unknown',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String operationStats(String entries, String bytes, String speed, int ms) {
+    return '$entries entries · $bytes B · $speed B/s · $ms ms';
+  }
+
+  @override
+  String compressionPhase(String value) {
+    String _temp0 = intl.Intl.selectLogic(value, {
+      'p1': 'Scanning inputs',
+      'p2': 'Writing archive',
+      'p3': 'Finalizing output',
+      'other': 'Working',
+    });
+    return '$_temp0';
+  }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:litearc_binding/litearc_binding.dart';
 import 'package:flutter/services.dart';
 
 import '../controllers/browser_controller.dart';
@@ -10,6 +11,8 @@ import '../widgets/app_icon.dart';
 import '../widgets/build_details.dart';
 import '../widgets/archive_list.dart';
 import '../widgets/folder_tree.dart';
+import '../widgets/operation_panel.dart';
+import '../widgets/create_archive_dialog.dart';
 
 class BrowserPageView extends StatefulWidget {
   const BrowserPageView({
@@ -40,6 +43,101 @@ class _BrowserPageViewState extends State<BrowserPageView> {
   }
 
   final search = TextEditingController();
+  Future<void> extract(bool all) async {
+    final c = widget.controller;
+    final generation = c.generation;
+    final l = AppLocalizations.of(context)!;
+    try {
+      final destination = await widget.platform.chooseDirectory();
+      if (!mounted || destination == null) return;
+      if (generation != c.generation) {
+        throw const BrowserFailure(
+          9,
+          5,
+          'Archive view changed while choosing destination',
+        );
+      }
+      var policy = 0;
+      final selected = await showDialog<int>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, set) => AlertDialog(
+            title: Text(all ? l.extractAll : l.extractSelected),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(destination),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    initialValue: policy,
+                    isExpanded: true,
+                    decoration: InputDecoration(labelText: l.overwrite),
+                    items: [
+                      for (var i = 0; i <= 4; i++)
+                        DropdownMenuItem(
+                          value: i,
+                          child: Text(l.overwritePolicy('p$i')),
+                        ),
+                    ],
+                    onChanged: (v) => set(() => policy = v!),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(l.cancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, policy),
+                child: Text(l.extract),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || selected == null) return;
+      if (generation != c.generation) {
+        throw const BrowserFailure(
+          9,
+          5,
+          'Archive view changed while choosing options',
+        );
+      }
+      await c.extract(destination, all: all, overwrite: selected);
+    } catch (e) {
+      if (mounted) c.operations.reportFailure(e);
+    }
+  }
+
+  Future<void> create() async {
+    final c = widget.controller;
+    try {
+      final capabilities = (await c.transport.request('capabilities'))
+          .capabilities;
+      if (!mounted) return;
+      if (capabilities.isEmpty) {
+        throw const BrowserFailure(8, 5, 'No native creation capabilities');
+      }
+      final options = await showDialog<Map<String, Object?>>(
+        context: context,
+        builder: (context) => CreateArchiveDialog(
+          capabilities: capabilities,
+          platform: widget.platform,
+        ),
+      );
+      if (mounted && options != null) {
+        await c.operations.run('compress', options);
+      }
+    } catch (e) {
+      if (mounted) c.operations.reportFailure(e);
+    }
+  }
+
   Future<void> open() async {
     try {
       final path = await widget.platform.chooseArchive();
@@ -80,7 +178,7 @@ class _BrowserPageViewState extends State<BrowserPageView> {
       child: Focus(
         autofocus: true,
         child: AnimatedBuilder(
-          animation: c,
+          animation: Listenable.merge([c, c.operations]),
           builder: (context, _) {
             if (search.text != c.search) {
               search.value = TextEditingValue(
@@ -163,6 +261,49 @@ class _BrowserPageViewState extends State<BrowserPageView> {
                                 child: Text(l.dark),
                               ),
                             ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      child: Wrap(
+                        spacing: 8,
+                        children: [
+                          TextButton.icon(
+                            onPressed:
+                                c.operations.busy ||
+                                    c.operations.waitingForPassword
+                                ? null
+                                : create,
+                            icon: const Icon(Icons.archive_outlined, size: 20),
+                            label: Text(l.createArchive),
+                          ),
+                          TextButton.icon(
+                            onPressed:
+                                c.archive == 0 ||
+                                    c.busy ||
+                                    c.operations.busy ||
+                                    c.operations.waitingForPassword
+                                ? null
+                                : () => extract(true),
+                            icon: const Icon(
+                              Icons.unarchive_outlined,
+                              size: 20,
+                            ),
+                            label: Text(l.extractAll),
+                          ),
+                          TextButton(
+                            onPressed:
+                                !c.canExtractSelected ||
+                                    c.operations.busy ||
+                                    c.operations.waitingForPassword
+                                ? null
+                                : () => extract(false),
+                            child: Text(l.extractSelected),
                           ),
                         ],
                       ),
@@ -293,6 +434,14 @@ class _BrowserPageViewState extends State<BrowserPageView> {
                                 Expanded(child: ArchiveList(c)),
                               ],
                             ),
+                    ),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.sizeOf(context).height * 0.45,
+                      ),
+                      child: SingleChildScrollView(
+                        child: OperationPanel(c.operations),
+                      ),
                     ),
                     Container(
                       height: 36,
