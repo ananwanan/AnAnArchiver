@@ -133,6 +133,8 @@ class AppLocalizationsEn extends AppLocalizations {
       'extractAll': 'Extracting all',
       'extractSelected': 'Extracting selection',
       'compress': 'Creating archive',
+      'export': 'Preparing desktop files',
+      'probe': 'Detecting dropped file',
       'other': 'Archive task',
     });
     return '$_temp0';
@@ -286,4 +288,39 @@ class AppLocalizationsEn extends AppLocalizations {
     });
     return '$_temp0';
   }
+
+  @override
+  String get taskCenter => 'Task center';
+
+  @override
+  String get noTasks => 'No tasks in this session.';
+
+  @override
+  String get clearHistory => 'Clear history';
+
+  @override
+  String get recentArchives => 'Recent archives';
+
+  @override
+  String get removeRecent => 'Remove from history';
+
+  @override
+  String get settingsProblem =>
+      'Preferences could not be loaded or saved. Original data was preserved. See details.';
+
+  @override
+  String get prepareDrag => 'Prepare selected files for dragging';
+
+  @override
+  String get dragReady => 'Drag prepared files';
+
+  @override
+  String get exportFiles => 'Temporary exports';
+
+  @override
+  String get exportRetention =>
+      'Desktop targets may read files after a drag or after LiteArc exits. Handed-off output stays in these private folders across restarts. Release only after all target copies have finished. Four exports / 512 MiB each; prepared output expires after ten minutes before handoff.';
+
+  @override
+  String get releaseExports => 'All target copies finished: release files';
 }

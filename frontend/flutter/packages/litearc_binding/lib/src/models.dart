@@ -42,6 +42,9 @@ class BrowserPage {
     this.transferBytes = 0,
     this.rows = const [],
     this.capabilities = const [],
+    this.paths = const [],
+    this.failures = const [],
+    this.classification = '',
   });
   final int archive,
       query,
@@ -54,6 +57,9 @@ class BrowserPage {
       transferBytes;
   final List<BrowserRow> rows;
   final List<CompressionCapability> capabilities;
+  final List<String> paths;
+  final List<BrowserFailure> failures;
+  final String classification;
 }
 
 class TaskProgress {
@@ -84,7 +90,8 @@ class TaskProgress {
   bool get isArchiveOperation =>
       operation == 'extractAll' ||
       operation == 'extractSelected' ||
-      operation == 'compress';
+      operation == 'compress' ||
+      operation == 'export';
 }
 
 class TaskConflict {

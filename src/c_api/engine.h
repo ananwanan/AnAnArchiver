@@ -2,6 +2,7 @@
 
 #include <ananarchiver/application/archive_service.h>
 #include <ananarchiver/application/browser_service.h>
+#include <ananarchiver/application/temp_file_manager.h>
 #include <ananarchiver/c_api/ananarchiver.h>
 
 #include <array>
@@ -25,6 +26,7 @@ struct aa_engine {
     std::unique_ptr<ananarchiver::application::TaskManager> tasks;
     std::unique_ptr<ananarchiver::application::ArchiveService> archives;
     std::unique_ptr<ananarchiver::application::BrowserService> browser;
+    std::unique_ptr<ananarchiver::application::TempFileManager> exports;
     std::jthread cleaner;
 
     aa_engine();

@@ -1,6 +1,6 @@
 {
   "header": "include/ananarchiver/c_api/ananarchiver.h",
-  "sha256": "be33cdc28ecd5980b722571ed55d9113b5440799026e901662f67615180054ed",
+  "sha256": "55c413c19e41fa3b4bc65e48d503e6bf04235f7f2b5d697ea2c237df5cb64209",
   "generator": "ffigen (version recorded in package pubspec.lock)",
   "dart": "3.13.7 (stable) (Thu Oct 22 14:28:57 2026 -0700) on \"windows_x64\"",
   "abi": 1,

@@ -1,7 +1,8 @@
 # Flutter frontend decision and migration contract
 
 - Decision date: 2026-11-05.
-- Status: accepted; F1–F4 implemented and verified on Windows x64; F5–F6 pending.
+- Status: accepted; F1–F5 implemented; Windows evidence and outstanding desktop checks
+  are recorded per stage; native Linux/macOS acceptance and F6 remain pending.
 - Development branch: `main`.
 - Preserved Qt branch: [`codex/qt-baseline-2026-11-05`](https://github.com/ananwanan/AnAnArchiver/tree/codex/qt-baseline-2026-11-05).
 - Qt baseline commit: `53185742ad1e640b24da397cfa3544507af4edef`.
@@ -19,7 +20,9 @@ consumer and lifecycle/operation tests. F2 supplies shared native metadata brows
 isolate-owned Dart binding and bounded browser; see [development](../development/flutter.md)
 and [Windows evidence](../validation/2026-11-06-flutter-browsing.md). F4 connects
 extraction, capability-based creation, password/conflict interaction and cancellation;
-see [operation evidence](../validation/2026-11-06-flutter-operations.md). Existing
+see [operation evidence](../validation/2026-11-06-flutter-operations.md). F5 adds desktop
+preferences/migration, recent records, task summaries, shortcuts and OS file
+transfer/open adapters; see [desktop evidence and limits](../validation/2026-11-07-flutter-desktop.md). Existing
 `frontend/qt`, desktop presets, packaging scripts and the manual Core/Qt CI
 workflow remain operational baseline code until their migration stages are
 implemented. Old Qt validation does not establish Flutter completion.

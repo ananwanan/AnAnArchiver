@@ -121,6 +121,53 @@ class LiteArcNative {
   late final _aa_browser_close = _aa_browser_closePtr
       .asFunction<int Function(ffi.Pointer<aa_engine>, int)>();
 
+  int aa_browser_export(
+    ffi.Pointer<aa_engine> engine,
+    int archive,
+    int query,
+    int selection,
+    ffi.Pointer<aa_extract_request> request,
+    ffi.Pointer<ffi.Uint64> task,
+    ffi.Pointer<ffi.Pointer<aa_error>> error,
+  ) {
+    return _aa_browser_export(
+      engine,
+      archive,
+      query,
+      selection,
+      request,
+      task,
+      error,
+    );
+  }
+
+  late final _aa_browser_exportPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Uint32 Function(
+            ffi.Pointer<aa_engine>,
+            ffi.Uint64,
+            ffi.Uint64,
+            ffi.Uint64,
+            ffi.Pointer<aa_extract_request>,
+            ffi.Pointer<ffi.Uint64>,
+            ffi.Pointer<ffi.Pointer<aa_error>>,
+          )
+        >
+      >('aa_browser_export');
+  late final _aa_browser_export = _aa_browser_exportPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<aa_engine>,
+          int,
+          int,
+          int,
+          ffi.Pointer<aa_extract_request>,
+          ffi.Pointer<ffi.Uint64>,
+          ffi.Pointer<ffi.Pointer<aa_error>>,
+        )
+      >();
+
   int aa_browser_extract(
     ffi.Pointer<aa_engine> arg0,
     int arg1,
@@ -487,6 +534,47 @@ class LiteArcNative {
   late final _aa_error_release = _aa_error_releasePtr
       .asFunction<void Function(ffi.Pointer<aa_error>)>();
 
+  int aa_export_control(
+    ffi.Pointer<aa_engine> engine,
+    ffi.Pointer<aa_export_request> request,
+    ffi.Pointer<ffi.Pointer<aa_export_result>> result,
+    ffi.Pointer<ffi.Pointer<aa_error>> error,
+  ) {
+    return _aa_export_control(engine, request, result, error);
+  }
+
+  late final _aa_export_controlPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Uint32 Function(
+            ffi.Pointer<aa_engine>,
+            ffi.Pointer<aa_export_request>,
+            ffi.Pointer<ffi.Pointer<aa_export_result>>,
+            ffi.Pointer<ffi.Pointer<aa_error>>,
+          )
+        >
+      >('aa_export_control');
+  late final _aa_export_control = _aa_export_controlPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<aa_engine>,
+          ffi.Pointer<aa_export_request>,
+          ffi.Pointer<ffi.Pointer<aa_export_result>>,
+          ffi.Pointer<ffi.Pointer<aa_error>>,
+        )
+      >();
+
+  void aa_export_result_release(ffi.Pointer<aa_export_result> result) {
+    return _aa_export_result_release(result);
+  }
+
+  late final _aa_export_result_releasePtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<aa_export_result>)>
+      >('aa_export_result_release');
+  late final _aa_export_result_release = _aa_export_result_releasePtr
+      .asFunction<void Function(ffi.Pointer<aa_export_result>)>();
+
   int aa_get_api_info(ffi.Pointer<aa_api_info> info) {
     return _aa_get_api_info(info);
   }
@@ -696,6 +784,8 @@ const int AA_FEATURE_ASYNC_CLEANUP = 16;
 const int AA_FEATURE_BROWSER = 32;
 
 const int AA_FEATURE_COMPRESS = 4;
+
+const int AA_FEATURE_DESKTOP_EXPORT = 64;
 
 const int AA_FEATURE_EXTRACT = 2;
 
@@ -1237,6 +1327,50 @@ final class aa_error extends ffi.Struct {
   external aa_string backend_message;
 
   external aa_string path;
+}
+
+final class aa_export_request extends ffi.Struct {
+  @ffi.Uint32()
+  external int struct_size;
+
+  @ffi.Uint32()
+  external int action;
+
+  external aa_string path;
+}
+
+final class aa_export_result extends ffi.Struct {
+  @ffi.Uint32()
+  external int struct_size;
+
+  @ffi.Uint32()
+  external int count;
+
+  external ffi.Pointer<aa_string> paths;
+
+  @ffi.Uint32()
+  external int error_count;
+
+  @ffi.Uint32()
+  external int reserved;
+
+  external ffi.Pointer<ffi.Pointer<aa_error>> errors;
+
+  static ffi.Pointer<aa_export_result> $allocate(
+    ffi.Allocator $allocator, {
+    required int struct_size,
+    required int count,
+    required ffi.Pointer<aa_string> paths,
+    required int error_count,
+    required int reserved,
+    required ffi.Pointer<ffi.Pointer<aa_error>> errors,
+  }) => $allocator<aa_export_result>()
+    ..ref.struct_size = struct_size
+    ..ref.count = count
+    ..ref.paths = paths
+    ..ref.error_count = error_count
+    ..ref.reserved = reserved
+    ..ref.errors = errors;
 }
 
 final class aa_extract_request extends ffi.Struct {

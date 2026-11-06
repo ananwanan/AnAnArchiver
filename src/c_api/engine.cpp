@@ -55,6 +55,7 @@ void aa_engine::clean() {
             archives.reset();
             tasks.reset();
             browser.reset();
+            exports.reset();
             lock.lock();
             slots = {};
             stopped = true;

@@ -408,6 +408,40 @@ AA_API void AA_CALL aa_snapshot_release(const aa_task_snapshot* snapshot) AA_NOE
 AA_API void AA_CALL aa_entry_batch_release(const aa_entry_batch* batch) AA_NOEXCEPT;
 AA_API void AA_CALL aa_capability_batch_release(const aa_capability_batch* batch) AA_NOEXCEPT;
 
+#define AA_FEATURE_DESKTOP_EXPORT (1ULL << 6)
+/* Additive ABI v1 desktop extension. These small filesystem controls must run
+ * on the managed binding worker. Extraction remains an asynchronous task.
+ * action: 1 create (path=private application exports parent), 2 collect direct
+ * children, 3 hand off, 4 discard, 5 list retained roots, 6 drain cleanup errors, 7 initialize/list
+ * durable store (path=parent). A handed-off root survives close/shutdown/restart. Explicit discard
+ * asserts that the target has finished reading. Never discard on native drag-end alone. Four
+ * durable slots, 256 top-level paths, 1 MiB output text. */
+typedef struct aa_export_request {
+    uint32_t struct_size;
+    uint32_t action;
+    aa_string path;
+} aa_export_request;
+typedef struct aa_export_result {
+    uint32_t struct_size;
+    uint32_t count;
+    const aa_string* paths;
+    uint32_t error_count;
+    uint32_t reserved;
+    const aa_error* const* errors;
+} aa_export_result;
+AA_API aa_status AA_CALL aa_export_control(aa_engine* engine, const aa_export_request* request,
+                                           const aa_export_result** result,
+                                           const aa_error** error) AA_NOEXCEPT;
+AA_API void AA_CALL aa_export_result_release(const aa_export_result* result) AA_NOEXCEPT;
+/* Same selection/ownership rules as aa_browser_extract. Enforces
+ * 10,000 source entries / 512 MiB cumulative declared and expanded data,
+ * ten minutes, skip links and rename duplicate outputs. The
+ * destination must be a root created by aa_export_control in this engine. */
+AA_API aa_status AA_CALL aa_browser_export(aa_engine* engine, aa_archive_id archive,
+                                           aa_query_id query, aa_selection_id selection,
+                                           const aa_extract_request* request, aa_task_id* task,
+                                           const aa_error** error) AA_NOEXCEPT;
+
 #ifdef __cplusplus
 }
 #endif

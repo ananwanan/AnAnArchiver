@@ -198,3 +198,31 @@ task has no browser result and returns `AA_INVALID_ARGUMENT`. Output slots clear
 on failure. Invalid native selections fail explicitly, never become extract-all.
 F1 `aa_archive_open` streaming remains available for native compatibility; Flutter
 browsing should use `aa_browser_open` and bounded windows instead.
+
+## F5 compatible desktop export extension
+
+ABI v1 layouts and existing exports are unchanged. `AA_FEATURE_DESKTOP_EXPORT`
+advertises `aa_browser_export`, `aa_export_control`, and `aa_export_result_release`.
+Export extraction uses the existing native archive/query/selection handles and
+returns a normal engine task ID; it forces rename/skip-links and conservative
+10,000 source-entry / 512 MiB declared+expanded / ten-minute budgets. Limits apply
+to the source scan too; large sources may be refused even for a small selection.
+The regular extraction functions keep their existing limits.
+
+Export control is synchronous **worker-only** small filesystem management, never
+a UI-isolate call: initialize/list the private store (action 7), create a root (1),
+collect at most 256 direct paths / 1 MiB (2), mark handed off (3), explicitly
+discard after target readers finished (4), list retained roots (5), or drain
+cleanup errors (6). Outputs are provider-owned complete UTF-8 values/errors and
+may outlive the engine; release each with `aa_export_result_release`. Path-based
+controls accept only exact roots registered by that manager, not arbitrary
+recursive-delete destinations. Restored or handed-off roots cannot be used for
+new extraction. A private store has an OS process lock and four durable slots.
+
+The manager is shared Application code, including the Qt adapter. Recursive
+deletion/retry runs on its owned jthread, including Windows extended paths; final
+engine shutdown waits off UI. Unhanded roots are cleaned on exit. Handed-off roots
+survive exit/restart because file-URI consumers can defer reads indefinitely.
+They count against capacity until explicit completed-copy release. There is no
+claim that drag-end proves target completion, and no unsafe automatic TTL for
+handed-off data. Cleanup errors retain precise paths and are polled by the UI.

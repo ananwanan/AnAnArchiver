@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:litearc_binding/litearc_binding.dart';
 
 import 'operation_controller.dart';
+import 'task_history_controller.dart';
 
 class RowSelection {
   final List<(int, int)> ranges = []; // half-open query positions, at most 4096
@@ -45,7 +46,12 @@ class RowSelection {
 
 class BrowserController extends ChangeNotifier {
   BrowserController(this.transport)
-    : operations = OperationController(transport) {
+    : operations = OperationController(transport),
+      history = TaskHistoryController(
+        transport is BrowserClient ? transport.taskEvents : transport.progress,
+      ) {
+    history.destinationFor = (p) =>
+        p.isArchiveOperation ? operations.destination : null;
     _subscription = transport.progress.listen((p) {
       if (!_disposed && !isHome && !p.isArchiveOperation) {
         progress = p;
@@ -55,6 +61,8 @@ class BrowserController extends ChangeNotifier {
   }
   final BrowserTransport transport;
   final OperationController operations;
+  final TaskHistoryController history;
+  ValueChanged<String>? onOpened;
   late final StreamSubscription<TaskProgress> _subscription;
   static const maxPages = 8, maxFolderWindows = 8;
   final pages = <int, BrowserPage>{};
@@ -144,6 +152,7 @@ class BrowserController extends ChangeNotifier {
       archive = r.archive;
       entries = r.entryCount;
       indexBytes = r.indexBytes;
+      onOpened?.call(source);
       await refresh();
       if (!_disposed && archive != 0) unawaited(loadFolders(''));
     } catch (e) {
@@ -401,6 +410,19 @@ class BrowserController extends ChangeNotifier {
     }
   }
 
+  Future<void> cancelBrowsing() async {
+    if (_disposed) return;
+    _searchTimer?.cancel();
+    _resetView();
+    busy = false;
+    notifyListeners();
+    try {
+      await transport.request('cancel');
+    } catch (e) {
+      _failure(e, generation);
+    }
+  }
+
   Future<void> closeArchive() async {
     if (_disposed) return;
     await operations.cancel();
@@ -434,6 +456,7 @@ class BrowserController extends ChangeNotifier {
     if (_disposed) return;
     _disposed = true;
     operations.dispose();
+    history.dispose();
     generation++;
     _searchTimer?.cancel();
     _selectionTimer?.cancel();

@@ -9,15 +9,17 @@ class CreateArchiveDialog extends StatefulWidget {
     super.key,
     required this.capabilities,
     required this.platform,
+    this.initialPaths = const [],
   });
   final List<CompressionCapability> capabilities;
   final DesktopAdapter platform;
+  final List<String> initialPaths;
   @override
   State<CreateArchiveDialog> createState() => _CreateArchiveDialogState();
 }
 
 class _CreateArchiveDialogState extends State<CreateArchiveDialog> {
-  final paths = <String>[];
+  late final paths = List<String>.of(widget.initialPaths);
   late CompressionCapability capability = widget.capabilities.first;
   late int level = capability.defaultLevel;
   bool permissions = true, timestamps = true, replace = false, picking = false;

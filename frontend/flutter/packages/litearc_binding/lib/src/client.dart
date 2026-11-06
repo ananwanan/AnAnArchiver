@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:isolate';
+import 'dart:io';
 
 import 'models.dart';
 import 'native_engine.dart';
@@ -19,6 +20,8 @@ bool _capacityFailure(BrowserFailure e) =>
 class BrowserClient implements BrowserTransport {
   BrowserClient._();
   final _events = StreamController<TaskProgress>.broadcast();
+  final _taskEvents = StreamController<TaskProgress>.broadcast();
+  Stream<TaskProgress> get taskEvents => _taskEvents.stream;
   final _pending = <int, Completer<BrowserPage>>{};
   final _receive = ReceivePort();
   final _ready = Completer<void>();
@@ -52,6 +55,7 @@ class BrowserClient implements BrowserTransport {
     if (message is List && message.length == 2 && message[0] is int) {
       if (message[1] is TaskProgress) {
         _send.send([message[0], 'progressAck', <String, Object?>{}]);
+        if (!_closed) _taskEvents.add(message[1] as TaskProgress);
         if (!_closed &&
             ((message[1] as TaskProgress).isArchiveOperation ||
                 _epochs[message[0]] == _requestEpoch)) {
@@ -119,6 +123,7 @@ class BrowserClient implements BrowserTransport {
     _send.send([++_next, 'shutdown', <String, Object?>{}]);
     await _exited.future;
     await _events.close();
+    await _taskEvents.close();
   }
 }
 
@@ -194,7 +199,12 @@ class _Worker {
         }
         return;
       }
-      if (const {'extractAll', 'extractSelected', 'compress'}.contains(op)) {
+      if (const {
+        'extractAll',
+        'extractSelected',
+        'compress',
+        'export',
+      }.contains(op)) {
         if (operationFuture != null) {
           send.send([
             message[0],
@@ -319,6 +329,25 @@ class _Worker {
           send.send([m[0], native.capabilities()]);
           continue;
         }
+        if (op == 'exportControl') {
+          send.send([
+            m[0],
+            native.exportControl(Map<String, Object?>.from(m[2] as Map)),
+          ]);
+          continue;
+        }
+        if (op == 'probe') {
+          final source = (m[2] as Map)['path'] as String;
+          final type = await FileSystemEntity.type(source);
+          if (version != epoch) throw _stale;
+          if (type == FileSystemEntityType.directory) {
+            send.send([
+              m[0],
+              BrowserPage(classification: 'inputs', paths: [source]),
+            ]);
+            continue;
+          }
+        }
         if (op == 'open') await operationFuture;
         // One browser task beside one operation. A released task may still be
         // in native reclamation: bounded capacity retries yield to controls.
@@ -335,17 +364,50 @@ class _Worker {
         }
         while (true) {
           if (version != epoch) throw _stale;
-          final snapshot = native.poll(op);
+          final snapshot = native.poll(op, throwTerminal: false);
           progress(m[0] as int, snapshot);
-          if (snapshot.state == 5) break;
+          if (snapshot.terminal) {
+            if (op == 'probe' && [3, 6].contains(snapshot.error?.code)) {
+              send.send([
+                m[0],
+                BrowserPage(
+                  classification: 'inputs',
+                  paths: [(m[2] as Map)['path'] as String],
+                ),
+              ]);
+              break;
+            }
+            if (op == 'probe' &&
+                (snapshot.state == 5 ||
+                    [4, 8, 9].contains(snapshot.error?.code))) {
+              send.send([m[0], const BrowserPage(classification: 'archive')]);
+              break;
+            }
+            if (snapshot.state != 5) {
+              throw snapshot.error ??
+                  const BrowserFailure(8, 12, 'Task cancelled');
+            }
+            break;
+          }
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
         if (version != epoch) throw _stale;
-        send.send([m[0], native.result()]);
+        if (op != 'probe') send.send([m[0], native.result()]);
       } catch (e) {
         send.send([m[0], e is BrowserFailure ? e : BrowserFailure(7, 0, '$e')]);
       } finally {
         (m[2] as Map).remove('password');
+        if (native.task != 0) {
+          // Replacements still publish the actual terminal snapshot for history.
+          // Controls remain serviced while this lane waits for cancellation.
+          var last = native.poll(op, throwTerminal: false);
+          if (!last.terminal) native.cancel();
+          while (!last.terminal) {
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+            last = native.poll(op, throwTerminal: false);
+          }
+          progress(m[0] as int, last);
+        }
         finishProgress(m[0] as int);
         native.release();
       }

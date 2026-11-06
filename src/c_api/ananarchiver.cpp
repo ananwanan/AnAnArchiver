@@ -37,6 +37,15 @@ template <class F> aa_status boundary(const aa_error** error, F&& operation) noe
             // be allocated. No exception, including bad_alloc, crosses C ABI.
         }
         return failure.status;
+    } catch (const std::filesystem::filesystem_error& failure) {
+        try {
+            if (error)
+                *error = new ErrorResult({ArchiveErrorCode::IoError,
+                                          "Private export filesystem operation failed",
+                                          failure.code().message(), failure.path1()});
+        } catch (...) { /* Numeric status remains authoritative on allocation failure. */
+        }
+        return AA_ARCHIVE_ERROR;
     } catch (const std::bad_alloc&) {
         return AA_RESOURCE_LIMIT;
     } catch (...) {
@@ -219,6 +228,23 @@ struct BrowserResult final : aa_browser_result {
         rows = values.data();
     }
 };
+struct ExportResult final : aa_export_result {
+    std::vector<std::string> text;
+    std::vector<aa_string> values;
+    std::vector<std::unique_ptr<ErrorResult>> ownedErrors;
+    std::vector<const aa_error*> errorPointers;
+    ExportResult() : aa_export_result{} { struct_size = sizeof(aa_export_result); }
+    void finish() {
+        for (const auto& path : text)
+            values.push_back(view(path));
+        count = static_cast<uint32_t>(values.size());
+        paths = values.data();
+        for (const auto& error : ownedErrors)
+            errorPointers.push_back(error.get());
+        error_count = static_cast<uint32_t>(errorPointers.size());
+        errors = errorPointers.data();
+    }
+};
 } // namespace
 
 extern "C" {
@@ -228,7 +254,8 @@ aa_status AA_CALL aa_get_api_info(aa_api_info* info) noexcept {
     *info = {sizeof(aa_api_info),
              AA_ABI_VERSION,
              AA_FEATURE_OPEN | AA_FEATURE_EXTRACT | AA_FEATURE_COMPRESS |
-                 AA_FEATURE_METADATA_STREAM | AA_FEATURE_ASYNC_CLEANUP | AA_FEATURE_BROWSER,
+                 AA_FEATURE_METADATA_STREAM | AA_FEATURE_ASYNC_CLEANUP | AA_FEATURE_BROWSER |
+                 AA_FEATURE_DESKTOP_EXPORT,
              AA_MAX_BATCH_ENTRIES,
              AA_MAX_STRING_BYTES,
              2,
@@ -680,5 +707,112 @@ aa_status AA_CALL aa_browser_close(aa_engine* engine, aa_archive_id archive) noe
 }
 void AA_CALL aa_browser_result_release(const aa_browser_result* result) noexcept {
     delete static_cast<const BrowserResult*>(result);
+}
+aa_status AA_CALL aa_export_control(aa_engine* engine, const aa_export_request* request,
+                                    const aa_export_result** result,
+                                    const aa_error** error) noexcept {
+    if (result)
+        *result = nullptr;
+    return boundary(error, [&]() -> aa_status {
+        requestSize(request);
+        if (!result || request->action < 1 || request->action > 7)
+            invalid("Export control output/action required");
+        auto path = request->path.size ? pathInput(request->path) : std::filesystem::path{};
+        if ((request->action <= 4 || request->action == 7) &&
+            (!path.is_absolute() || path.lexically_normal() != path))
+            invalid("An absolute normalized private export path is required");
+        return withEngine(engine, [&]() -> aa_status {
+            auto output = std::make_unique<ExportResult>();
+            if (!engine->exports) {
+                if (request->action != 1 && request->action != 7)
+                    return AA_NOT_FOUND;
+                engine->exports = std::make_unique<application::TempFileManager>(path, true);
+            }
+            auto& manager = *engine->exports;
+            if (request->action == 1) {
+                auto root = manager.create();
+                if (!root)
+                    throw BoundaryFailure{AA_RESOURCE_LIMIT, root.error()};
+                output->text.push_back(pathToUtf8(*root));
+            } else if ((request->action == 5 || request->action == 7)) {
+                for (const auto& root : manager.retainedRoots())
+                    output->text.push_back(pathToUtf8(root));
+            } else if (request->action == 6) {
+                for (const auto& failure : manager.takeCleanupErrors())
+                    output->ownedErrors.push_back(std::make_unique<ErrorResult>(failure));
+            } else {
+                if (!manager.hold(path))
+                    return AA_NOT_FOUND;
+                if (request->action == 2) {
+                    std::size_t bytes = 0;
+                    for (const auto& child : std::filesystem::directory_iterator(path)) {
+                        if (child.is_symlink() ||
+                            (!child.is_regular_file() && !child.is_directory()))
+                            continue;
+                        auto text = pathToUtf8(child.path());
+                        bytes += text.size();
+                        if (output->text.size() >= 256 || bytes > AA_MAX_PAGE_BYTES)
+                            throw BoundaryFailure{AA_RESOURCE_LIMIT,
+                                                  {ArchiveErrorCode::ResourceLimitExceeded,
+                                                   "Export has more than 256 direct paths or 1 MiB "
+                                                   "path text; select a folder instead",
+                                                   {},
+                                                   path}};
+                        output->text.push_back(std::move(text));
+                    }
+                    if (output->text.empty())
+                        throw BoundaryFailure{AA_ARCHIVE_ERROR,
+                                              {ArchiveErrorCode::UnsupportedOperation,
+                                               "Selection produced no files or directories",
+                                               {},
+                                               path}};
+                } else if (request->action == 3) {
+                    manager.handoff(path);
+                } else {
+                    manager.discard(path);
+                }
+            }
+            output->finish();
+            *result = output.release();
+            return AA_OK;
+        });
+    });
+}
+void AA_CALL aa_export_result_release(const aa_export_result* result) noexcept {
+    delete static_cast<const ExportResult*>(result);
+}
+aa_status AA_CALL aa_browser_export(aa_engine* engine, aa_archive_id archive, aa_query_id query,
+                                    aa_selection_id selection, const aa_extract_request* request,
+                                    aa_task_id* task, const aa_error** error) noexcept {
+    if (task)
+        *task = 0;
+    return boundary(error, [&]() -> aa_status {
+        requestSize(request);
+        if (!task || !query || !selection || request->extract_all ||
+            request->selected_index_count || request->selected_directory_count ||
+            request->path.size)
+            invalid("Export requires only a native selection");
+        ExtractionRequest input;
+        input.destination = pathInput(request->destination);
+        input.overwrite = OverwritePolicy::Rename;
+        input.links = LinkPolicy::Skip;
+        input.limits.maxEntries = 10000;
+        input.limits.maxTotalBytes = 512ULL * 1024 * 1024;
+        input.limits.maxEntryBytes = input.limits.maxTotalBytes;
+        input.limits.maxElapsed = std::chrono::minutes{10};
+        Secret password(request->password);
+        return withEngine(engine, [&]() -> aa_status {
+            if (!engine->browser->valid(archive, query, selection))
+                return AA_STALE_VIEW;
+            if (!engine->exports || !engine->exports->writable(input.destination) ||
+                !engine->exports->hold(input.destination))
+                return AA_NOT_FOUND;
+            return submit(*engine, task, [&] {
+                if (!password.text.empty())
+                    input.password = std::move(password.text);
+                return engine->browser->extract(archive, query, selection, std::move(input));
+            });
+        });
+    });
 }
 } // extern "C"

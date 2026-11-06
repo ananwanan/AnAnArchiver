@@ -132,6 +132,8 @@ class AppLocalizationsZh extends AppLocalizations {
       'extractAll': '解压全部',
       'extractSelected': '解压选中',
       'compress': '创建归档',
+      'export': '准备拖出文件',
+      'probe': '检测拖入文件',
       'other': '归档任务',
     });
     return '$_temp0';
@@ -283,6 +285,40 @@ class AppLocalizationsZh extends AppLocalizations {
     });
     return '$_temp0';
   }
+
+  @override
+  String get taskCenter => '任务中心';
+
+  @override
+  String get noTasks => '本次会话尚无任务。';
+
+  @override
+  String get clearHistory => '清空记录';
+
+  @override
+  String get recentArchives => '最近归档';
+
+  @override
+  String get removeRecent => '移除此记录';
+
+  @override
+  String get settingsProblem => '设置读取或保存失败，原数据已保留。请查看详情。';
+
+  @override
+  String get prepareDrag => '准备选中项以拖出';
+
+  @override
+  String get dragReady => '拖动已准备的文件';
+
+  @override
+  String get exportFiles => '临时导出';
+
+  @override
+  String get exportRetention =>
+      '目标程序可能在拖放结束或轻匣退出后继续读取。交给系统的文件会跨启动保留在下列私有目录。请在所有目标复制完成后释放。最多四份导出，每份 512 MiB；准备后尚未交给系统的输出十分钟后过期。';
+
+  @override
+  String get releaseExports => '所有目标复制已完成：释放文件';
 }
 
 /// The translations for Chinese, as used in China (`zh_CN`).
@@ -412,6 +448,8 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
       'extractAll': '解压全部',
       'extractSelected': '解压选中',
       'compress': '创建归档',
+      'export': '准备拖出文件',
+      'probe': '检测拖入文件',
       'other': '归档任务',
     });
     return '$_temp0';
@@ -563,4 +601,38 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
     });
     return '$_temp0';
   }
+
+  @override
+  String get taskCenter => '任务中心';
+
+  @override
+  String get noTasks => '本次会话尚无任务。';
+
+  @override
+  String get clearHistory => '清空记录';
+
+  @override
+  String get recentArchives => '最近归档';
+
+  @override
+  String get removeRecent => '移除此记录';
+
+  @override
+  String get settingsProblem => '设置读取或保存失败，原数据已保留。请查看详情。';
+
+  @override
+  String get prepareDrag => '准备选中项以拖出';
+
+  @override
+  String get dragReady => '拖动已准备的文件';
+
+  @override
+  String get exportFiles => '临时导出';
+
+  @override
+  String get exportRetention =>
+      '目标程序可能在拖放结束或轻匣退出后继续读取。交给系统的文件会跨启动保留在下列私有目录。请在所有目标复制完成后释放。最多四份导出，每份 512 MiB；准备后尚未交给系统的输出十分钟后过期。';
+
+  @override
+  String get releaseExports => '所有目标复制已完成：释放文件';
 }

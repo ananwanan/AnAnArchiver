@@ -22,7 +22,7 @@ Application/Core 和官方 libarchive 实现。需求变更不等于 Flutter 已
 
 C ABI 可独立于 GUI 构建；Flutter 归档浏览与解压/创建已验证 Windows x64，其他平台与正式打包仍待验收。
 
-- [Flutter F3/F4：构建、binding isolate、有界浏览与归档操作](development/flutter.md)
+- [Flutter F3–F5：构建、有界浏览、归档操作与桌面集成](development/flutter.md)
 - [C ABI v1：接口、所有权、线程、限制与独立构建](development/c-api.md)
 - [F2 公共 metadata 浏览：Unicode、代次、预算与原生选择](development/metadata-browsing.md)
 - [Qt 基线开发、操作与构建说明](development/qt-baseline.md)
@@ -63,3 +63,5 @@ C ABI 可独立于 GUI 构建；Flutter 归档浏览与解压/创建已验证 Wi
 
 - [2026-11-06 F3 Flutter 归档浏览与 Windows 验证](validation/2026-11-06-flutter-browsing.md)
 - [2026-11-06 F4 Flutter 解压、创建、交互与 Windows 验证](validation/2026-11-06-flutter-operations.md)
+
+- [2026-11-07 F5 Flutter 桌面体验、设置迁移与平台集成](validation/2026-11-07-flutter-desktop.md)

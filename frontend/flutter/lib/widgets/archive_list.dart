@@ -77,6 +77,9 @@ class _ArchiveListState extends State<ArchiveList> {
                   ? Center(child: Text(c.busy ? l.loading : l.empty))
                   : Focus(
                       focusNode: listFocus,
+                      onFocusChange: (_) {
+                        if (mounted) setState(() {});
+                      },
                       onKeyEvent: (node, event) {
                         if (event is! KeyDownEvent) {
                           return KeyEventResult.ignored;
@@ -107,140 +110,153 @@ class _ArchiveListState extends State<ArchiveList> {
                         );
                         return KeyEventResult.handled;
                       },
-                      child: Scrollbar(
-                        controller: scroll,
-                        thumbVisibility: true,
-                        child: ListView.builder(
-                          key: ValueKey(c.query),
-                          controller: scroll,
-                          itemExtent: rowHeight,
-                          itemCount: c.total,
-                          scrollCacheExtent: const ScrollCacheExtent.pixels(
-                            200,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: listFocus.hasFocus
+                                ? colors.primary
+                                : Colors.transparent,
                           ),
-                          itemBuilder: (context, index) {
-                            final row = c.rowAt(index);
-                            if (row == null) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                ),
-                                child: Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    l.loading,
-                                    style: TextStyle(color: colors.outline),
+                        ),
+                        child: Scrollbar(
+                          controller: scroll,
+                          thumbVisibility: true,
+                          child: ListView.builder(
+                            key: ValueKey(c.query),
+                            controller: scroll,
+                            itemExtent: rowHeight,
+                            itemCount: c.total,
+                            scrollCacheExtent: const ScrollCacheExtent.pixels(
+                              200,
+                            ),
+                            itemBuilder: (context, index) {
+                              final row = c.rowAt(index);
+                              if (row == null) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
                                   ),
-                                ),
-                              );
-                            }
-                            final selected = c.selection.contains(index);
-                            final size = row.folder || row.flags & 1 == 0
-                                ? '—'
-                                : '${NumberFormat.compact(locale: locale).format(row.size)} B';
-                            final date = row.flags & 4 == 0
-                                ? '—'
-                                : DateFormat.yMd(locale).add_Hm().format(
-                                    DateTime.fromMillisecondsSinceEpoch(
-                                      row.modified,
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      l.loading,
+                                      style: TextStyle(color: colors.outline),
                                     ),
-                                  );
-                            final type = row.folder
-                                ? l.folder
-                                : row.type == 1
-                                ? l.file
-                                : row.type == 3 || row.type == 4
-                                ? l.link
-                                : l.other;
-                            return Semantics(
-                              selected: selected,
-                              label: row.name,
-                              child: Ink(
-                                color: selected
-                                    ? colors.secondaryContainer
-                                    : index.isOdd
-                                    ? colors.surfaceContainerLowest
-                                    : colors.surface,
-                                child: InkWell(
-                                  key: ValueKey('${c.archive}:${row.identity}'),
-                                  onTap: () {
-                                    listFocus.requestFocus();
-                                    focusRow = index;
-                                    c.choose(
-                                      index,
-                                      additive:
-                                          HardwareKeyboard
-                                              .instance
-                                              .isControlPressed ||
-                                          HardwareKeyboard
-                                              .instance
-                                              .isMetaPressed,
-                                      extend: HardwareKeyboard
-                                          .instance
-                                          .isShiftPressed,
+                                  ),
+                                );
+                              }
+                              final selected = c.selection.contains(index);
+                              final size = row.folder || row.flags & 1 == 0
+                                  ? '—'
+                                  : '${NumberFormat.compact(locale: locale).format(row.size)} B';
+                              final date = row.flags & 4 == 0
+                                  ? '—'
+                                  : DateFormat.yMd(locale).add_Hm().format(
+                                      DateTime.fromMillisecondsSinceEpoch(
+                                        row.modified,
+                                      ),
                                     );
-                                  },
-                                  onDoubleTap: row.folder
-                                      ? () => c.navigate(row.path)
-                                      : null,
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        flex: 5,
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              AppIcon(
-                                                row.folder ? 'folder' : 'file',
-                                                size: 18,
-                                              ),
-                                              const SizedBox(width: 9),
-                                              Expanded(
-                                                child: Text(
-                                                  row.name,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
+                              final type = row.folder
+                                  ? l.folder
+                                  : row.type == 1
+                                  ? l.file
+                                  : row.type == 3 || row.type == 4
+                                  ? l.link
+                                  : l.other;
+                              return Semantics(
+                                selected: selected,
+                                label: row.name,
+                                child: Ink(
+                                  color: selected
+                                      ? colors.secondaryContainer
+                                      : index.isOdd
+                                      ? colors.surfaceContainerLowest
+                                      : colors.surface,
+                                  child: InkWell(
+                                    key: ValueKey(
+                                      '${c.archive}:${row.identity}',
+                                    ),
+                                    onTap: () {
+                                      listFocus.requestFocus();
+                                      focusRow = index;
+                                      c.choose(
+                                        index,
+                                        additive:
+                                            HardwareKeyboard
+                                                .instance
+                                                .isControlPressed ||
+                                            HardwareKeyboard
+                                                .instance
+                                                .isMetaPressed,
+                                        extend: HardwareKeyboard
+                                            .instance
+                                            .isShiftPressed,
+                                      );
+                                    },
+                                    onDoubleTap: row.folder
+                                        ? () => c.navigate(row.path)
+                                        : null,
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          flex: 5,
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                AppIcon(
+                                                  row.folder
+                                                      ? 'folder'
+                                                      : 'file',
+                                                  size: 18,
                                                 ),
-                                              ),
-                                            ],
+                                                const SizedBox(width: 9),
+                                                Expanded(
+                                                  child: Text(
+                                                    row.name,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                      Expanded(
-                                        flex: 2,
-                                        child: Text(
-                                          size,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (!compact)
                                         Expanded(
                                           flex: 2,
                                           child: Text(
-                                            type,
+                                            size,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
-                                      Expanded(
-                                        flex: 3,
-                                        child: Text(
-                                          date,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                        if (!compact)
+                                          Expanded(
+                                            flex: 2,
+                                            child: Text(
+                                              type,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        Expanded(
+                                          flex: 3,
+                                          child: Text(
+                                            date,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ),

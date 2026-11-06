@@ -1,4 +1,4 @@
-# Flutter 归档浏览与操作（F3/F4）
+# Flutter 桌面前端（F3–F5）
 
 `frontend/flutter` 是可运行的桌面 app；`packages/litearc_binding` 是不依赖 Flutter
 的 Dart package。Windows x64 已构建/运行；Linux/macOS runner 已接线，仍需对应
@@ -145,8 +145,7 @@ Widget → BrowserController / OperationController → BrowserClient → 同一 
   成功创建后替换。输入上限为 4,096 路径、每路径 64 KiB UTF-8、累计 4 MiB；超限报错，
   不截断。macOS runner 改用 user-selected read-write entitlement，尚未原生验证。
 - 任务面板显示实际状态、当前文件、扫描/写入/完成阶段、条目/字节、速度、耗时和
-  已知总量；总量未知显示不确定进度，没有伪暂停。面板只显示当前/最近一次操作，完整
-  任务中心和持久历史仍属 F5。
+  已知总量；总量未知显示不确定进度，没有伪暂停。面板显示当前操作；F5 另有最多 32 项的会话任务摘要中心。
 
 目录/搜索/排序变化允许已提交操作继续；若等待密码期间选中视图失效，重试明确失败。
 切换/关闭归档会取消在途操作，native worker 完成回滚/释放后才切换归档。
@@ -157,9 +156,80 @@ Widget → BrowserController / OperationController → BrowserClient → 同一 
 真实测试、工具链、Release/独立 Profile、IO/百万选择测量和平台限制见
 [F4 验证记录](../validation/2026-11-06-flutter-operations.md)。
 
-主题与语言当前仅会话内生效；F3 不读写旧 QSettings。F5 将在保留旧设置的前提下，
-后台一次性迁移已知 theme/recent 字段、加迁移标记、不迁移密码、不在启动时 stat 最近路径。
-该迁移尚未实现，F3 不将默认 system theme 声称为旧设置已迁移。
+## F5 设置、最近记录与系统打开
+
+设置、浏览、归档操作、桌面打开和导出分别由 controller 管理，没有通用 AppContext。
+`SettingsStore` 在受管理 isolate 上读取/迁移/写入，控制器只维护一个合并待写快照。
+同进程事务串行，跨进程有文件锁、两秒忙等待上限和 revision CAS；冲突不覆盖磁盘。
+先写相邻临时文件并 flush，Windows 使用 MoveFileExW replacement/write-through，
+POSIX 使用 rename。尚未验证突然断电；不承诺所有文件系统的断电持久性。
+
+应用身份保持 `AnAnArchiver` / `com.ananwanan.AnAnArchiver`。Qt 真实来源：
+
+| 平台 | 原设置 | 已知字段格式 |
+| --- | --- | --- |
+| Windows | HKCU\Software\AnAnArchiver\AnAnArchiver | appearance\theme: REG_DWORD 0/1/2；archives\recent: REG_MULTI_SZ |
+| Linux | $XDG_CONFIG_HOME/AnAnArchiver/AnAnArchiver.conf（默认 ~/.config） | [appearance] theme=整数；[archives] recent=Qt INI QStringList |
+| macOS | ~/Library/Preferences/com.ananarchiver.AnAnArchiver.plist | appearance.theme 数值；archives.recent 字符串数组（Qt 转换键分隔符） |
+
+Flutter 配置在用户 APPDATA / XDG_CONFIG_HOME / macOS Application Support 下
+`AnAnArchiver/flutter/preferences.json`；使用 schema/revision/qtMigration，持久化
+system/light/dark、system/zh-CN/en、窗口正常尺寸/最大化和最多 20 条最近路径。
+首次只迁移用户应用域的两个已知 Qt 字段，不复制组织级/机器级回退域；
+原 registry/文件从不写入，标记 imported 或 absent。
+损坏 JSON、未知 schema/字段、无效旧值、未知 QVariant/转义拒绝迁移/保存，显示错误，
+保留原数据；修正后重启。只迁移可明确解码的 Qt INI 子集；未知编码明确报错。
+不读取或迁移密码、token、操作请求、临时凭据或任务历史。
+
+最近记录只在真实 native 打开/索引成功后更新；按平台路径词法去重，不在启动 stat
+任何最近路径，不递归扫描用户磁盘。Home 提供打开、单条移除和清空；重新打开失效/
+权限不足/变化后的文件由 Core 返回真实错误，失败不移除记录。会话任务中心保留 32
+项纯 Dart 结果摘要（无原生 task/结果/完整索引引用），包括浏览与操作的实际终态。
+浏览被替换也等待实际终态后发布摘要并释放；一个浏览通道加一个操作通道，继续遵守
+每 engine 2 active / 16 retained、前端 32 待答 / worker 16 队列与进度 ack 合并。
+
+系统启动参数与运行中事件经 `DesktopAdapter` → `DesktopOpenController` → Browser。
+一个事件只接受一个绝对路径；多文件明确报错。同一在途路径去重，打开中再次打开
+只保留最新待处理事件，并取消旧浏览/操作；退出后不回答旧事件。Windows 显式再次
+启动通过同用户会话 mutex + WM_COPYDATA 转交，启动窗口有界等待、Dart 未 ready 时
+只留最新事件；退出/无响应时转交进程返回失败，不无限等待。Linux 使用 GApplication
+HANDLES_OPEN，macOS 使用 application:openFiles。路径使用 Unicode，Windows runner
+声明 longPathAware；识别仍以内容为准。不修改用户默认关联，不注册全局 shell 扩展。
+Linux/macOS 接线尚未原生验收。
+
+Ctrl（macOS 为 Cmd）+ O/N/E/F/A 为打开/创建/解压/搜索聚焦/当前查询全选；Shift+E
+显式解压全部，E 在有完成选择时解压选中。Windows/Linux Alt+Up / Alt+Home 导航上级/
+根，macOS Cmd+Up / Cmd+Shift+Up；主修饰键+句点取消归档操作。Escape 仅取消浏览，
+编辑文本/密码与对话框中不会取消无关任务。列表有可见焦点边框，Material 控件保留
+键盘焦点；所有新文案由 ARB 管理，原始诊断按纯文本显示。
+
+## F5 原生文件拖放与私有导出
+
+`super_drag_and_drop` 提供真实 OS file-URI drag/drop；不接受虚拟 payload、网页或非文件
+URI，不用 Draggable/DragTarget 代替系统传输。单个普通文件由 binding worker stat/probe，
+目录进入创建；内容识别成功（含密码/不支持 codec 的归档）进入浏览；仅 InvalidArchive/
+UnsupportedFormat 作为普通输入，其余 IO/权限/损坏错误不吞掉。多个本地文件/目录进入
+创建，归档本身也作为输入。最多 4,096 路径/4 MiB，不在 UI 扫描。原生 drop 回调在取得
+路径后立即交给 controller，绝不等待创建对话框或归档任务结束，避免占用 OLE 会话。
+
+选中后点击“准备选中项以拖出”，后台调用 `aa_browser_export`，选择仍为 C++ handle；
+完成后用新的真实手势拖动“拖动已准备的文件”。重复原始编号、隐式目录、空目录、
+边界与安全策略复用 Application/Core。链接跳过，重复输出重命名。导出限制为四个根、
+每次 10,000 源条目 / 512 MiB 累计声明和展开数据 / 十分钟、256 顶层 URL / 1 MiB 路径。
+这是沿用 Core 的保守**源读取预算**，即使只选择小文件，较大源归档也可能被拒绝；普通
+解压保持原有预算。百万选择不会在 Dart 展开，超限明确失败并回滚。
+
+Qt TempFileManager 已抽离到无 Qt 的 Application，Qt 仅保留别名 adapter。创建/枚举在
+binding worker，删除/重试在 manager jthread，engine 最后在 binding worker 销毁/join。
+Windows 清理统一扩展长路径；store.lock 独占同一私有导出存储，避免另一进程删在途数据。
+准备完成但未交付的输出十分钟失效；页面变化使其失效并清理，准备中取消先等任务终态。
+
+文件 URI 的消费方可能在 drag-end 后、甚至应用退出后读取，无法证明其已读完。因此
+交给系统的根不会按时间或退出自动删除；持久保留在配置目录下 exports/export-0..3，
+下次启动仍计入四根上限。用户确认所有目标复制结束后，经“临时导出”明确释放，后台
+重试并展示清理错误。取消一次原生拖动也保留这类根；不把 drop/copy 动作结果当作目标
+内容校验成功。跨进程延迟读取无固定最长时间保证；容量满时拒绝新准备，不提前删除。
+这是保守的已实现限制，不是无限缓存或自动安全清理的完成承诺。
 
 ## 测试与测量
 

@@ -318,7 +318,7 @@ abstract class AppLocalizations {
   /// No description provided for @operation.
   ///
   /// In en, this message translates to:
-  /// **'{value, select, open{Opening archive} query{Querying folder} page{Loading files} folders{Loading folders} selection{Resolving selection} extractAll{Extracting all} extractSelected{Extracting selection} compress{Creating archive} other{Archive task}}'**
+  /// **'{value, select, open{Opening archive} query{Querying folder} page{Loading files} folders{Loading folders} selection{Resolving selection} extractAll{Extracting all} extractSelected{Extracting selection} compress{Creating archive} export{Preparing desktop files} probe{Detecting dropped file} other{Archive task}}'**
   String operation(String value);
 
   /// No description provided for @taskState.
@@ -500,6 +500,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{value, select, p1{Scanning inputs} p2{Writing archive} p3{Finalizing output} other{Working}}'**
   String compressionPhase(String value);
+
+  /// No description provided for @taskCenter.
+  ///
+  /// In en, this message translates to:
+  /// **'Task center'**
+  String get taskCenter;
+
+  /// No description provided for @noTasks.
+  ///
+  /// In en, this message translates to:
+  /// **'No tasks in this session.'**
+  String get noTasks;
+
+  /// No description provided for @clearHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear history'**
+  String get clearHistory;
+
+  /// No description provided for @recentArchives.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent archives'**
+  String get recentArchives;
+
+  /// No description provided for @removeRecent.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from history'**
+  String get removeRecent;
+
+  /// No description provided for @settingsProblem.
+  ///
+  /// In en, this message translates to:
+  /// **'Preferences could not be loaded or saved. Original data was preserved. See details.'**
+  String get settingsProblem;
+
+  /// No description provided for @prepareDrag.
+  ///
+  /// In en, this message translates to:
+  /// **'Prepare selected files for dragging'**
+  String get prepareDrag;
+
+  /// No description provided for @dragReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag prepared files'**
+  String get dragReady;
+
+  /// No description provided for @exportFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Temporary exports'**
+  String get exportFiles;
+
+  /// No description provided for @exportRetention.
+  ///
+  /// In en, this message translates to:
+  /// **'Desktop targets may read files after a drag or after LiteArc exits. Handed-off output stays in these private folders across restarts. Release only after all target copies have finished. Four exports / 512 MiB each; prepared output expires after ten minutes before handoff.'**
+  String get exportRetention;
+
+  /// No description provided for @releaseExports.
+  ///
+  /// In en, this message translates to:
+  /// **'All target copies finished: release files'**
+  String get releaseExports;
 }
 
 class _AppLocalizationsDelegate

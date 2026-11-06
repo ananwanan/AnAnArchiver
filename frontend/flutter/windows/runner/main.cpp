@@ -13,6 +13,35 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ wch
         CreateAndAttachConsole();
     }
 
+    // Explicit invocations forward to the existing process; no file association
+    // or global shell registration is installed here. Paths remain UTF-16.
+    HANDLE single = CreateMutexW(nullptr, FALSE, L"Local\\com.ananwanan.AnAnArchiver.desktop");
+    if (single && GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND existing = nullptr;
+        for (int attempt = 0; attempt < 150 && !existing; ++attempt) {
+            EnumWindows(
+                [](HWND window, LPARAM target) -> BOOL {
+                    if (GetPropW(window, L"LiteArc.Desktop.v1")) {
+                        *reinterpret_cast<HWND*>(target) = window;
+                        return FALSE;
+                    }
+                    return TRUE;
+                },
+                reinterpret_cast<LPARAM>(&existing));
+            if (!existing)
+                Sleep(20); // second process has no UI; allow first runner startup
+        }
+        const auto* command = GetCommandLineW();
+        COPYDATASTRUCT data{0x4c415243, static_cast<DWORD>((wcslen(command) + 1) * sizeof(wchar_t)),
+                            const_cast<wchar_t*>(command)};
+        DWORD_PTR accepted = 0;
+        const auto sent = existing && SendMessageTimeoutW(existing, WM_COPYDATA, 0,
+                                                          reinterpret_cast<LPARAM>(&data),
+                                                          SMTO_ABORTIFHUNG, 2000, &accepted);
+        CloseHandle(single);
+        return sent && accepted ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
     // Initialize COM, so that it is available for use in the library and/or
     // plugins.
     ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -38,5 +67,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev, _In_ wch
     }
 
     ::CoUninitialize();
+    if (single)
+        CloseHandle(single);
     return EXIT_SUCCESS;
 }

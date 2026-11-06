@@ -91,11 +91,17 @@ target_link_libraries(ananarchiver_libarchive PUBLIC ananarchiver_core PRIVATE A
 ananarchiver_project_options(ananarchiver_libarchive)
 
 add_library(ananarchiver_application STATIC
+    src/application/temp_file_manager.cpp
     src/application/archive_service.cpp
     src/application/metadata_index.cpp
     src/application/browser_service.cpp
     src/application/task_manager.cpp
     src/application/directory_service.cpp)
+if(WIN32)
+    target_sources(ananarchiver_application PRIVATE src/platform/windows/export_store_lock.cpp)
+else()
+    target_sources(ananarchiver_application PRIVATE src/platform/posix/export_store_lock.cpp)
+endif()
 target_link_libraries(ananarchiver_application PUBLIC ananarchiver_core Threads::Threads
     PRIVATE ananarchiver_libarchive)
 ananarchiver_project_options(ananarchiver_application)

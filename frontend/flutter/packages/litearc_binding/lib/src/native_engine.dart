@@ -17,6 +17,7 @@ class NativeEngine {
       check(api.aa_get_api_info(info), nullptr);
       if (info.ref.abi_version != AA_ABI_VERSION ||
           info.ref.features & AA_FEATURE_BROWSER == 0 ||
+          info.ref.features & AA_FEATURE_DESKTOP_EXPORT == 0 ||
           info.ref.features & (AA_FEATURE_EXTRACT | AA_FEATURE_COMPRESS) !=
               (AA_FEATURE_EXTRACT | AA_FEATURE_COMPRESS) ||
           info.ref.max_active_tasks < 2 ||
@@ -24,7 +25,7 @@ class NativeEngine {
         throw const BrowserFailure(
           AA_ABI_MISMATCH,
           0,
-          'ABI v1 / browser required',
+          'ABI v1 / browser / desktop export required',
         );
       }
       final out = a<Pointer<aa_engine>>();
@@ -96,6 +97,12 @@ class NativeEngine {
       final error = a<Pointer<aa_error>>();
       int status;
       switch (op) {
+        case 'probe':
+          final r = a<aa_open_request>();
+          r.ref.struct_size = sizeOf<aa_open_request>();
+          r.ref.probe_only = 1;
+          string(r.ref.path, args['path'] as String, a);
+          status = api.aa_archive_open(engine, r, t, error);
         case 'open':
           final r = a<aa_open_request>();
           r.ref.struct_size = sizeOf<aa_open_request>();
@@ -234,7 +241,10 @@ class NativeEngine {
             'No completed selection',
           );
         }
-        status = api.aa_browser_extract(
+        final extract = op == 'export'
+            ? api.aa_browser_export
+            : api.aa_browser_extract;
+        status = extract(
           engine,
           args['archive'] as int,
           args['query'] as int,
@@ -247,6 +257,36 @@ class NativeEngine {
     }
     check(status, error.value);
     return t.value;
+  });
+
+  BrowserPage exportControl(Map<String, Object?> args) => using((a) {
+    final r = a<aa_export_request>();
+    r.ref.struct_size = sizeOf<aa_export_request>();
+    r.ref.action = args['action'] as int;
+    string(r.ref.path, args['path'] as String? ?? '', a);
+    final out = a<Pointer<aa_export_result>>();
+    final error = a<Pointer<aa_error>>();
+    check(api.aa_export_control(engine, r, out, error), error.value);
+    final ptr = out.value;
+    try {
+      final result = ptr.ref;
+      if (result.count > 256 || result.error_count > 16) {
+        throw const BrowserFailure(
+          AA_RESOURCE_LIMIT,
+          14,
+          'Export response budget',
+        );
+      }
+      return BrowserPage(
+        paths: List.generate(result.count, (i) => text(result.paths[i])),
+        failures: List.generate(
+          result.error_count,
+          (i) => failure(AA_ARCHIVE_ERROR, result.errors[i]),
+        ),
+      );
+    } finally {
+      api.aa_export_result_release(ptr);
+    }
   });
 
   BrowserPage capabilities() => using((a) {

@@ -294,9 +294,120 @@ void boundaryAndShutdown() {
     }
     check(stopped, "shutdown left browser worker alive");
 }
+
+using ExportPage = std::unique_ptr<const aa_export_result, decltype(&aa_export_result_release)>;
+ExportPage exportControl(aa_engine* engine, uint32_t action,
+                         const std::filesystem::path& path = {}) {
+    auto utf8 = pathToUtf8(path);
+    aa_export_request request{sizeof(request), action, input(utf8)};
+    const aa_export_result* result{};
+    const aa_error* error{};
+    const auto status = aa_export_control(engine, &request, &result, &error);
+    const auto message = error ? text(error->message) : std::to_string(status);
+    aa_error_release(error);
+    check(status == AA_OK, "export control failed: " + message);
+    return {result, aa_export_result_release};
+}
+void desktopExport() {
+    TemporaryDirectory temp;
+    const auto source = temp.path / "unicode.bin";
+    const auto store = temp.path / "exports";
+    createFixture(source, FixtureFormat::Zip,
+                  {{"implicit/sub/中文🐈.txt", "payload"},
+                   {"empty/", {}, EntryType::Directory},
+                   {"duplicate.txt", "first"},
+                   {"duplicate.txt", "second"},
+                   {"implicit-other.txt", "boundary"}});
+    std::filesystem::path retained;
+    ExportPage owned(nullptr, aa_export_result_release);
+    {
+        Engine engine;
+        auto browser = open(engine.handle, source);
+        query(engine.handle, browser, "", "duplicate");
+        const auto selection = select(engine.handle, browser, {{1, 1}});
+        auto root = exportControl(engine.handle, 1, store);
+        retained = pathFromUtf8(text(root->paths[0]));
+        auto destination = pathToUtf8(retained);
+        aa_extract_request request{};
+        request.struct_size = sizeof(request);
+        request.destination = input(destination);
+        aa_task_id task{};
+        check(aa_browser_export(engine.handle, browser.archive, browser.query, selection, &request,
+                                &task, nullptr) == AA_OK,
+              "submit native selected export");
+        auto done = wait(engine.handle, task);
+        check(done->state == AA_TASK_SUCCEEDED, "desktop export failed");
+        release(engine.handle, task);
+        owned = exportControl(engine.handle, 2, retained);
+        check(owned->count == 1 && readFile(retained / "duplicate.txt") == "second",
+              "original duplicate identity lost on export");
+        exportControl(engine.handle, 3, retained);
+        check(aa_browser_close(engine.handle, browser.archive) == AA_OK,
+              "close during delayed target read");
+        // The private durable store is exclusive even across separate engines.
+        Engine competitor;
+        aa_export_request locked{sizeof(locked), 7, input(pathToUtf8(store))};
+        auto storeText = pathToUtf8(store);
+        locked.path = input(storeText);
+        const aa_export_result* rejected{};
+        check(aa_export_control(competitor.handle, &locked, &rejected, nullptr) != AA_OK &&
+                  !rejected,
+              "concurrent process store ownership bypass");
+    }
+    check(owned->count == 1 && text(owned->paths[0]).find("duplicate.txt") != std::string::npos,
+          "owned export strings did not outlive engine");
+    check(readFile(retained / "duplicate.txt") == "second",
+          "shutdown deleted delayed desktop output");
+    {
+        Engine engine;
+        auto adopted = exportControl(engine.handle, 7, store);
+        check(adopted->count == 1, "restart lost retained export");
+        for (int i = 0; i < 3; ++i) {
+            auto created = exportControl(engine.handle, 1, store);
+            exportControl(engine.handle, 3, pathFromUtf8(text(created->paths[0])));
+        }
+        const auto fullPath = pathToUtf8(store);
+        aa_export_request full{sizeof(full), 1, input(fullPath)};
+        const aa_export_result* rejected{};
+        check(aa_export_control(engine.handle, &full, &rejected, nullptr) == AA_RESOURCE_LIMIT &&
+                  !rejected,
+              "durable export count budget bypassed");
+        auto roots = exportControl(engine.handle, 5);
+        for (uint32_t i = 0; i < roots->count; ++i)
+            exportControl(engine.handle, 4, pathFromUtf8(text(roots->paths[i])));
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        while (std::filesystem::exists(retained) && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(5ms);
+        check(!std::filesystem::exists(retained),
+              "explicit completed-copy release did not clean root");
+        check(exportControl(engine.handle, 6)->error_count == 0, "cleanup unexpectedly failed");
+        auto browser = open(engine.handle, source);
+        query(engine.handle, browser);
+        const auto selection = select(engine.handle, browser, {}, true);
+        auto created = exportControl(engine.handle, 1, store);
+        auto path = pathToUtf8(pathFromUtf8(text(created->paths[0])));
+        aa_extract_request request{};
+        request.struct_size = sizeof(request);
+        request.destination = input(path);
+        aa_task_id task{};
+        check(aa_browser_export(engine.handle, browser.archive, browser.query, selection, &request,
+                                &task, nullptr) == AA_OK,
+              "submit directory export");
+        auto done = wait(engine.handle, task);
+        check(done->state == AA_TASK_SUCCEEDED, "directory export failed");
+        release(engine.handle, task);
+        const auto output = pathFromUtf8(path);
+        check(readFile(output / pathFromUtf8("implicit/sub/中文🐈.txt")) == "payload" &&
+                  std::filesystem::is_directory(output / "empty"),
+              "implicit/empty export structure lost");
+        exportControl(engine.handle, 4, output);
+    }
+}
 } // namespace
 int main() {
     Tests tests;
+    tests.run("F5 native export selection, durable delayed reads, capacity and cleanup",
+              desktopExport);
     tests.run("F2 bounded native browsing, Unicode, duplicate/directory selection, stale "
               "generations and ownership",
               behavior);

@@ -12,7 +12,10 @@ Core/C ABI 回归；F2 公共 metadata 浏览已实现并进行 Windows x64 验�
 F3 Flutter/Dart UI 与独立 binding 已实现，并验证 Windows x64 Release 与真实 ZIP
 浏览链路；F4 已接入真实解压/创建、密码、覆盖交互、进度与取消并完成 Windows x64
 验证，见 [F4 验证记录](docs/validation/2026-11-06-flutter-operations.md)。
-Linux/macOS 尚未原生验证，下一阶段为 F5。F3 证据见
+F5 已接入设置迁移、最近记录、任务中心、快捷键、系统打开与 OS 文件拖放；
+Windows 自动化与原生链路已验证，Explorer 拖出目标内容及完整 OS 取消/退出组合尚待闭环，
+见 [F5 验证记录](docs/validation/2026-11-07-flutter-desktop.md)。
+Linux/macOS 尚未原生验证，后续为平台补验及 F6。F3 证据见
 [Flutter 验证记录](docs/validation/2026-11-06-flutter-browsing.md)。F1/F2 证据见
 [F1 验证记录](docs/validation/2026-11-05-c-api.md) 和
 [F2 验证记录](docs/validation/2026-11-06-metadata-browsing.md)。

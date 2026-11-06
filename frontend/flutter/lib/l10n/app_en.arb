@@ -61,7 +61,7 @@
       }
     }
   },
-  "operation": "{value, select, open{Opening archive} query{Querying folder} page{Loading files} folders{Loading folders} selection{Resolving selection} extractAll{Extracting all} extractSelected{Extracting selection} compress{Creating archive} other{Archive task}}",
+  "operation": "{value, select, open{Opening archive} query{Querying folder} page{Loading files} folders{Loading folders} selection{Resolving selection} extractAll{Extracting all} extractSelected{Extracting selection} compress{Creating archive} export{Preparing desktop files} probe{Detecting dropped file} other{Archive task}}",
   "@operation": {
     "placeholders": {
       "value": {
@@ -150,5 +150,16 @@
         "type": "String"
       }
     }
-  }
+  },
+  "taskCenter": "Task center",
+  "noTasks": "No tasks in this session.",
+  "clearHistory": "Clear history",
+  "recentArchives": "Recent archives",
+  "removeRecent": "Remove from history",
+  "settingsProblem": "Preferences could not be loaded or saved. Original data was preserved. See details.",
+  "prepareDrag": "Prepare selected files for dragging",
+  "dragReady": "Drag prepared files",
+  "exportFiles": "Temporary exports",
+  "exportRetention": "Desktop targets may read files after a drag or after LiteArc exits. Handed-off output stays in these private folders across restarts. Release only after all target copies have finished. Four exports / 512 MiB each; prepared output expires after ten minutes before handoff.",
+  "releaseExports": "All target copies finished: release files"
 }

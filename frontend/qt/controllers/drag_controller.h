@@ -1,9 +1,10 @@
 #pragma once
+#include "platform/temp_file_manager.h"
 
-#include <ananarchiver/application/archive_service.h>
 #include <QObject>
 #include <QTimer>
 #include <QUrl>
+#include <ananarchiver/application/archive_service.h>
 #include <memory>
 
 class QDrag;
@@ -12,7 +13,6 @@ namespace ananarchiver::qt {
 
 class ArchiveController;
 class CompressionController;
-class TempFileManager;
 
 class DragController final : public QObject {
     Q_OBJECT

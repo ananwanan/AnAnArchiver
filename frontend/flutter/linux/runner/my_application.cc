@@ -10,16 +10,47 @@
 struct _MyApplication {
     GtkApplication parent_instance;
     char** dart_entrypoint_arguments;
+    GtkWindow* window;
+    FlMethodChannel* channel;
+    FlValue* pending_open;
+    bool desktop_ready;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 static void window_method_call(FlMethodChannel*, FlMethodCall* call, gpointer user_data) {
+    auto* self = MY_APPLICATION(user_data);
+    auto* window = self->window;
     FlValue* value = fl_method_call_get_args(call);
     g_autoptr(FlMethodResponse) response = nullptr;
-    if (g_strcmp0(fl_method_call_get_name(call), "title") == 0 &&
-        fl_value_get_type(value) == FL_VALUE_TYPE_STRING) {
-        auto* window = GTK_WINDOW(user_data);
+    const auto* method = fl_method_call_get_name(call);
+    if (g_strcmp0(method, "ready") == 0) {
+        self->desktop_ready = true;
+        response = FL_METHOD_RESPONSE(fl_method_success_response_new(self->pending_open));
+        g_clear_pointer(&self->pending_open, fl_value_unref);
+    } else if (g_strcmp0(method, "state") == 0) {
+        int width, height;
+        gtk_window_get_size(window, &width, &height);
+        g_autoptr(FlValue) state = fl_value_new_map();
+        fl_value_set_string_take(state, "width", fl_value_new_int(CLAMP(width, 640, 7680)));
+        fl_value_set_string_take(state, "height", fl_value_new_int(CLAMP(height, 480, 4320)));
+        fl_value_set_string_take(state, "maximized",
+                                 fl_value_new_bool(gtk_window_is_maximized(window)));
+        response = FL_METHOD_RESPONSE(fl_method_success_response_new(state));
+    } else if (g_strcmp0(method, "restore") == 0 && fl_value_get_type(value) == FL_VALUE_TYPE_MAP) {
+        auto* width = fl_value_lookup_string(value, "width");
+        auto* height = fl_value_lookup_string(value, "height");
+        auto* maximized = fl_value_lookup_string(value, "maximized");
+        if (width && height && fl_value_get_type(width) == FL_VALUE_TYPE_INT &&
+            fl_value_get_type(height) == FL_VALUE_TYPE_INT)
+            gtk_window_resize(window, static_cast<int>(CLAMP(fl_value_get_int(width), 640, 7680)),
+                              static_cast<int>(CLAMP(fl_value_get_int(height), 480, 4320)));
+        if (maximized && fl_value_get_type(maximized) == FL_VALUE_TYPE_BOOL &&
+            fl_value_get_bool(maximized))
+            gtk_window_maximize(window);
+        response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    } else if (g_strcmp0(fl_method_call_get_name(call), "title") == 0 &&
+               fl_value_get_type(value) == FL_VALUE_TYPE_STRING) {
         const gchar* title = fl_value_get_string(value);
         gtk_window_set_title(window, title);
         GtkWidget* bar = gtk_window_get_titlebar(window);
@@ -42,7 +73,12 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
     MyApplication* self = MY_APPLICATION(application);
+    if (self->window) {
+        gtk_window_present(self->window);
+        return;
+    }
     GtkWindow* window = GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+    self->window = window;
 
     // Use a header bar when running in GNOME as this is the common style used
     // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -92,33 +128,32 @@ static void my_application_activate(GApplication* application) {
 
     fl_register_plugins(FL_PLUGIN_REGISTRY(view));
     g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
-    g_autoptr(FlMethodChannel) channel =
+    FlMethodChannel* channel =
         fl_method_channel_new(fl_engine_get_binary_messenger(fl_view_get_engine(view)),
                               "litearc/window", FL_METHOD_CODEC(codec));
-    fl_method_channel_set_method_call_handler(channel, window_method_call, g_object_ref(window),
-                                              g_object_unref);
+    self->channel = channel;
+    fl_method_channel_set_method_call_handler(channel, window_method_call, self, nullptr);
 
     gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
-// Implements GApplication::local_command_line.
-static gboolean my_application_local_command_line(GApplication* application, gchar*** arguments,
-                                                  int* exit_status) {
-    MyApplication* self = MY_APPLICATION(application);
-    // Strip out the first argument as it is the binary name.
-    self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
-
-    g_autoptr(GError) error = nullptr;
-    if (!g_application_register(application, nullptr, &error)) {
-        g_warning("Failed to register: %s", error->message);
-        *exit_status = 1;
-        return TRUE;
+// GApplication routes startup paths and subsequent file-open events to one process.
+static void my_application_open(GApplication* application, GFile** files, gint count,
+                                const gchar*) {
+    auto* self = MY_APPLICATION(application);
+    my_application_activate(application);
+    g_autoptr(FlValue) paths = fl_value_new_list();
+    for (int i = 0; i < MIN(count, 2); ++i) {
+        g_autofree gchar* path = g_file_get_path(files[i]);
+        fl_value_append_take(paths, fl_value_new_string(path ? path : "unsupported://file"));
     }
-
-    g_application_activate(application);
-    *exit_status = 0;
-
-    return TRUE;
+    if (self->desktop_ready)
+        fl_method_channel_invoke_method(self->channel, "openFiles", paths, nullptr, nullptr,
+                                        nullptr);
+    else {
+        g_clear_pointer(&self->pending_open, fl_value_unref);
+        self->pending_open = fl_value_ref(paths);
+    }
 }
 
 // Implements GApplication::startup.
@@ -143,12 +178,14 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
     MyApplication* self = MY_APPLICATION(object);
     g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+    g_clear_pointer(&self->pending_open, fl_value_unref);
+    g_clear_object(&self->channel);
     G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
 static void my_application_class_init(MyApplicationClass* klass) {
     G_APPLICATION_CLASS(klass)->activate = my_application_activate;
-    G_APPLICATION_CLASS(klass)->local_command_line = my_application_local_command_line;
+    G_APPLICATION_CLASS(klass)->open = my_application_open;
     G_APPLICATION_CLASS(klass)->startup = my_application_startup;
     G_APPLICATION_CLASS(klass)->shutdown = my_application_shutdown;
     G_OBJECT_CLASS(klass)->dispose = my_application_dispose;
@@ -164,5 +201,5 @@ MyApplication* my_application_new() {
     g_set_prgname(APPLICATION_ID);
 
     return MY_APPLICATION(g_object_new(my_application_get_type(), "application-id", APPLICATION_ID,
-                                       "flags", G_APPLICATION_NON_UNIQUE, nullptr));
+                                       "flags", G_APPLICATION_HANDLES_OPEN, nullptr));
 }
