@@ -23,6 +23,7 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: any
+  super_clipboard: any
 flutter:
   generate: true
   uses-material-design: true
