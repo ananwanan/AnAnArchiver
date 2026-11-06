@@ -135,6 +135,13 @@ ZIP/Deflate/level 6 创建成功。通过同一 Release UI 重新打开，显示
 另用 Python zipfile 独立比较输出 payload 与输入一致。正常点击关闭后进程退出。
 UI helper 最初两次无法激活窗口；用户切到前台后恢复，未把此前其他窗口的图像当作证据。
 
+最终在干净提交 `82b6a626668ad5a922ee886310377c9bb83f4b83` 重建生产 Release，
+bundle 的 provenance 记录同一 revision、`dirty: false`。再次通过真实系统对话框打开
+policies.tar，目标中预置 b.txt、使用 Ask。等待 b.txt 覆盖回答时，确认首个文件的
+9 字节数据已进入隐藏事务暂存目录；直接点击原生窗口关闭。随后窗口/进程结束，
+隐藏事务目录及暂存数据全部清理，仅保留原来的 b.txt，内容未变。
+这验证了生产 Release 的窗口关闭会结束交互并执行回滚，而非仅测试空闲退出或 kill。
+
 独立 **Profile Flutter + Release C ABI** 集成测试：
 
 ```powershell
@@ -166,24 +173,25 @@ dart run tool/measure_operations.dart ../../../../out/build/f2-core/ananarchiver
 Dart **CLI/JIT + Release C ABI** 独立进程生成 1 GiB payload（复用 1 MiB buffer，
 不把完整内容加载到内存）、5,000 个小文件，实际创建/解压并流式 SHA-256 比较大文件，
 比较小文件数量及采样内容。ZIP 使用 native Store，不能外推为 Deflate/7z 吞吐量。
-下表取增加分阶段内存记录后的单次运行；此前并行构建时的结果有可见波动。
+下表取提交 `82b6a62` 上的最终单次运行；此前运行有可见环境/IO 波动。
 
 | 指标 | 实测 |
 | --- | ---: |
 | 大 payload | 1,073,741,824 B |
 | Store ZIP 大小 | 1,073,741,976 B |
-| 大文件创建 / 解压 | 1,498 / 2,568 ms |
+| 大文件创建 / 解压 | 1,762 / 3,015 ms |
 | 大文件内容 | 流式 SHA-256 一致 |
-| 大文件往返后进程累计 maxRss | 288,821,248 B（约 275.4 MiB） |
-| 5,000 小文件创建 / 解压 | 3,880 / 13,900 ms |
-| 写入中取消压缩 / 解压到终态 | 64 / 62 ms |
-| 真实 1M ZIP 打开 / native 全选 | 2,960 / 62 ms |
+| 大文件往返后进程累计 maxRss | 292,302,848 B（约 278.8 MiB） |
+| 5,000 小文件创建 / 解压 | 4,558 / 23,358 ms |
+| 写入中取消压缩 / 解压到终态 | 66 / 62 ms |
+| 真实 1M ZIP 打开 / native 全选 | 3,319 / 63 ms |
 | 1M 选择返回 Dart rows | 0，仅 selection handle |
-| 包含百万索引后的进程 maxRss | 548,843,520 B（约 523.4 MiB） |
-| 关闭归档后最终 shutdown | 72 ms |
+| 1M 选择提交真实选中解压后取消 | 61 ms |
+| 包含百万索引后的进程 maxRss | 549,322,752 B（约 523.9 MiB） |
+| 关闭归档后最终 shutdown | 76 ms |
 
-补充以 64 MiB / 100 小文件运行同一生成器，验证真实百万选择已提交
-`aa_browser_extract` 后取消：**61 ms** 到终态，未留下不完整文件；这不是百万磁盘文件
+最终运行验证真实百万选择已提交 `aa_browser_extract` 后取消，**61 ms** 到终态，
+未留下不完整文件；补充 64 MiB / 100 小文件运行也得到 61 ms。这不是百万磁盘文件
 完整解压的性能验收。大文件取消压缩验证原输出保留，取消解压验证部分文件回滚。
 1M ZIP 的 payload 为零长文件，确实经过 libarchive/metadata/FFI，但不是百万独立输入
 文件压缩吞吐量。ProcessInfo.maxRss 是整个 CLI/native/VM/校验的累计峰值，非 native
