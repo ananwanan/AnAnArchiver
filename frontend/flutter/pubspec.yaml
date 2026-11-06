@@ -14,6 +14,9 @@ dependencies:
   file_selector: any
   flutter_svg: any
   intl: any
+  ffi: any
+  path: any
+  super_drag_and_drop: any
 dev_dependencies:
   flutter_test:
     sdk: flutter

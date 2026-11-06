@@ -198,3 +198,14 @@ Synthetic transport tests 只证明 controller/cache/widget 行为，不证明�
 桌面集成通过真实 ZIP/C ABI 检查打开、Unicode、目录、分页、原生全选、滚动、失效、
 取消、关闭及 shutdown；具体证据与限制见验证记录。CI 自动触发策略没有修改；
 本轮是本地验证，Flutter CI/全平台发布仍需后续单独接入。
+
+## F5 dependency resolution (2026-11-07)
+
+Rechecked official Flutter stable HEAD: `c197ca5199e9ee5661e865596c9c07294dfab51c`
+(3.47.9 / bundled Dart 3.13.7); unchanged. Added stable `super_drag_and_drop`
+0.9.1 for OS file transfer, and direct ffi/path for worker-owned preferences.
+The plugin constrains device_info_plus/win32/win32_registry to older compatible
+stable releases; no prerelease or overrides selected. Its native Rust component
+is part of the plugin, not an archive backend. Both pub upgrades were run.
+Native codec builds replay the existing verified dependency resolution; this
+is not a new latest-backend resolution. F5 acceptance is recorded separately.
