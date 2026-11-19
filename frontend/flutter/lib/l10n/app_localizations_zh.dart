@@ -1,3 +1,7 @@
+// Flutter 3.50 gen-l10n still emits legacy design delegates in its convenience
+// list. The app supplies the material_ui delegates explicitly instead.
+// ignore_for_file: deprecated_member_use
+
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 

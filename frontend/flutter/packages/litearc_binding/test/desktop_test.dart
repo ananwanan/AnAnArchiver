@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 void main() {
   final library = Platform.environment['LITEARC_TEST_LIBRARY'];
   final archive = Platform.environment['LITEARC_TEST_ARCHIVE'];
+  final cancelArchive = Platform.environment['LITEARC_TEST_CANCEL_ARCHIVE'];
   group(
     'real desktop C ABI',
     () {
@@ -112,6 +113,66 @@ void main() {
         expect(latest.values.every((p) => p.terminal), true);
         await sub.cancel();
       });
+      for (final shutdown in [false, true]) {
+        test(
+          'in-flight unhanded directory export ${shutdown ? 'shutdown' : 'cancellation'} cleans its private root',
+          () async {
+            final opened = await client.request('open', {
+              'path': cancelArchive,
+            });
+            final query = await client.request('query', {'folder': 'many'});
+            expect(query.total, 9000);
+            final selection = await client.request('select', {
+              'query': query.query,
+              'all': true,
+            });
+            final root = (await client.request('exportControl', {
+              'action': 1,
+              'path': temp.path,
+            })).paths.single;
+            final writing = client.taskEvents.firstWhere(
+              (p) => p.operation == 'export' && !p.terminal && p.entries > 0,
+            );
+            final exporting = client
+                .request('export', {
+                  'archive': opened.archive,
+                  'query': query.query,
+                  'selection': selection.selection,
+                  'destination': root,
+                })
+                .then<Object>((p) => p, onError: (Object e) => e);
+            final progress = await writing.timeout(const Duration(seconds: 30));
+            expect(progress.entries, lessThan(9000));
+            expect(await Directory(root).exists(), true);
+            if (shutdown) {
+              await client.close();
+            } else {
+              await client.request('cancelOperation');
+            }
+            expect(
+              await exporting,
+              isA<BrowserFailure>().having((e) => e.code, 'cancel code', 12),
+            );
+            if (!shutdown) {
+              // Match ExportController.invalidate after cancellation; this
+              // root must disappear while the engine is still running.
+              await client.request('exportControl', {
+                'action': 4,
+                'path': root,
+              });
+              for (var i = 0; i < 100 && await Directory(root).exists(); i++) {
+                await Future<void>.delayed(const Duration(milliseconds: 20));
+              }
+              expect(await Directory(root).exists(), false);
+            }
+            await client.close(); // drains tasks and unhanded-root cleanup
+            expect(await Directory(root).exists(), false);
+          },
+          skip: cancelArchive == null
+              ? 'Set LITEARC_TEST_CANCEL_ARCHIVE to the generated 9000-entry fixture'
+              : false,
+        );
+      }
     },
     skip: library == null || archive == null
         ? 'Set real library/archive paths'

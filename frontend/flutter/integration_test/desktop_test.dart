@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:litearc/controllers/browser_controller.dart';
@@ -68,6 +68,32 @@ void main() {
         await c.closeArchive();
         await tester.pumpAndSettle();
         expect(await File(output.single).readAsString(), 'second');
+        await c.open('$fixtures/browse.xxx');
+        await until(() => !c.busy && c.rowAt(2) != null);
+        c.selectAll();
+        await until(() => c.canExtractSelected);
+        expect(c.selection.count, c.total);
+        // The first three root rows are the explicit empty, many-file and
+        // implicit Unicode folders. Resolve them through the actual C ABI.
+        c.choose(0);
+        c.choose(2, extend: true);
+        await until(() => c.canExtractSelected);
+        expect(c.selection.count, 3);
+        final preparingFolders = e.prepare();
+        await until(() => !e.preparing);
+        await preparingFolders;
+        expect(c.operations.error, isNull);
+        final directoryPaths = await e.handoff();
+        final directoryRoot = e.root!;
+        expect(directoryPaths.length, 3);
+        final empty = Directory('$directoryRoot/empty');
+        expect(await empty.exists(), true);
+        expect(await empty.list().isEmpty, true);
+        expect(await Directory('$directoryRoot/many').list().length, 300);
+        final unicode = File('$directoryRoot/隐式/子目录/可可🐄🐈.txt');
+        expect(await unicode.readAsString(), 'hello');
+        await c.closeArchive();
+        await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('Task center'));
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsOneWidget);
@@ -82,6 +108,7 @@ void main() {
         await c.shutdown();
         await settings.flush();
         expect(await File(output.single).readAsString(), 'second');
+        expect(await unicode.readAsString(), 'hello');
         final restarted = await BrowserClient.start();
         try {
           expect(
@@ -89,9 +116,13 @@ void main() {
               'action': 7,
               'path': '${temp.path}/exports',
             })).paths,
-            [root],
+            unorderedEquals([root, directoryRoot]),
           );
           await restarted.request('exportControl', {'action': 4, 'path': root});
+          await restarted.request('exportControl', {
+            'action': 4,
+            'path': directoryRoot,
+          });
         } finally {
           await restarted.close();
         }

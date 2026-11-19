@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show AppExitResponse;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:litearc_binding/litearc_binding.dart';
 
 import 'controllers/browser_controller.dart';
@@ -163,7 +163,10 @@ class _LiteArcAppState extends State<LiteArcApp> {
     debugShowCheckedModeBanner: false,
     locale: locale,
     themeMode: theme,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      ...GlobalMaterialLocalizations.delegates,
+    ],
     supportedLocales: AppLocalizations.supportedLocales,
     onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
     theme: _theme(Brightness.light),
