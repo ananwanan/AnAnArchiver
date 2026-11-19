@@ -241,10 +241,12 @@ flutter analyze
 flutter test
 python -X utf8 tool/generate_fixture.py ../../out/f3-fixtures/browse.xxx
 python -X utf8 tool/generate_fixture.py ../../out/f3-fixtures/long.zip --entries 0 --long-names
+python -X utf8 tool/generate_fixture.py ../../out/f3-fixtures/cancel.zip --entries 9000
 # binding package：设置真实 library/archive 后执行 dart test
 $env:LITEARC_TEST_LIBRARY = (Resolve-Path ../../out/build/f2-core/ananarchiver_c_api.dll).Path
 $env:LITEARC_TEST_ARCHIVE = (Resolve-Path ../../out/f3-fixtures/browse.xxx).Path
 $env:LITEARC_TEST_LONG_ARCHIVE = (Resolve-Path ../../out/f3-fixtures/long.zip).Path
+$env:LITEARC_TEST_CANCEL_ARCHIVE = (Resolve-Path ../../out/f3-fixtures/cancel.zip).Path
 Push-Location packages/litearc_binding
 dart test
 dart analyze
@@ -270,6 +272,11 @@ Synthetic transport tests 只证明 controller/cache/widget 行为，不证明�
 本轮是本地验证，Flutter CI/全平台发布仍需后续单独接入。
 
 ## F5 dependency resolution (2026-11-07)
+
+后续 Flutter 3.50、独立 Material UI 及新 MSVC 的构建/回归见
+[2026-11-19 Windows 收尾记录](../validation/2026-11-19-windows-desktop.md)。
+跨窗口验收按[Windows 实机流程](windows-desktop-acceptance.md)复跑。
+以下依赖版本保留 2026-11-07 的历史解析身份。
 
 Rechecked official Flutter stable HEAD: `c197ca5199e9ee5661e865596c9c07294dfab51c`
 (3.47.9 / bundled Dart 3.13.7); unchanged. Added stable `super_drag_and_drop`

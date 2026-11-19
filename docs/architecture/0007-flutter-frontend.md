@@ -1,8 +1,9 @@
 # Flutter frontend decision and migration contract
 
 - Decision date: 2026-11-05.
-- Status: accepted; F1–F5 implemented; Windows evidence and outstanding desktop checks
-  are recorded per stage; native Linux/macOS acceptance and F6 remain pending.
+- Status: accepted; F1–F5 implemented; the Windows 11 x64 desktop closeout is
+  [verified](../validation/2026-11-19-windows-desktop.md); native Linux/macOS
+  acceptance and F6 remain pending.
 - Development branch: `main`.
 - Preserved Qt branch: [`codex/qt-baseline-2026-11-05`](https://github.com/ananwanan/AnAnArchiver/tree/codex/qt-baseline-2026-11-05).
 - Qt baseline commit: `53185742ad1e640b24da397cfa3544507af4edef`.

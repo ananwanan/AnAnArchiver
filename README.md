@@ -64,6 +64,8 @@ Flutter 已接入归档目录树与当前目录列表、隐式父目录/空目�
 创建。F5 已接入后台设置与一次性 Qt 迁移、最近记录、32 项会话任务摘要、快捷键、
 系统文件打开和真实 OS 文件拖放；Windows 实测与限制见
 [F5 验证记录](docs/validation/2026-11-07-flutter-desktop.md)。
+Flutter 3.50 与新 MSVC 构建、目录生命周期回归及 Windows 实机收尾见
+[2026-11-19 补验记录](docs/validation/2026-11-19-windows-desktop.md)。
 拖出先后台准备，交给系统后跨退出保留，待确认目标复制完成再明确释放。
 失败或超限的目录视图不能执行选中操作；切换目录、搜索和排序清空选择并使旧查询失效。
 真实文件系统浏览继续使用独立的按需扫描，所有归档安全与资源上限继续生效。
@@ -74,7 +76,7 @@ Flutter 已接入归档目录树与当前目录列表、隐式父目录/空目�
 2. F2：已实现公共目录索引、查询、有界分页和原生选择；验证范围见 [F2 记录](docs/validation/2026-11-06-metadata-browsing.md)。
 3. F3：已实现 Flutter Home、真实打开和有界归档浏览；[开发说明](docs/development/flutter.md)、[Windows 验证与性能](docs/validation/2026-11-06-flutter-browsing.md)。
 4. F4：已实现解压全部/原生选中、密码、覆盖、进度/取消和 capabilities 创建；[真实操作、测试与测量](docs/validation/2026-11-06-flutter-operations.md)。
-5. F5：桌面体验与平台入口已实现；[Windows 测试、原生链路与待验收范围](docs/validation/2026-11-07-flutter-desktop.md)。
+5. F5：桌面体验与平台入口已实现；[Windows 11 x64 收尾已补验，Linux/macOS 仍待原生验收](docs/validation/2026-11-19-windows-desktop.md)。
 6. F6：各平台 Release 打包、来源/许可、安装升级与大规模性能验收。
 
 ## 平台与依赖要求

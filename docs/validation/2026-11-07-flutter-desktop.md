@@ -1,5 +1,8 @@
 # 2026-11-07 F5 Flutter 桌面体验与平台集成
 
+后续补验见 [2026-11-19 Windows 收尾记录](2026-11-19-windows-desktop.md)。
+下文保留本日原始版本、结果及当时未闭环项。
+
 ## 状态与证据边界
 
 从 `main` / `b1ebfed` 实施 F5。功能已接入，Windows x64 Release 构建与实际打开、
